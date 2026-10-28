@@ -369,14 +369,11 @@ async fn test_enabling_backups_retries_decryption() {
         .unwrap();
 
     alice.encryption().wait_for_e2ee_initialization_tasks().await;
-    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
-        "Bomber's code",
-    );
     alice
         .encryption()
         .recovery()
         .enable()
-        .with_key(&key)
+        .with_passphrase("Bomber's code")
         .await
         .expect("We should be able to enable recovery");
 
@@ -1111,10 +1108,7 @@ async fn prepare_room_with_pinned_events(
     sync_service.start().await;
 
     alice.encryption().wait_for_e2ee_initialization_tasks().await;
-    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
-        recovery_passphrase,
-    );
-    alice.encryption().recovery().enable().with_key(&key).await?;
+    alice.encryption().recovery().enable().with_passphrase(recovery_passphrase).await?;
 
     debug!("Creating room…");
     let room = alice
@@ -1423,10 +1417,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     sync_service1.start().await;
 
     alice1.encryption().wait_for_e2ee_initialization_tasks().await;
-    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
-        RECOVERY_PASSPHRASE,
-    );
-    alice1.encryption().recovery().enable().with_key(&key).await?;
+    alice1.encryption().recovery().enable().with_passphrase(RECOVERY_PASSPHRASE).await?;
 
     debug!("Creating room…");
     let room1 = alice1

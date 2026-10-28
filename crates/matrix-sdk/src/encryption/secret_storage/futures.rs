@@ -20,20 +20,37 @@ use ruma::events::secret_storage::default_key::SecretStorageDefaultKeyEventConte
 
 use super::{Result, SecretStorage, SecretStore};
 
+#[derive(Debug)]
+pub(crate) enum KeyOrPassphrase<'a> {
+    None,
+    Key(&'a SecretStorageKey),
+    Passphrase(&'a str),
+}
+
 /// Future returned by [`SecretStorage::create_secret_store()`].
 #[derive(Debug)]
 pub struct CreateStore<'a> {
     pub(super) secret_storage: &'a SecretStorage,
-    pub(super) key: Option<&'a SecretStorageKey>,
+    pub(super) key: KeyOrPassphrase<'a>,
 }
 
 impl<'a> CreateStore<'a> {
+    /// Set the passphrase for the new [`SecretStore`].
+    ///
+    /// See the documentation for the [`SecretStorage::create_secret_store()`]
+    /// method for more info.
+    pub fn with_passphrase(mut self, passphrase: &'a str) -> Self {
+        self.key = KeyOrPassphrase::Passphrase(passphrase);
+
+        self
+    }
+
     /// Set the key for the new [`SecretStore`].
     ///
     /// See the documentation for the [`SecretStorage::create_secret_store()`]
     /// method for more info.
     pub fn with_key(mut self, key: &'a SecretStorageKey) -> Self {
-        self.key = Some(key);
+        self.key = KeyOrPassphrase::Key(key);
 
         self
     }
@@ -57,7 +74,11 @@ impl<'a> IntoFuture for CreateStore<'a> {
             let client_copy = secret_storage.client.to_owned();
             let _guard = client_copy.locks().open_secret_store_lock.lock().await;
 
-            let new_key = if let Some(key) = key { key.clone() } else { SecretStorageKey::new() };
+            let new_key = match key {
+                KeyOrPassphrase::None => SecretStorageKey::new(),
+                KeyOrPassphrase::Key(k) => k.clone(),
+                KeyOrPassphrase::Passphrase(p) => SecretStorageKey::new_from_passphrase(p),
+            };
 
             let content = new_key.event_content().to_owned();
 

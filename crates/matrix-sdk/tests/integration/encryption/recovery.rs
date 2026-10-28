@@ -824,10 +824,64 @@ async fn test_reset_recovery_key_with_passphrase() {
 
     mock_put_new_default_secret_storage_key(user_id, &server).await;
 
-    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
-        "passphrase",
-    );
-    recovery.reset_key().with_key(&key).await.expect("We should be able to reset our recovery key");
+    recovery
+        .reset_key()
+        .with_passphrase("passphrase")
+        .await
+        .expect("We should be able to reset our recovery key");
+
+    server.verify().await;
+}
+
+#[async_test]
+async fn test_reset_recovery_key_with_key() {
+    let user_id = user_id!("@example:morpheus.localhost");
+    let (client, server) = test_client(user_id).await;
+
+    enable(user_id, &client, &server, true).await;
+
+    let recovery = client.encryption().recovery();
+    assert_eq!(recovery.state(), RecoveryState::Enabled);
+
+    Mock::given(method("PUT"))
+        .and(path_regex(format!(
+            r"_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.key.[A-Za-z0-9]"
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.megolm_backup.v1")))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_NOT_FOUND",
+            "error": "Account data not found"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.megolm_backup.v1")))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    mock_put_new_default_secret_storage_key(user_id, &server).await;
+
+    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new();
+    let key_from_reset = recovery
+        .reset_key()
+        .with_key(&key)
+        .await
+        .expect("We should be able to reset our recovery key");
+
+    assert_eq!(key.to_base58(), key_from_reset);
 
     server.verify().await;
 }
@@ -959,14 +1013,82 @@ async fn test_recover_and_reset_with_passphrase() {
 
     assert_eq!(recovery.state(), RecoveryState::Incomplete);
 
-    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
-        "passphrase",
-    );
     recovery
+        .recover_and_reset(SECRET_STORE_KEY)
+        .with_passphrase("passphrase")
+        .await
+        .expect("We should be able to recover our secrets and reset the secret storage key");
+
+    server.verify().await
+}
+
+#[async_test]
+async fn test_recover_and_reset_with_key() {
+    let user_id = user_id!("@example:morpheus.localhost");
+    const SECRET_STORE_KEY: &str = "mypassphrase";
+    const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
+
+    let session = MatrixSession {
+        meta: SessionMeta { user_id: user_id.into(), device_id: owned_device_id!("DEVICEID") },
+        tokens: mock_session_tokens(),
+    };
+
+    let (client, server) = no_retry_test_client_with_server().await;
+
+    mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
+
+    Mock::given(method("GET"))
+        .and(path("_matrix/client/r0/room_keys/version"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": {
+                "public_key": "hdx5rSn94rBuvJI5cwnhKAVmFyZgfJjk7vwEBD6mIHc",
+                "signatures": {}
+            },
+            "count": 1,
+            "etag": "1",
+            "version": "6"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(format!(
+            r"_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.key.[A-Za-z0-9]"
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.megolm_backup.v1")))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    mock_put_new_default_secret_storage_key(user_id, &server).await;
+
+    client.restore_session(session).await.unwrap();
+    client.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    let recovery = client.encryption().recovery();
+
+    assert_eq!(recovery.state(), RecoveryState::Incomplete);
+
+    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new();
+    let key_from_reset = recovery
         .recover_and_reset(SECRET_STORE_KEY)
         .with_key(&key)
         .await
         .expect("We should be able to recover our secrets and reset the secret storage key");
+
+    assert_eq!(key.to_base58(), key_from_reset);
 
     server.verify().await
 }

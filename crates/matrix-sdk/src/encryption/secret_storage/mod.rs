@@ -82,10 +82,11 @@ use thiserror::Error;
 use super::identities::ManualVerifyError;
 use crate::Client;
 
-mod futures;
+pub(crate) mod futures;
 mod secret_store;
 
 pub use futures::CreateStore;
+use futures::KeyOrPassphrase;
 pub use secret_store::SecretStore;
 
 /// Convenience type alias for the secret-storage specific results.
@@ -335,7 +336,7 @@ impl SecretStorage {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn create_secret_store(&self) -> CreateStore<'_> {
-        CreateStore { secret_storage: self, key: None }
+        CreateStore { secret_storage: self, key: KeyOrPassphrase::None }
     }
 
     /// Run a network request to find if secret storage is set up for this user.

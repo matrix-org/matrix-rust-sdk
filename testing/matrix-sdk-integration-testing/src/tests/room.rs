@@ -414,10 +414,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     sync_service1.start().await;
 
     alice1.encryption().wait_for_e2ee_initialization_tasks().await;
-    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
-        RECOVERY_PASSPHRASE,
-    );
-    alice1.encryption().recovery().enable().with_key(&key).await?;
+    alice1.encryption().recovery().enable().with_passphrase(RECOVERY_PASSPHRASE).await?;
 
     debug!("Creating room…");
     let room1 = alice1

@@ -32,12 +32,12 @@ use crate::{
     task_handle::TaskHandle, timeline::ShieldState,
 };
 
+/// A secret storage key.
 #[derive(uniffi::Object)]
 pub struct SecretStorageKey {
     inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey,
 }
 
-/// A secret storage key.
 #[uniffi::export]
 impl SecretStorageKey {
     /// Create a new random secret storage key.
