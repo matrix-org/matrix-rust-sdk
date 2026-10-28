@@ -132,7 +132,7 @@ pub(crate) trait SqliteAsyncConnExt {
     /// Like `deadpool::managed::Object::with_transaction`, but starts the
     /// transaction in immediate (write) mode from the beginning, precluding
     /// errors of the kind SQLITE_BUSY from happening, for transactions that
-    /// may involve both reads and writes, and start with a write.
+    /// may involve both reads and writes, and start with a read.
     async fn with_immediate_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         T: Send + 'static,
