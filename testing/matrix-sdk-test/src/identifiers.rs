@@ -6,6 +6,7 @@ use indexmap::Equivalent;
 use ruma::{
     OwnedUserId, UserId,
     events::direct::{DirectUserIdentifier, OwnedDirectUserIdentifier},
+    owned_user_id,
 };
 use serde::Serialize;
 
@@ -40,11 +41,13 @@ pub enum User {
 }
 
 /// Alice's user ID.
-static ALICE_USER_ID: LazyLock<OwnedUserId> = LazyLock::new(|| crate::ALICE.to_owned());
+static ALICE_USER_ID: LazyLock<OwnedUserId> =
+    LazyLock::new(|| owned_user_id!("@alice:server.name"));
 /// Bob's user ID.
-static BOB_USER_ID: LazyLock<OwnedUserId> = LazyLock::new(|| crate::BOB.to_owned());
+static BOB_USER_ID: LazyLock<OwnedUserId> = LazyLock::new(|| owned_user_id!("@bob:other.server"));
 /// Carol's user ID.
-static CAROL_USER_ID: LazyLock<OwnedUserId> = LazyLock::new(|| crate::CAROL.to_owned());
+static CAROL_USER_ID: LazyLock<OwnedUserId> =
+    LazyLock::new(|| owned_user_id!("@carol:other.server"));
 
 impl User {
     /// The user's ID.
