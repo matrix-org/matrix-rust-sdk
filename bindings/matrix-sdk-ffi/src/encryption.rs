@@ -785,7 +785,8 @@ impl Encryption {
     ///   also wait for _all_ room keys to be uploaded to the server-side key
     ///   backup?
     /// - `key` - The key to use to encrypt secret storage.  If `None`, a new
-    ///   key will be randomly generated
+    ///   key will be randomly generated.  A key can be generated from a
+    ///   passphrase by using [`SecretStorageKey::new_from_passphrase`].
     /// - `progress_listener` - A listener to track the progress of enabling
     ///   recovery.
     ///
