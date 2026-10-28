@@ -484,7 +484,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))?;
             txn.set_db_version(1)
         })
@@ -493,7 +493,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/002_lease_locks.sql"))?;
             txn.set_db_version(2)
         })
@@ -502,7 +502,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 3 {
         debug!("Upgrading database to version 3");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
             txn.set_db_version(3)
         })
@@ -511,7 +511,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 4 {
         debug!("Upgrading database to version 4");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/004_ignore_policy.sql"
             ))?;
@@ -522,7 +522,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 5 {
         debug!("Upgrading database to version 5");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/005_events_index_on_event_id.sql"
             ))?;
@@ -533,7 +533,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 6 {
         debug!("Upgrading database to version 6");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
             txn.set_db_version(6)
         })
@@ -542,7 +542,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 7 {
         debug!("Upgrading database to version 7");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/007_event_chunks.sql"
             ))?;
@@ -553,7 +553,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 8 {
         debug!("Upgrading database to version 8");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/008_linked_chunk_id.sql"
             ))?;
@@ -564,7 +564,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 9 {
         debug!("Upgrading database to version 9");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/009_related_event_index.sql"
             ))?;
@@ -575,7 +575,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 10 {
         debug!("Upgrading database to version 10");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))?;
             txn.set_db_version(10)
         })
@@ -590,7 +590,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 11 {
         debug!("Upgrading database to version 11");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/011_empty_event_cache.sql"
             ))?;
@@ -601,7 +601,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 12 {
         debug!("Upgrading database to version 12");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/012_store_event_type.sql"
             ))?;
@@ -612,7 +612,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 13 {
         debug!("Upgrading database to version 13");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
             ))?;
@@ -623,7 +623,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 14 {
         debug!("Upgrading database to version 14");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
             ))?;
@@ -634,7 +634,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 15 {
         debug!("Upgrading database to version 15");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/015_event_ids_are_encoded.sql"
             ))?;
@@ -645,7 +645,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 16 {
         debug!("Upgrading database to version 16");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/016_threads.sql"))?;
             txn.set_db_version(16)
         })
@@ -654,7 +654,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 17 {
         debug!("Upgrading database to version 17");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/017_threads_with_thread_infos.sql"
             ))?;
@@ -665,7 +665,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 18 {
         debug!("Upgrading database to version 18");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/018_event_chunks_unique_linked_chunk_id_event_id.sql"))?;
             txn.set_db_version(18)
         })
