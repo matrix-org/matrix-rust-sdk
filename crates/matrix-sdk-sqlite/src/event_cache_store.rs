@@ -731,7 +731,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration) \
                     VALUES (?1, ?2, ?3) \
@@ -1503,7 +1503,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.execute(
                     "INSERT INTO threads VALUES (?, ?, ?, ?)",
                     (hashed_linked_chunk_id, hashed_room_id, hashed_thread_id, encoded_thread_id),
@@ -1529,7 +1529,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.execute(
                     "UPDATE threads SET info = ? WHERE linked_chunk_id = ?",
                     (encoded_thread_info, hashed_linked_chunk_id),
@@ -1549,7 +1549,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             None => {
                 self.write()
                     .await?
-                    .with_transaction(move |txn| {
+                    .with_immediate_transaction(move |txn| {
                         // Remove all the chunks, and let cascading do its job.
                         txn.execute("DELETE FROM linked_chunks", ())?;
 
@@ -1569,7 +1569,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 self.write()
                     .await?
-                    .with_transaction(move |txn| {
+                    .with_immediate_transaction(move |txn| {
                         // Delete linked chunks for the room and pinned-events caches.
                         {
                             let mut delete =
@@ -1898,7 +1898,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| -> Result<_> {
+            .with_immediate_transaction(move |txn| -> Result<_> {
                 let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                 txn.execute(
                     "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

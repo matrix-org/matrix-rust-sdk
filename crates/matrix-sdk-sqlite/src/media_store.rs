@@ -322,7 +322,7 @@ impl MediaStore for SqliteMediaStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
