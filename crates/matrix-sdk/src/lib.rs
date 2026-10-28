@@ -46,6 +46,7 @@ pub mod event_handler;
 mod http_client;
 pub mod latest_events;
 pub mod media;
+mod media_metrics;
 pub mod notification_settings;
 pub mod paginators;
 pub mod pusher;
@@ -89,6 +90,7 @@ pub use matrix_sdk_sqlite::{
     SqliteStoreConfig, Synchronous,
 };
 pub use media::Media;
+pub use media_metrics::{MediaMetrics, MediaType, MediaUsage};
 pub use pusher::Pusher;
 pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
