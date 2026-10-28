@@ -1131,7 +1131,7 @@ mod tests {
     use futures_util::{StreamExt, future::join_all};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};
     use matrix_sdk_common::executor::spawn;
-    use matrix_sdk_test::{ALICE, User, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         OwnedRoomId, assign,
         events::{direct::DirectEvent, room::member::MembershipState},
@@ -1225,7 +1225,7 @@ mod tests {
             .extensions
             .profiles
             .users
-            .insert(ALICE.to_owned(), UserProfileUpdate::Updated(profile_changes));
+            .insert(User::Alice.into(), UserProfileUpdate::Updated(profile_changes));
         client
             .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
             .await

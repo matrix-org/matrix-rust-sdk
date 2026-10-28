@@ -35,7 +35,7 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedRoomId, device_id, event_id,
     events::{
@@ -792,7 +792,7 @@ async fn test_should_block_internal_to_device() {
         .ok_and_run(&bob, |builder| {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_state_event(f.room_encryption().sender(*BOB))
+                    .add_state_event(f.room_encryption().sender(User::Bob))
                     .add_state_event(
                         f.member(alice_user_id).sender(alice_user_id).display_name("Alice"),
                     ),

@@ -25,7 +25,7 @@ use matrix_sdk::{
 use matrix_sdk_base::media::store::MemoryMediaStore;
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{
-    ALICE, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, async_test,
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, User, async_test,
     event_factory::EventFactory,
 };
 #[cfg(feature = "unstable-msc4274")]
@@ -2429,7 +2429,8 @@ async fn test_redaction() {
     let room = server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("coucou").sender(*ALICE)),
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("coucou").sender(User::Alice)),
         )
         .await;
 
@@ -2592,7 +2593,7 @@ async fn test_media_uploads() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -2958,7 +2959,7 @@ async fn test_gallery_uploads() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your galleries")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -5097,7 +5098,7 @@ async fn test_edit_with_attachment_rejects_someone_elses_message() {
     let f = EventFactory::new();
     mock.mock_room_event()
         .match_event_id()
-        .ok(f.text_msg("not mine").sender(*ALICE).event_id(edited_event_id).into())
+        .ok(f.text_msg("not mine").sender(User::Alice).event_id(edited_event_id).into())
         .mock_once()
         .mount()
         .await;
