@@ -1097,11 +1097,11 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     #[instrument(skip_all)]
     pub(super) fn set_fully_read_event(&mut self, fully_read_event_id: OwnedEventId) {
         // A similar event has been handled already. We can ignore it.
-        if self.meta.fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
+        if self.meta.raw_fully_read_event.as_ref().is_some_and(|id| *id == fully_read_event_id) {
             return;
         }
 
-        self.meta.fully_read_event = Some(fully_read_event_id);
+        self.meta.raw_fully_read_event = Some(fully_read_event_id);
         self.meta.update_read_marker(&mut self.items);
     }
 
@@ -1120,10 +1120,17 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 .update(count, matches!(self.focus, TimelineFocusKind::Live { .. }));
         }
 
+        let fully_read_event_id =
+            self.meta.resolve_fully_read_event_id(self.items.all_remote_events());
+        let fully_read_event_id_observable = self.meta.fully_read_event_id.clone();
+
         // Replace the pointer to the previous meta with the new one.
         *self.previous_meta = self.meta;
 
         self.items.commit();
+
+        // Publish after the items, so subscribers see them first.
+        fully_read_event_id_observable.set_if_not_eq(fully_read_event_id);
     }
 
     /// Add or update a remote event in the
