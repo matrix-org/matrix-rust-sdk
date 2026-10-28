@@ -1175,7 +1175,7 @@ impl CryptoStore for SqliteCryptoStore {
         let this = self.clone();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 if let Some(pickled_account) = pickled_account {
                     let serialized_account = this.serialize_value(&pickled_account)?;
                     txn.set_kv("account", &serialized_account)?;
@@ -1227,7 +1227,7 @@ impl CryptoStore for SqliteCryptoStore {
         let this = self.clone();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 if let Some(pickled_private_identity) = &pickled_private_identity {
                     let serialized_private_identity =
                         this.serialize_value(pickled_private_identity)?;
@@ -1864,7 +1864,7 @@ impl CryptoStore for SqliteCryptoStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)

@@ -1201,7 +1201,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
 #[async_trait]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
-        Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
+        Ok(self.with_immediate_transaction(move |conn| conn.set_kv_blob(&key, &value)).await?)
     }
 }
 
@@ -1326,7 +1326,7 @@ impl StateStore for SqliteStateStore {
         let this = self.clone();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 let StateChanges {
                     sync_token,
                     account_data,
@@ -2125,7 +2125,7 @@ impl StateStore for SqliteStateStore {
 
         let conn = self.write().await?;
 
-        conn.with_transaction(move |txn| -> Result<()> {
+        conn.with_immediate_transaction(move |txn| -> Result<()> {
             let room_info_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
             txn.remove_room_info(&room_info_room_id)?;
 
@@ -2189,7 +2189,7 @@ impl StateStore for SqliteStateStore {
         let created_at_ts: u64 = created_at.0.into();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority, created_at) VALUES (?, ?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority, created_at_ts))?;
                 Ok(())
             })
@@ -2211,7 +2211,7 @@ impl StateStore for SqliteStateStore {
 
         let num_updated = self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = NULL, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))
             })
             .await?;
@@ -2232,7 +2232,7 @@ impl StateStore for SqliteStateStore {
         let num_deleted = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM send_queue_events WHERE room_id = ? AND transaction_id = ?",
                 )?
@@ -2303,7 +2303,7 @@ impl StateStore for SqliteStateStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = ? WHERE room_id = ? AND transaction_id = ?")?.execute((error_value, room_id, transaction_id))?;
                 Ok(())
             })
@@ -2352,7 +2352,7 @@ impl StateStore for SqliteStateStore {
         let created_at_ts: u64 = created_at.0.into();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"INSERT INTO dependent_send_queue_events
                          (room_id, parent_transaction_id, own_transaction_id, content, created_at)
@@ -2385,7 +2385,7 @@ impl StateStore for SqliteStateStore {
         let num_updated = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"UPDATE dependent_send_queue_events
                        SET content = ?
@@ -2417,7 +2417,7 @@ impl StateStore for SqliteStateStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 Ok(txn.prepare_cached(
                     "UPDATE dependent_send_queue_events SET parent_key = ? WHERE parent_transaction_id = ? and room_id = ?",
                 )?
@@ -2439,7 +2439,7 @@ impl StateStore for SqliteStateStore {
         let num_deleted = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM dependent_send_queue_events WHERE own_transaction_id = ? AND room_id = ?",
                 )?
@@ -2509,7 +2509,7 @@ impl StateStore for SqliteStateStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 let mut txn = txn.prepare_cached(
                     "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
                     VALUES (?, ?, ?, ?)
