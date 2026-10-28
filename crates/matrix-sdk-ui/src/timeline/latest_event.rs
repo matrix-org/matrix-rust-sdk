@@ -48,8 +48,9 @@ pub enum LatestEventValue {
 
     /// The latest event represents an invite to a room.
     RemoteInvite {
-        /// The timestamp of the invite.
-        timestamp: MilliSecondsSinceUnixEpoch,
+        /// The timestamp of the invite; `None` for stripped invite state, which
+        /// carries no `origin_server_ts`.
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
 
         /// The inviter (can be unknown).
         inviter: Option<OwnedUserId>,
@@ -251,14 +252,14 @@ mod tests {
 
         let base_value = BaseLatestEventValue::RemoteInvite {
             event_id: None,
-            timestamp: MilliSecondsSinceUnixEpoch(42u32.into()),
+            timestamp: Some(MilliSecondsSinceUnixEpoch(42u32.into())),
             inviter: Some(user_id.to_owned()),
         };
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
         assert_matches!(value, LatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile} => {
-            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(timestamp.map(|timestamp| u64::from(timestamp.get())), Some(42u64));
             assert_eq!(inviter.as_deref(), Some(user_id));
             assert_matches!(inviter_profile, TimelineDetails::Unavailable);
         })
