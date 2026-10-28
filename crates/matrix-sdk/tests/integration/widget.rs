@@ -53,7 +53,7 @@ use strass::assert_let;
 use tracing::error;
 use wiremock::{
     Mock, ResponseTemplate,
-    matchers::{body_json, method, path_regex},
+    matchers::{body_json, body_partial_json, header_exists, method, path_regex},
 };
 
 use crate::{recipients_of, record_sent_encrypted_to_device};
@@ -87,6 +87,29 @@ async fn run_test_driver(
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
+    run_test_driver_with_client(mock_server, client, init_on_content_load, is_room_e2ee).await
+}
+
+/// Like [`run_test_driver`], but the homeserver advertises support for delayed
+/// events ([MSC4140]) in its `/versions` response.
+///
+/// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+async fn run_test_driver_with_delayed_events_support() -> (MatrixMockServer, WidgetDriverHandle) {
+    let mock_server = MatrixMockServer::new().await;
+    mock_server.mock_versions().with_feature("org.matrix.msc4140", true).ok().mount().await;
+    let client = mock_server.client_builder().no_server_versions().build().await;
+
+    let (_, mock_server, handle) =
+        run_test_driver_with_client(mock_server, client, false, false).await;
+    (mock_server, handle)
+}
+
+async fn run_test_driver_with_client(
+    mock_server: MatrixMockServer,
+    client: Client,
+    init_on_content_load: bool,
+    is_room_e2ee: bool,
+) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
 
     if is_room_e2ee {
@@ -146,6 +169,20 @@ async fn run_test_driver_e2e_with_room_encryption(
     });
 
     (alice, bob, mock_server, handle)
+}
+
+/// A regex matching the path of the dedicated endpoint to schedule a delayed
+/// event of the given type ([MSC4140]).
+///
+/// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+fn delayed_event_path(event_type: &str) -> String {
+    format!(r"^/_matrix/client/unstable/org.matrix.msc4140/rooms/.*/delayed_event/{event_type}/.*$")
+}
+
+/// A response telling that the homeserver doesn't know the endpoint.
+fn unrecognized_endpoint() -> ResponseTemplate {
+    ResponseTemplate::new(404)
+        .set_body_json(json!({ "errcode": "M_UNRECOGNIZED", "error": "Unrecognized request" }))
 }
 
 async fn recv_message(driver_handle: &WidgetDriverHandle) -> JsonObject {
@@ -1021,15 +1058,18 @@ async fn test_send_delayed_message_event() {
         ]),
     )
     .await;
-    mock_server
-        .mock_room_send()
-        .match_delayed_event(Duration::from_millis(1000))
-        .for_type(MessageLikeEventType::RoomMessage)
-        .ok_json(json!({
-            "delay_id": "1234",
-        }))
-        .mock_once()
-        .mount()
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.message")))
+        .and(body_json(json!({
+            "delay_ms": 1000,
+            "content": {
+                "msgtype": "m.text",
+                "body": "Message from a widget!",
+            },
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": "1234" })))
+        .expect(1)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -1067,15 +1107,18 @@ async fn test_send_delayed_state_event() {
     )
     .await;
 
-    mock_server
-        .mock_room_send_state()
-        .match_delayed_event(Duration::from_millis(1000))
-        .for_type(StateEventType::RoomName)
-        .ok_json(json!({
-            "delay_id": "1234",
-        }))
-        .mock_once()
-        .mount()
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.name")))
+        .and(body_json(json!({
+            "delay_ms": 1000,
+            "state_key": "",
+            "content": {
+                "name": "Room Name set by Widget",
+            },
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": "1234" })))
+        .expect(1)
+        .mount(mock_server.server())
         .await;
 
     send_request(
@@ -1113,18 +1156,18 @@ async fn test_fail_sending_delay_rate_limit() {
     )
     .await;
 
-    mock_server
-        .mock_room_send()
-        .respond_with_code_and_json(
-            400,
-            json!({
-                "errcode": "M_LIMIT_EXCEEDED",
-                "error": "Sending too many delay events"
-            }),
-        )
-        .mock_once()
-        .mount()
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.message")))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "errcode": "M_LIMIT_EXCEEDED",
+            "error": "Sending too many delay events"
+        })))
+        .expect(1)
+        .mount(mock_server.server())
         .await;
+
+    // Only an unknown endpoint triggers the fallback to the legacy one.
+    mock_server.mock_room_send().ok(event_id!("$foobar")).never().mount().await;
 
     send_request(
         &driver_handle,
@@ -1204,7 +1247,8 @@ async fn test_update_delayed_event() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234"))
+        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234/\w+$"))
+        .and(header_exists("authorization"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
         .mount(mock_server.server())
@@ -1227,6 +1271,184 @@ async fn test_update_delayed_event() {
     assert_eq!(response["action"], "org.matrix.msc4157.update_delayed_event");
     let empty_response = response["response"].clone();
     assert_eq!(empty_response, serde_json::from_str::<JsonValue>("{}").unwrap());
+}
+
+/// A delayed message-like event sent through the dedicated endpoint is
+/// encrypted in an encrypted room, like an immediate one.
+#[async_test]
+async fn test_send_delayed_message_event_in_encrypted_room() {
+    let (alice, _, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.message"
+        ]),
+    )
+    .await;
+
+    // The room is encrypted for Alice, who doesn't use the default access
+    // token.
+    mock_server.mock_room_state_encryption().expect_any_access_token().encrypted().mount().await;
+
+    // Sharing the room key requires the member list.
+    let f = EventFactory::new().room(&ROOM_ID);
+    mock_server
+        .mock_get_members()
+        .ok(vec![f.member(alice.user_id().unwrap()).into_raw()])
+        .mount()
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.encrypted")))
+        .and(body_partial_json(json!({
+            "delay_ms": 1000,
+            "content": { "algorithm": "m.megolm.v1.aes-sha2" },
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": "1234" })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-room-message",
+        "send_event",
+        json!({
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "Message from a widget!",
+            },
+            "delay": 1000,
+        }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["delay_id"], "1234");
+}
+
+/// A homeserver without the dedicated endpoints, but which supports delayed
+/// events, gets the legacy endpoints instead.
+#[async_test]
+async fn test_delayed_events_fall_back_to_legacy_endpoints() {
+    let (mock_server, driver_handle) = run_test_driver_with_delayed_events_support().await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.message"
+        ]),
+    )
+    .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.message")))
+        .respond_with(unrecognized_endpoint())
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+    mock_server
+        .mock_room_send()
+        .match_delayed_event(Duration::from_millis(1000))
+        .for_type(MessageLikeEventType::RoomMessage)
+        .ok_json(json!({ "delay_id": "1234" }))
+        .mock_once()
+        .mount()
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-room-message",
+        "send_event",
+        json!({
+            "type": "m.room.message",
+            "content": { "msgtype": "m.text", "body": "Message from a widget!" },
+            "delay": 1000,
+        }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["delay_id"], "1234");
+}
+
+/// A homeserver which doesn't advertise support for delayed events would
+/// ignore the delay of the legacy endpoint and send the event right away, so
+/// the error is forwarded to the widget instead of falling back.
+#[async_test]
+async fn test_delayed_event_does_not_fall_back_without_homeserver_support() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc2762.send.event:m.room.message"
+        ]),
+    )
+    .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.message")))
+        .respond_with(unrecognized_endpoint())
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+    mock_server.mock_room_send().ok(event_id!("$foobar")).never().mount().await;
+
+    send_request(
+        &driver_handle,
+        "send-room-message",
+        "send_event",
+        json!({
+            "type": "m.room.message",
+            "content": { "msgtype": "m.text", "body": "Message from a widget!" },
+            "delay": 1000,
+        }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["error"]["matrix_api_error"]["http_status"], 404);
+}
+
+/// A homeserver without the path-action update endpoint gets the legacy one,
+/// with the action in the body.
+#[async_test]
+async fn test_update_delayed_event_falls_back_to_legacy_endpoint() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4157.update_delayed_event"]))
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234/\w+$"))
+        .respond_with(unrecognized_endpoint())
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4140/delayed_events/1234$"))
+        .and(body_json(json!({ "action": "cancel" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "update",
+        "org.matrix.msc4157.update_delayed_event",
+        json!({ "action": "cancel", "delay_id": "1234" }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["action"], "org.matrix.msc4157.update_delayed_event");
+    assert_eq!(msg["response"], json!({}));
 }
 
 #[async_test]
