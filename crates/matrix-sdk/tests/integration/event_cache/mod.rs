@@ -22,9 +22,7 @@ use matrix_sdk_base::event_cache::{
     store::{EventCacheStore, MemoryStore},
 };
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     EventId, event_id,
     events::{
@@ -2321,7 +2319,7 @@ async fn test_clear_all_rooms() {
     let event_cache_store = Arc::new(MemoryStore::new());
 
     let f = EventFactory::new().room(sleeping_room_id);
-    let ev0 = f.text_msg("hi").sender(*ALICE).event_id(event_id!("$ev0")).into_event();
+    let ev0 = f.text_msg("hi").sender(User::Alice).event_id(event_id!("$ev0")).into_event();
 
     // Feed the cache with one room with one event, before the client is
     // created. This room will remain sleeping.
@@ -2358,7 +2356,7 @@ async fn test_clear_all_rooms() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("bonchourhan").sender(*BOB).event_id(event_id!("$ev1")),
+                f.text_msg("bonchourhan").sender(User::Bob).event_id(event_id!("$ev1")),
             ),
         )
         .await;
@@ -2520,7 +2518,7 @@ async fn test_relations_ordering() {
     let server = MatrixMockServer::new().await;
 
     let room_id = room_id!("!galette:saucisse.bzh");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let target_event_id = event_id!("$1");
 
@@ -2958,7 +2956,7 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     let server = MatrixMockServer::new().await;
 
     let room_id = room_id!("!r0");
-    let event_factory = EventFactory::new().room(room_id).sender(*ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let event_id_4 = event_id!("$ev4");
     let event_0 = event_factory.text_msg("foo").event_id(event_id!("$ev0")).into_raw_sync();

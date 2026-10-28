@@ -817,7 +817,7 @@ mod timed_tests {
         sync::Timeline,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{ALICE, BOB, User, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -941,8 +941,8 @@ mod timed_tests {
         // Propagate an update for a message with bundled relations.
         let ev = f
             .text_msg("hey yo")
-            .sender(*ALICE)
-            .with_bundled_edit(f.text_msg("Hello, Kind Sir").sender(*ALICE))
+            .sender(User::Alice)
+            .with_bundled_edit(f.text_msg("Hello, Kind Sir").sender(User::Alice))
             .into_event();
 
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
@@ -1166,8 +1166,8 @@ mod timed_tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
+        let ev1 = f.text_msg("hello world").sender(User::Alice).event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(User::Bob).event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         let event_cache_store = Arc::new(MemoryStore::new());
@@ -1384,7 +1384,7 @@ mod timed_tests {
         let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         // Propagate an update including a limited timeline with one message and
         // a prev-batch token.
@@ -1512,8 +1512,8 @@ mod timed_tests {
         let evid1 = event_id!("$1");
         let evid2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(evid1).into_event();
-        let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
+        let ev1 = f.text_msg("hello world").sender(User::Alice).event_id(evid1).into_event();
+        let ev2 = f.text_msg("howdy").sender(User::Bob).event_id(evid2).into_event();
 
         // Fill the event cache store with an initial linked chunk with 2 events
         // chunks.
@@ -1638,14 +1638,14 @@ mod timed_tests {
     async fn test_room_ordering() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         let evid1 = event_id!("$1");
         let evid2 = event_id!("$2");
         let evid3 = event_id!("$3");
 
         let ev1 = f.text_msg("hello world").event_id(evid1).into_event();
-        let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
+        let ev2 = f.text_msg("howdy").sender(User::Bob).event_id(evid2).into_event();
         let ev3 = f.text_msg("yo").event_id(evid3).into_event();
 
         // Fill the event cache store with an initial linked chunk with 2 events
@@ -1805,8 +1805,8 @@ mod timed_tests {
         let evid1 = event_id!("$1");
         let evid2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(evid1).into_event();
-        let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
+        let ev1 = f.text_msg("hello world").sender(User::Alice).event_id(evid1).into_event();
+        let ev2 = f.text_msg("howdy").sender(User::Bob).event_id(evid2).into_event();
 
         // Fill the event cache store with an initial linked chunk with 2 events
         // chunks.
@@ -1945,10 +1945,11 @@ mod timed_tests {
         let event_id_3 = event_id!("$ev3");
 
         let event_0 =
-            event_factory.text_msg("hello").sender(*BOB).event_id(event_id_0).into_event();
+            event_factory.text_msg("hello").sender(User::Bob).event_id(event_id_0).into_event();
         let event_1 =
-            event_factory.text_msg("world").sender(*ALICE).event_id(event_id_1).into_event();
-        let event_2 = event_factory.text_msg("!").sender(*ALICE).event_id(event_id_2).into_event();
+            event_factory.text_msg("world").sender(User::Alice).event_id(event_id_1).into_event();
+        let event_2 =
+            event_factory.text_msg("!").sender(User::Alice).event_id(event_id_2).into_event();
         let event_3 =
             event_factory.text_msg("eh!").sender(user_id).event_id(event_id_3).into_event();
 
@@ -2010,12 +2011,12 @@ mod timed_tests {
             }
         );
 
-        // Look for an event from `ALICE`: it must be `event_2`, right before
+        // Look for an event from Alice: it must be `event_2`, right before
         // `event_1` because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.sender().as_deref() == Some(*ALICE)).then(|| event.event_id().map(ToOwned::to_owned))
+                    (event.sender().is_some_and(|sender| sender == User::Alice)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
             Ok(Some(event_id)) => {

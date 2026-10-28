@@ -162,7 +162,7 @@ mod tests {
         linked_chunk::{ChunkIdentifier, Update},
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{EventId, event_id, owned_event_id, room_id, serde::Raw, user_id};
 
     use super::*;
@@ -317,9 +317,9 @@ mod tests {
         let eid2 = event_id!("$2");
         let eid3 = event_id!("$3");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(eid1).into_event();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(eid2).into_event();
-        let ev3 = f.text_msg("wassup").sender(*ALICE).event_id(eid3).into_event();
+        let ev1 = f.text_msg("hello world").sender(User::Alice).event_id(eid1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(User::Bob).event_id(eid2).into_event();
+        let ev3 = f.text_msg("wassup").sender(User::Alice).event_id(eid3).into_event();
         // An invalid event (doesn't have an event id.).
         let ev4 = TimelineEvent::from_plaintext(Raw::from_json_string("{}".to_owned()).unwrap());
 
