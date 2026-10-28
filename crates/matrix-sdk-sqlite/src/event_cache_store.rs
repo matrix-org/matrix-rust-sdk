@@ -59,7 +59,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt, host_parameters,
+        SqliteTransactionExt, host_parameters,
     },
 };
 
@@ -493,100 +493,86 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))?;
-            txn.set_db_version(1)
+        conn.upgrade_database(1, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))
         })
         .await?;
     }
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/002_lease_locks.sql"))?;
-            txn.set_db_version(2)
+        conn.upgrade_database(2, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/002_lease_locks.sql"))
         })
         .await?;
     }
 
     if version < 3 {
         debug!("Upgrading database to version 3");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
-            txn.set_db_version(3)
+        conn.upgrade_database(3, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))
         })
         .await?;
     }
 
     if version < 4 {
         debug!("Upgrading database to version 4");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!(
-                "../migrations/event_cache_store/004_ignore_policy.sql"
-            ))?;
-            txn.set_db_version(4)
+        conn.upgrade_database(4, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/004_ignore_policy.sql"))
         })
         .await?;
     }
 
     if version < 5 {
         debug!("Upgrading database to version 5");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(5, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/005_events_index_on_event_id.sql"
-            ))?;
-            txn.set_db_version(5)
+            ))
         })
         .await?;
     }
 
     if version < 6 {
         debug!("Upgrading database to version 6");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
-            txn.set_db_version(6)
+        conn.upgrade_database(6, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))
         })
         .await?;
     }
 
     if version < 7 {
         debug!("Upgrading database to version 7");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!(
-                "../migrations/event_cache_store/007_event_chunks.sql"
-            ))?;
-            txn.set_db_version(7)
+        conn.upgrade_database(7, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/007_event_chunks.sql"))
         })
         .await?;
     }
 
     if version < 8 {
         debug!("Upgrading database to version 8");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(8, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/008_linked_chunk_id.sql"
-            ))?;
-            txn.set_db_version(8)
+            ))
         })
         .await?;
     }
 
     if version < 9 {
         debug!("Upgrading database to version 9");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(9, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/009_related_event_index.sql"
-            ))?;
-            txn.set_db_version(9)
+            ))
         })
         .await?;
     }
 
     if version < 10 {
         debug!("Upgrading database to version 10");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))?;
-            txn.set_db_version(10)
+        conn.upgrade_database(10, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))
         })
         .await?;
 
@@ -599,84 +585,76 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 11 {
         debug!("Upgrading database to version 11");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(11, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/011_empty_event_cache.sql"
-            ))?;
-            txn.set_db_version(11)
+            ))
         })
         .await?;
     }
 
     if version < 12 {
         debug!("Upgrading database to version 12");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(12, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/012_store_event_type.sql"
-            ))?;
-            txn.set_db_version(12)
+            ))
         })
         .await?;
     }
 
     if version < 13 {
         debug!("Upgrading database to version 13");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(13, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
-            ))?;
-            txn.set_db_version(13)
+            ))
         })
         .await?;
     }
 
     if version < 14 {
         debug!("Upgrading database to version 14");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(14, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
-            ))?;
-            txn.set_db_version(14)
+            ))
         })
         .await?;
     }
 
     if version < 15 {
         debug!("Upgrading database to version 15");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(15, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/015_event_ids_are_encoded.sql"
-            ))?;
-            txn.set_db_version(15)
+            ))
         })
         .await?;
     }
 
     if version < 16 {
         debug!("Upgrading database to version 16");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/016_threads.sql"))?;
-            txn.set_db_version(16)
+        conn.upgrade_database(16, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/016_threads.sql"))
         })
         .await?;
     }
 
     if version < 17 {
         debug!("Upgrading database to version 17");
-        conn.with_immediate_transaction(|txn| {
+        conn.upgrade_database(17, |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/017_threads_with_thread_infos.sql"
-            ))?;
-            txn.set_db_version(17)
+            ))
         })
         .await?;
     }
 
     if version < 18 {
         debug!("Upgrading database to version 18");
-        conn.with_immediate_transaction(|txn| {
-            txn.execute_batch(include_str!("../migrations/event_cache_store/018_event_chunks_unique_linked_chunk_id_event_id.sql"))?;
-            txn.set_db_version(18)
+        conn.upgrade_database(18, |txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/018_event_chunks_unique_linked_chunk_id_event_id.sql"))
         })
         .await?;
     }
@@ -1199,14 +1177,13 @@ impl EventCacheStore for SqliteEventCacheStore {
                 //
                 // The current solution is to run two queries:
                 //
-                // - one to get each chunk and its number of events, by doing a
-                //   single `SELECT` query over the `event_chunks` table,
-                //   grouping by chunk ids. This gives us a list of `(chunk_id,
-                //   num_events)` pairs, which can be transformed into a
+                // - one to get each chunk and its number of events, by doing a single `SELECT`
+                //   query over the `event_chunks` table, grouping by chunk ids. This gives us a
+                //   list of `(chunk_id, num_events)` pairs, which can be transformed into a
                 //   hashmap.
-                // - one to get each chunk's metadata (id, previous, next, type)
-                //   from the database with a `SELECT`, and then use the hashmap
-                //   to get the number of events.
+                // - one to get each chunk's metadata (id, previous, next, type) from the
+                //   database with a `SELECT`, and then use the hashmap to get the number of
+                //   events.
                 //
                 // This strategy minimizes the number of queries to the
                 // database, and keeps them super simple, while doing a bit more

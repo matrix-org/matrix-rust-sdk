@@ -139,6 +139,17 @@ pub(crate) trait SqliteAsyncConnExt {
         E: From<rusqlite::Error> + Send + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
 
+    /// Run a database migration to `expected_version` in an immediate
+    /// transaction, setting the new database version once `f` succeeds.
+    ///
+    /// Fails if the current version of the database isn't the one right before
+    /// `expected_version`.
+    async fn upgrade_database<T, E, F>(&self, expected_version: u8, f: F) -> Result<T, E>
+    where
+        T: Send + 'static,
+        E: From<rusqlite::Error> + Send + 'static,
+        F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
+
     /// Chunk a large query over some keys.
     ///
     /// Imagine there is a _dynamic_ query that runs potentially large number of
@@ -359,6 +370,26 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         .map_err(E::from)?
     }
 
+    async fn upgrade_database<T, E, F>(&self, expected_version: u8, f: F) -> Result<T, E>
+    where
+        T: Send + 'static,
+        E: From<rusqlite::Error> + Send + 'static,
+        F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static,
+    {
+        self.with_immediate_transaction::<T, E, _>(move |txn| {
+            let db_version = txn.db_version()?;
+            if db_version.checked_add(1) != Some(expected_version) {
+                return Err(rusqlite::Error::IntegralValueOutOfRange(0, db_version.into()).into());
+            }
+
+            let ret = f(txn)?;
+
+            txn.set_db_version(expected_version)?;
+            Ok(ret)
+        })
+        .await
+    }
+
     async fn chunk_large_query_over<Query, Res>(
         &self,
         keys_to_chunk: Vec<Key>,
@@ -508,6 +539,16 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
     fn set_db_version(&self, version: u8) -> rusqlite::Result<()> {
         self.set_kv("version", &[version])
     }
+
+    /// Get the version of the database, or 0 if the `kv` table doesn't exist
+    /// yet.
+    fn db_version(&self) -> rusqlite::Result<u8>;
+
+    /// Whether the `kv` table exists in this database.
+    fn kv_table_exists(&self) -> rusqlite::Result<bool>;
+
+    /// Get the stored value for the given key.
+    fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>>;
 }
 
 impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
@@ -522,6 +563,30 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
     fn clear_kv(&self, key: &str) -> rusqlite::Result<()> {
         self.execute("DELETE FROM kv WHERE key = ?1", (key,))?;
         Ok(())
+    }
+
+    fn kv_table_exists(&self) -> rusqlite::Result<bool> {
+        self.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kv')",
+            (),
+            |row| row.get(0),
+        )
+    }
+
+    fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
+        self.query_row("SELECT value FROM kv WHERE key = ?", (key,), |row| row.get(0)).optional()
+    }
+
+    fn db_version(&self) -> rusqlite::Result<u8> {
+        if !self.kv_table_exists()? {
+            return Ok(0);
+        }
+
+        match self.get_kv("version")?.as_deref() {
+            Some([value]) => Ok(*value),
+            Some(_) => Err(rusqlite::Error::IntegralValueOutOfRange(0, -1)),
+            None => Err(rusqlite::Error::QueryReturnedNoRows),
+        }
     }
 }
 
@@ -538,16 +603,6 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
 /// ```
 #[async_trait]
 pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
-    /// Whether the `kv` table exists in this database.
-    async fn kv_table_exists(&self) -> rusqlite::Result<bool> {
-        self.query_row(
-            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'kv')",
-            (),
-            |row| row.get(0),
-        )
-        .await
-    }
-
     /// Get the stored value for the given key.
     async fn get_kv(&self, key: &str) -> rusqlite::Result<Option<Vec<u8>>> {
         let key = key.to_owned();
@@ -580,17 +635,15 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
 
     /// Get the version of the database.
     async fn db_version(&self) -> Result<u8, OpenStoreError> {
-        let kv_exists = self.kv_table_exists().await.map_err(OpenStoreError::LoadVersion)?;
+        self.with_transaction(|txn| {
+            let kv_exists = txn.kv_table_exists()?;
 
-        if kv_exists {
-            match self.get_kv("version").await.map_err(OpenStoreError::LoadVersion)?.as_deref() {
-                Some([v]) => Ok(*v),
-                Some(_) => Err(OpenStoreError::InvalidVersion),
-                None => Err(OpenStoreError::MissingVersion),
+            if kv_exists {
+                txn.db_version()
+            } else {
+                Ok(0)
             }
-        } else {
-            Ok(0)
-        }
+        }).await.map_err(OpenStoreError::LoadVersion)
     }
 
     /// Get the [`StoreCipher`] of the database or create it.
@@ -827,7 +880,118 @@ pub(crate) trait EncryptableStore {
 mod unit_tests {
     use std::time::Duration;
 
+    use matrix_sdk_test::async_test;
+    use tempfile::{TempDir, tempdir};
+
     use super::*;
+    use crate::SqliteStoreConfig;
+
+    const CREATE_KV_TABLE: &str =
+        r#"CREATE TABLE "kv" ("key" TEXT PRIMARY KEY NOT NULL, "value" BLOB NOT NULL);"#;
+
+    async fn get_conn() -> (TempDir, SqliteAsyncConn) {
+        let tmpdir = tempdir().unwrap();
+        let pool = SqliteStoreConfig::new(tmpdir.path())
+            .build_pool_of_connections("test.sqlite3")
+            .unwrap();
+        let conn = pool.get().await.unwrap();
+        (tmpdir, conn)
+    }
+
+    async fn table_exists(conn: &SqliteAsyncConn, name: &'static str) -> bool {
+        conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+            (name,),
+            |row| row.get(0),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[async_test]
+    async fn test_upgrade_database_from_empty_database() {
+        let (_tmpdir, conn) = get_conn().await;
+
+        // Without the `kv` table, the database is considered to be at version 0.
+        assert_eq!(conn.db_version().await.unwrap(), 0);
+
+        let ret = conn
+            .upgrade_database(1, |txn| {
+                txn.execute_batch(CREATE_KV_TABLE)?;
+                Ok::<_, rusqlite::Error>(42)
+            })
+            .await
+            .unwrap();
+
+        // The value returned by the closure is passed through, and the version is set.
+        assert_eq!(ret, 42);
+        assert_eq!(conn.db_version().await.unwrap(), 1);
+    }
+
+    #[async_test]
+    async fn test_upgrade_database_runs_consecutive_migrations() {
+        let (_tmpdir, conn) = get_conn().await;
+
+        conn.upgrade_database(1, |txn| txn.execute_batch(CREATE_KV_TABLE)).await.unwrap();
+        conn.upgrade_database(2, |txn| txn.execute_batch("CREATE TABLE foo (id INTEGER);"))
+            .await
+            .unwrap();
+
+        assert_eq!(conn.db_version().await.unwrap(), 2);
+        assert!(table_exists(&conn, "foo").await);
+    }
+
+    #[async_test]
+    async fn test_upgrade_database_fails_when_skipping_a_version() {
+        let (_tmpdir, conn) = get_conn().await;
+
+        conn.upgrade_database(1, |txn| txn.execute_batch(CREATE_KV_TABLE)).await.unwrap();
+
+        conn.upgrade_database(3, |txn| txn.execute_batch("CREATE TABLE foo (id INTEGER);"))
+            .await
+            .unwrap_err();
+
+        // The migration didn't run, and the version didn't change.
+        assert_eq!(conn.db_version().await.unwrap(), 1);
+        assert!(!table_exists(&conn, "foo").await);
+    }
+
+    #[async_test]
+    async fn test_upgrade_database_fails_when_already_applied() {
+        let (_tmpdir, conn) = get_conn().await;
+
+        conn.upgrade_database(1, |txn| txn.execute_batch(CREATE_KV_TABLE)).await.unwrap();
+        conn.upgrade_database(2, |txn| txn.execute_batch("CREATE TABLE foo (id INTEGER);"))
+            .await
+            .unwrap();
+
+        // Running the same migration again, e.g. from another process which
+        // read an outdated version, is rejected before running the migration.
+        conn.upgrade_database(2, |txn| txn.execute_batch("CREATE TABLE bar (id INTEGER);"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(conn.db_version().await.unwrap(), 2);
+        assert!(!table_exists(&conn, "bar").await);
+    }
+
+    #[async_test]
+    async fn test_upgrade_database_rolls_back_on_failure() {
+        let (_tmpdir, conn) = get_conn().await;
+
+        conn.upgrade_database(1, |txn| txn.execute_batch(CREATE_KV_TABLE)).await.unwrap();
+
+        conn.upgrade_database(2, |txn| {
+            txn.execute_batch("CREATE TABLE foo (id INTEGER);")?;
+            txn.execute_batch("THIS IS NOT VALID SQL;")
+        })
+        .await
+        .unwrap_err();
+
+        // The partial changes were rolled back, and the version didn't change.
+        assert_eq!(conn.db_version().await.unwrap(), 1);
+        assert!(!table_exists(&conn, "foo").await);
+    }
 
     #[test]
     fn test_can_generate_host_parameters() {
