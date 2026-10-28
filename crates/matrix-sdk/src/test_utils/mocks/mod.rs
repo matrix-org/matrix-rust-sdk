@@ -307,6 +307,14 @@ impl MatrixMockServer {
         self.sync_room(client, JoinedRoomBuilder::new(room_id)).await
     }
 
+    /// Overrides the sync/ endpoint with knowledge that the room with the
+    /// default room ID
+    /// ([`TestRoom::Default`][matrix_sdk_test::TestRoom::Default])
+    /// exists in the joined state, runs a sync and returns the given room.
+    pub async fn sync_default_joined_room(&self, client: &Client) -> Room {
+        self.sync_room(client, JoinedRoomBuilder::default()).await
+    }
+
     /// Verify that the previous mocks expected number of requests match
     /// reality, and then cancels all active mocks.
     ///

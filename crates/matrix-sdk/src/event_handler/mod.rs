@@ -726,7 +726,7 @@ where
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, async_test,
+        InvitedRoomBuilder, JoinedRoomBuilder, TestRoom, async_test,
         event_factory::{EventFactory, PreviousMembership},
     };
     use serde::Serialize;
@@ -994,7 +994,7 @@ mod tests {
         );
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
-            *DEFAULT_TEST_ROOM_ID,
+            TestRoom::Default.into(),
             // lint is buggy: rustc wants the explicit conversion from ! to ()
             // here, but clippy thinks it's useless.
             #[allow(clippy::unused_unit)]

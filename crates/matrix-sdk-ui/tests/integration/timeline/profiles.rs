@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, User, async_test,
+    JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
@@ -33,7 +33,7 @@ async fn test_user_profile_after_being_banned() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     // Build a simple timeline with Bob joining the room, Alice accepting an
@@ -43,7 +43,7 @@ async fn test_user_profile_after_being_banned() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 // Bob joins the room
                 .add_timeline_event(
                     f.member(User::Bob)
@@ -107,7 +107,7 @@ async fn test_user_profile_after_leaving() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     // Build a simple timeline with Bob joining the room, Alice accepting an
@@ -115,7 +115,7 @@ async fn test_user_profile_after_leaving() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 // Bob joins the room
                 .add_timeline_event(
                     f.member(User::Bob)
@@ -186,13 +186,13 @@ async fn test_update_sender_profiles() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 // Alice accepts an invite into the room
                 .add_timeline_event(
                     f.member(User::Alice)
@@ -249,7 +249,7 @@ async fn test_update_sender_profiles() {
         TimelineDetails::Error(_)
     );
 
-    let f = f.room(&DEFAULT_TEST_ROOM_ID);
+    let f = f.default_room();
 
     // Try again, this time we mock the endpoint to get a useful response.
     server
