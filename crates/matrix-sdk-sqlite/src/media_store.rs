@@ -227,12 +227,6 @@ impl SqliteMediaStore {
         // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
         connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
 
-        // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
-        // support must be enabled on a per-connection basis. Execute it every
-        // time we try to get a connection, since we can't guarantee a previous
-        // connection did enable it before.
-        connection.execute_batch("PRAGMA foreign_keys = ON;").await?;
-
         Ok(connection)
     }
 
