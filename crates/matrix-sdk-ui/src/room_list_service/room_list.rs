@@ -33,13 +33,7 @@ use tokio::{
 };
 use tracing::{error, trace};
 
-use super::{
-    Error, State,
-    filters::BoxedFilterFn,
-    sorters::{
-        new_sorter_latest_event, new_sorter_lexicographic, new_sorter_name, new_sorter_recency,
-    },
-};
+use super::{Error, State, filters::BoxedFilterFn, ordering};
 
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
@@ -167,20 +161,17 @@ impl RoomList {
                 // Combine normal stream events with other updates from rooms
                 let stream = merge_stream_and_receiver(values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
 
-                let (values, stream) = (values, stream)
-                    .filter(filter_fn)
-                    .sort_by(new_sorter_lexicographic(vec![
-                        // Sort by latest event's kind, i.e. put the rooms with
-                        // a **local** latest event first.
-                        Box::new(new_sorter_latest_event()),
-                        // Sort rooms by their recency (either by looking at
-                        // their latest event's timestamp, or their
-                        // `recency_stamp`).
-                        Box::new(new_sorter_recency()),
-                        // Finally, sort by name.
-                        Box::new(new_sorter_name()),
-                    ]))
-                    .dynamic_head_with_initial_value(page_size, limit_stream.clone());
+                let (values, stream) = (values, stream).filter(filter_fn);
+
+                // Sort the rooms: unsent local latest events first, then by
+                // recency (latest event timestamp, with timestamp-less rooms
+                // slotted in by their bump stamp), then by name. See the
+                // `ordering` module for the exact semantics. The order is
+                // recomputed per batch of updates, so reorders are atomic.
+                let (values, stream) = ordering::sorted_by_recency(values, stream);
+
+                let (values, stream) =
+                    (values, stream).dynamic_head_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
                 yield stream::once(ready(vec![VectorDiff::Reset { values }]))
