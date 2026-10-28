@@ -6,7 +6,7 @@ use ruma::{
 };
 
 use super::StateMutExt;
-use crate::DEFAULT_TEST_ROOM_ID;
+use crate::TestRoom;
 
 pub struct LeftRoomBuilder {
     pub(super) room_id: OwnedRoomId,
@@ -16,7 +16,7 @@ pub struct LeftRoomBuilder {
 impl LeftRoomBuilder {
     /// Create a new `LeftRoomBuilder` for the given room ID.
     ///
-    /// If the room ID is [`DEFAULT_TEST_ROOM_ID`],
+    /// If the room ID matches [`TestRoom::Default`],
     /// [`LeftRoomBuilder::default()`] can be used instead.
     pub fn new(room_id: &RoomId) -> Self {
         Self { room_id: room_id.to_owned(), inner: Default::default() }
@@ -96,6 +96,6 @@ impl LeftRoomBuilder {
 
 impl Default for LeftRoomBuilder {
     fn default() -> Self {
-        Self::new(&DEFAULT_TEST_ROOM_ID)
+        Self::new(TestRoom::Default.into())
     }
 }

@@ -113,7 +113,7 @@ use ruma::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 
-use crate::base64_sha256_hash;
+use crate::{TestRoom, base64_sha256_hash};
 
 pub trait TimestampArg {
     fn to_milliseconds_since_unix_epoch(self) -> MilliSecondsSinceUnixEpoch;
@@ -244,6 +244,12 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
 
     pub fn room(mut self, room_id: &RoomId) -> Self {
         self.room = Some(room_id.to_owned());
+        self
+    }
+
+    /// Set the room ID as the default value for tests.
+    pub fn default_room(mut self) -> Self {
+        self.room = Some(TestRoom::Default.into());
         self
     }
 
@@ -885,6 +891,12 @@ impl EventFactory {
 
     pub fn room(mut self, room_id: &RoomId) -> Self {
         self.room = Some(room_id.to_owned());
+        self
+    }
+
+    /// Set the room ID of the generated events as the default value for tests.
+    pub fn default_room(mut self) -> Self {
+        self.room = Some(TestRoom::Default.into());
         self
     }
 

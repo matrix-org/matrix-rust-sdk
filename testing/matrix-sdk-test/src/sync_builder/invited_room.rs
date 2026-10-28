@@ -3,7 +3,7 @@ use ruma::{
     events::AnyStrippedStateEvent, serde::Raw,
 };
 
-use crate::DEFAULT_TEST_ROOM_ID;
+use crate::TestRoom;
 
 pub struct InvitedRoomBuilder {
     pub(super) room_id: OwnedRoomId,
@@ -13,7 +13,7 @@ pub struct InvitedRoomBuilder {
 impl InvitedRoomBuilder {
     /// Create a new `InvitedRoomBuilder` for the given room ID.
     ///
-    /// If the room ID is [`DEFAULT_TEST_ROOM_ID`],
+    /// If the room ID matches [`TestRoom::Default`],
     /// [`InvitedRoomBuilder::default()`] can be used instead.
     pub fn new(room_id: &RoomId) -> Self {
         Self { room_id: room_id.to_owned(), inner: Default::default() }
@@ -42,6 +42,6 @@ impl InvitedRoomBuilder {
 
 impl Default for InvitedRoomBuilder {
     fn default() -> Self {
-        Self::new(&DEFAULT_TEST_ROOM_ID)
+        Self::new(TestRoom::Default.into())
     }
 }
