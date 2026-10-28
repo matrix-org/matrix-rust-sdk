@@ -32,7 +32,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::event_cache::store::MemoryStore;
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -54,7 +54,7 @@ async fn test_unread_count_new_message_no_receipt() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
@@ -97,7 +97,7 @@ async fn test_unread_count_new_message_with_known_receipt() {
     let own_user_id = client.user_id().unwrap();
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
@@ -153,7 +153,7 @@ async fn test_unread_count_implicit_receipt_own_message() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let own_user_id = client.user_id().unwrap();
 
     server.sync_joined_room(&client, room_id).await;
@@ -212,7 +212,7 @@ async fn test_unread_count_receipt_only_no_new_message() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let own_user_id = client.user_id().unwrap();
 
     server.sync_joined_room(&client, room_id).await;
@@ -284,7 +284,7 @@ async fn test_unread_count_pending_receipt() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let own_user_id = client.user_id().unwrap();
 
     server.sync_joined_room(&client, room_id).await;
@@ -375,7 +375,7 @@ async fn test_unread_count_accumulates_across_syncs() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
@@ -449,7 +449,7 @@ async fn test_state_event_does_not_increment_unread() {
             &client,
             // Alice joining the room is a state event, not a message.
             JoinedRoomBuilder::new(room_id).add_timeline_state_bulk([f
-                .member(*ALICE)
+                .member(User::Alice)
                 .membership(MembershipState::Join)
                 .event_id(event_id!("$1"))
                 .into_raw_sync_state()]),
@@ -470,7 +470,7 @@ async fn test_reaction_does_not_increment_unread() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
@@ -511,7 +511,7 @@ async fn test_mentions_increments_unread_mentions() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
     let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
@@ -563,7 +563,7 @@ async fn test_compute_unread_counts_considers_active_receipt() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
 
@@ -650,7 +650,7 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     server.sync_joined_room(&client, room_id).await;
 
@@ -726,7 +726,7 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
 
     let room_id = room_id!("!r");
     let thread_id = event_id!("$t");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Important test note: the read receipt must be in the state store _before_
     // the event cache is subscribed to, so that it's not marked as active at

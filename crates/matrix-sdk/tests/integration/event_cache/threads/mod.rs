@@ -14,7 +14,7 @@ use matrix_sdk::{
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     },
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedEventId, OwnedRoomId, event_id,
     events::{
@@ -82,7 +82,7 @@ async fn test_thread_contains_its_root_event() {
     let thread_resp_id = event_id!("$thread_resp");
 
     // Receive an in-thread event.
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let _room = server
         .sync_room(
             &client,
@@ -259,7 +259,7 @@ async fn test_deduplication() {
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let thread_root = event_id!("$thread_root");
     let first_reply_event_id = event_id!("$first_reply");
@@ -388,7 +388,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     // Provide a dummy sync with the room's member profile of the current user,
     // so the push context can be created.
     let own_user_id = client.user_id().unwrap();
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let member = f.member(own_user_id).sender(own_user_id);
 
     // Override push rules so that only an intentional mention causes a

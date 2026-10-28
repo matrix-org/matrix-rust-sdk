@@ -434,7 +434,7 @@ mod timed_tests {
         store::StoreConfig,
         sync::Timeline,
     };
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -1321,7 +1321,7 @@ mod timed_tests {
         let room_id = room_id!("!r0");
         let thread_id = event_id!("$t0");
 
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         let event_id_0 = event_id!("$ev0");
         let event_id_1 = event_id!("$ev1");
