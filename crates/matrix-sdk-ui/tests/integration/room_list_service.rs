@@ -2029,13 +2029,13 @@ async fn test_room_sorting() -> Result<(), Error> {
 
     // All the remaining updates (`!r3`'s new bump stamp and latest event,
     // `!r6`'s name, latest event and read receipts) are drained and
-    // deduplicated into ONE batch: `!r6` is refreshed in place, `!r3` moves to
-    // the front.
+    // deduplicated into ONE batch: `!r3` moves to the front, `!r6` is refreshed
+    // in place.
     assert_entries_batch! {
         [stream]
-        set [ 1 ] [ "!r6:bar.org" ];
         remove [ 5 ];
         push front [ "!r3:bar.org" ];
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
 
