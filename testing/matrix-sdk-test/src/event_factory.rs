@@ -26,8 +26,8 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
-    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
+    OwnedRoomAliasId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, OwnedVoipId,
+    RoomId, RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -1864,10 +1864,31 @@ impl EventBuilder<RoomPowerLevelsEventContent> {
 
 impl EventBuilder<CallMemberEventContent> {
     /// Sets the livekit focus to the call membership event
-    pub fn set_livekit_focus(mut self, alias: Option<String>, service_url: String) -> Self {
+    #[allow(deprecated)]
+    pub fn set_livekit_focus(
+        mut self,
+        alias: Option<String>,
+        url: Option<String>,
+        server_name: Option<OwnedServerName>,
+        service_url: Option<String>,
+    ) -> Self {
         if let CallMemberEventContent::SessionContent(session_data) = &mut self.content {
-            session_data.foci_preferred =
-                vec![Focus::Livekit(LivekitFocus::new(alias, service_url))];
+            let mut livekit = if let Some(url) = url {
+                let mut focus = LivekitFocus::new(url);
+                focus.service_url = service_url;
+                focus
+            } else {
+                if let Some(service_url) = service_url {
+                    let mut focus = LivekitFocus::with_service_url(service_url);
+                    focus.url = url;
+                    focus
+                } else {
+                    panic!("need to provide either url or service_url")
+                }
+            };
+            livekit.alias = alias;
+            livekit.server_name = server_name;
+            session_data.foci_preferred = vec![Focus::Livekit(livekit)];
         } else {
             panic!("focus() called on a non-SessionContent call member event");
         }

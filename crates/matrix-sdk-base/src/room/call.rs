@@ -181,6 +181,7 @@ mod tests {
         session_member_state_event_with_intent(ev_id, user, init_data, None)
     }
 
+    #[allow(deprecated)]
     fn session_member_state_event_with_intent(
         ev_id: &EventId,
         user: User,
@@ -194,10 +195,9 @@ mod tests {
         app_content.call_intent = call_intent;
 
         let application = Application::Call(app_content);
-        let foci_preferred = vec![Focus::Livekit(LivekitFocus::new(
-            Some("my_call_foci_alias".to_owned()),
-            "https://lk.org".to_owned(),
-        ))];
+        let mut focus = LivekitFocus::with_service_url("https://lk.org".to_owned());
+        focus.alias = Some("my_call_foci_alias".to_owned());
+        let foci_preferred = vec![Focus::Livekit(focus)];
         let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
 
         let (content, state_key) = match init_data {
@@ -233,16 +233,16 @@ mod tests {
             .into()
     }
 
+    #[allow(deprecated)]
     fn foci_and_application() -> (Application, Vec<Focus>) {
+        let mut focus = LivekitFocus::with_service_url("https://lk.org".to_owned());
+        focus.alias = Some("my_call_foci_alias".to_owned());
         (
             Application::Call(CallApplicationContent::new(
                 "my_call_id_1".to_owned(),
                 ruma::events::call::member::CallScope::Room,
             )),
-            vec![Focus::Livekit(LivekitFocus::new(
-                Some("my_call_foci_alias".to_owned()),
-                "https://lk.org".to_owned(),
-            ))],
+            vec![Focus::Livekit(focus)],
         )
     }
 
