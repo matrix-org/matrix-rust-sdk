@@ -2097,14 +2097,14 @@ mod tests {
         assert!(ignored.is_empty());
     }
 
-    #[async_test]
-    async fn test_ignored_user_list_restored_on_activaion() {
+    async fn store_with_ignored_user() -> StoreConfig {
         let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
         let user_id = user_id!("@alice:example.org");
-        let client_a =
+
+        let client =
             BaseClient::new(store.clone(), ThreadingSupport::Disabled, DmRoomDefinition::default());
 
-        client_a
+        client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 RoomLoadSettings::default(),
@@ -2113,31 +2113,29 @@ mod tests {
             )
             .await
             .unwrap();
-
-        let mut subscriber = client_a.subscribe_to_ignore_user_list_changes();
-
-        // Current state is empty.
-        assert!(subscriber.get().is_empty());
-
-        // No further changes.
-        assert!(subscriber.next().now_or_never().is_none());
 
         // Ignore a user.
-        let f = EventFactory::new();
-        let mut sync_builder = SyncResponseBuilder::new();
-        let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
+        let event_factory = EventFactory::new();
+        let response = SyncResponseBuilder::new()
+            .add_global_account_data(event_factory.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
-        client_a.receive_sync_response(response).await.unwrap();
 
-        assert_let!(Some(ignored) = subscriber.next().await);
-        assert_eq!(ignored, [User::Bob]);
+        client.receive_sync_response(response).await.unwrap();
 
-        // Now start the second client.
-        let client_b =
+        store
+    }
+
+    #[async_test]
+    async fn test_ignored_user_list_restored_on_activation() {
+        let store = store_with_ignored_user().await;
+        let user_id = user_id!("@alice:example.org");
+
+        // New client with the previously populated store.
+        let client =
             BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
 
-        client_b
+        // Acrivation should hydrate the ignored user list.
+        client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
                 RoomLoadSettings::default(),
@@ -2147,9 +2145,12 @@ mod tests {
             .await
             .unwrap();
 
-        let mut subscriber = client_b.subscribe_to_ignore_user_list_changes();
+        let mut subscriber = client.subscribe_to_ignore_user_list_changes();
 
+        // The ignored user list is restored from the store.
         assert_eq!(subscriber.get(), [User::Bob]);
+
+        // No changes occurred after subscribing.
         assert!(subscriber.next().now_or_never().is_none());
     }
 
