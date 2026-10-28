@@ -53,7 +53,6 @@ use crate::{
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt, SqliteTransactionExt, time_to_timestamp,
-        with_immediate_transaction,
     },
 };
 
@@ -593,25 +592,26 @@ impl MediaStoreInner for SqliteMediaStore {
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
         let timestamp = time_to_timestamp(current_time);
 
-        let conn = self.write().await?;
-        let data = with_immediate_transaction(&conn, move |txn| {
-            // Update the last access. We need to do this first so the
-            // transaction is in write mode right away. See:
-            // https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
-            txn.execute(
-                "UPDATE media SET last_access = ? WHERE uri = ? AND format = ?",
-                (timestamp, &uri, &format),
-            )?;
+        let data = self
+            .write()
+            .await?
+            .with_immediate_transaction(move |txn| {
+                // Update the last access. We need to do this first so the
+                // transaction is in write mode right away. See:
+                // https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
+                txn.execute(
+                    "UPDATE media SET last_access = ? WHERE uri = ? AND format = ?",
+                    (timestamp, &uri, &format),
+                )?;
 
-            txn.query_row::<Vec<u8>, _, _>(
-                "SELECT data FROM media WHERE uri = ? AND format = ?",
-                (&uri, &format),
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.into())
-        })
-        .await?;
+                txn.query_row::<Vec<u8>, _, _>(
+                    "SELECT data FROM media WHERE uri = ? AND format = ?",
+                    (&uri, &format),
+                    |row| row.get(0),
+                )
+                .optional()
+            })
+            .await?;
 
         data.map(|v| self.decode_value(&v).map(Into::into)).transpose()
     }
@@ -626,8 +626,10 @@ impl MediaStoreInner for SqliteMediaStore {
             return Ok(());
         }
 
-        let conn = self.write().await?;
-        let removed = with_immediate_transaction(&conn, move |txn| {
+        let conn = self.read().await?;
+
+        let removed = conn
+            .with_immediate_transaction::<_, Self::Error, _>(move |txn| {
                 let mut removed = false;
 
                 // First, check media content that exceed the max filesize.
