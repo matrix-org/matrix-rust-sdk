@@ -20,6 +20,7 @@ use std::{fs, iter, path::PathBuf, sync::Arc};
 
 use algorithms::rfind_event_by_item_id;
 use event_item::TimelineItemHandle;
+use eyeball::Subscriber;
 use eyeball_im::VectorDiff;
 #[cfg(feature = "unstable-msc4274")]
 use futures::SendGallery;
@@ -337,6 +338,27 @@ impl Timeline {
         }
 
         Ok(revisions)
+    }
+
+    /// Get the ID of the closest visible event at or before the user's
+    /// `m.fully_read` marker.
+    ///
+    /// The marker may point to an event that isn't rendered (e.g. a reaction
+    /// or an edit). If the marker's event isn't loaded, or no visible event
+    /// before it is, this is the marker's own event ID. The read marker item
+    /// itself may be placed further down, after the user's own events.
+    ///
+    /// Returns `None` if there's no marker, or if the timeline doesn't track
+    /// read markers.
+    pub fn fully_read_event_id(&self) -> Option<OwnedEventId> {
+        self.controller.fully_read_event_id.get()
+    }
+
+    /// Subscribe to changes of [`Self::fully_read_event_id`].
+    ///
+    /// Updates are published after the timeline items they depend on.
+    pub fn subscribe_fully_read_event_id(&self) -> Subscriber<Option<OwnedEventId>> {
+        self.controller.fully_read_event_id.subscribe()
     }
 
     /// Get the latest of the timeline's remote event ids.
