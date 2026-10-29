@@ -162,6 +162,16 @@ impl Builder {
             current_value_must_be_erased = true;
         }
 
+        // When the event of the current value has been removed from the Event
+        // Cache (e.g. because it has expired), we must erase it too.
+        if !current_value_must_be_erased
+            && let LatestEventValue::Remote(current_event) = &current_event
+            && let Some(event_id) = current_event.event_id()
+            && let Ok(None) = room_event_cache.find_event(event_id).await
+        {
+            current_value_must_be_erased = true;
+        }
+
         (current_value_must_be_erased.then(LatestEventValue::default), need_more_events)
     }
 
@@ -2069,6 +2079,13 @@ mod builder_tests {
             .await
             .unwrap();
 
+        // The event of the current value is known by the event cache, but isn't
+        // a candidate because it's not part of a linked chunk.
+        event_cache_store
+            .save_event(room_id, remote_room_message(event_id!("$ev0"), "hello"))
+            .await
+            .unwrap();
+
         let client = MockClientBuilder::new(None)
             .on_builder(move |builder| {
                 builder.store_config(
@@ -2104,6 +2121,73 @@ mod builder_tests {
             .await
             .0,
             None
+        );
+    }
+
+    #[async_test]
+    async fn test_remote_without_a_candidate_but_with_an_unknown_existing_latest_event_value() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        // Insert a non-suitable candidate.
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event_factory.room_topic("new room topic").into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache().unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
+
+        // Initial state.
+        let current_value =
+            LatestEventValue::Remote(remote_room_message(event_id!("$ev0"), "hello"));
+
+        // Compute a new remote value: with no candidate.
+        //
+        // No candidate is found, and the event of the current value is unknown
+        // by the event cache (e.g. because it has expired), so it must
+        // be erased.
+        assert_matches!(
+            Builder::new_remote(
+                &room_event_cache,
+                current_value,
+                user_id,
+                None,
+                MAX_STORED_CHUNKS_TO_SCAN
+            )
+            .await
+            .0,
+            Some(LatestEventValue::None)
         );
     }
 
