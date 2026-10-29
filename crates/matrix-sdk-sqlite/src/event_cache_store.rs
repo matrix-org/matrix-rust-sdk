@@ -1501,6 +1501,28 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    async fn remove_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let hashed_linked_chunk_id = self
+            .encryption
+            .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Thread(room_id, thread_id));
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| {
+                txn.execute(
+                    "DELETE FROM threads WHERE linked_chunk_id = ?",
+                    (hashed_linked_chunk_id,),
+                )?;
+
+                Ok(())
+            })
+            .await
+    }
+
     #[instrument(skip(self))]
     async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
         let _timer = timer!("method");

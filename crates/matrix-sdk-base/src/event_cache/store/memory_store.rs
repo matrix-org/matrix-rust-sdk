@@ -233,6 +233,16 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
+    async fn remove_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().threads.remove(&(room_id.to_owned(), thread_id.to_owned()));
+
+        Ok(())
+    }
+
     async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
         match room_id {
             Some(room_id) => {

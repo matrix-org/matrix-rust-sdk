@@ -177,6 +177,14 @@ impl EventCacheStore for ControlledMemoryStore {
         self.inner.update_thread_info(room_id, thread_id, thread_info).await
     }
 
+    async fn remove_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        self.inner.remove_thread_info(room_id, thread_id).await
+    }
+
     async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
         self.inner.clear_all_events(room_id).await
     }

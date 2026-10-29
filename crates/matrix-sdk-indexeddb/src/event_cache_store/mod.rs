@@ -491,6 +491,21 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn remove_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readwrite)?;
+        transaction.delete_thread_info(room_id, thread_id).await?;
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
     async fn clear_all_events(
         &self,
         room_id: Option<&RoomId>,

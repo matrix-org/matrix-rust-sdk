@@ -126,6 +126,18 @@ pub trait EventCacheStore: AsyncTraitDeps {
         thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error>;
 
+    /// Remove the [`ThreadInfo`] associated to `room_id` and `thread_id`, if
+    /// any.
+    ///
+    /// It does nothing regarding events or linked chunks: the thread's linked
+    /// chunk must be cleared separately, with
+    /// [`Self::handle_linked_chunk_updates`].
+    async fn remove_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error>;
+
     /// Clear persisted events for all the rooms if `room_id` is `None`, or a
     /// single room otherwise.
     ///
@@ -306,6 +318,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error> {
         self.0.update_thread_info(room_id, thread_id, thread_info).await.map_err(Into::into)
+    }
+
+    async fn remove_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        self.0.remove_thread_info(room_id, thread_id).await.map_err(Into::into)
     }
 
     async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {

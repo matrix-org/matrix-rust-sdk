@@ -308,6 +308,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test multiple things related to distinguishing a thread linked chunk
     /// from a room linked chunk.
     async fn test_thread_vs_room_linked_chunk(&self);
+
+    /// Test that removing a thread info works as expected.
+    async fn test_remove_thread_info(&self);
 }
 
 impl EventCacheStoreIntegrationTests for DynEventCacheStore {
@@ -2624,6 +2627,25 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         });
     }
 
+    async fn test_remove_thread_info(&self) {
+        let room_id = room_id!("!r0");
+        let thread_id = event_id!("$t0");
+        let another_thread_id = event_id!("$t1");
+
+        // Removing an unknown thread info is not an error.
+        self.remove_thread_info(room_id, thread_id).await.unwrap();
+
+        // Create two thread infos.
+        self.load_thread_info(room_id, thread_id, true).await.unwrap().unwrap();
+        self.load_thread_info(room_id, another_thread_id, true).await.unwrap().unwrap();
+
+        // Remove one of them.
+        self.remove_thread_info(room_id, thread_id).await.unwrap();
+
+        assert!(self.load_thread_info(room_id, thread_id, false).await.unwrap().is_none());
+        assert!(self.load_thread_info(room_id, another_thread_id, false).await.unwrap().is_some());
+    }
+
     async fn test_thread_vs_room_linked_chunk(&self) {
         let room_id = room_id!("!r0:matrix.org");
 
@@ -3029,6 +3051,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_thread_vs_room_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_remove_thread_info() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_remove_thread_info().await;
             }
         }
     };
