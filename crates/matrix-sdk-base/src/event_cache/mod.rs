@@ -16,6 +16,7 @@
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 
+pub mod retention;
 pub mod store;
 pub mod thread;
 
