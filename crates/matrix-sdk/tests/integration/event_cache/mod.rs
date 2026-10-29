@@ -10,7 +10,9 @@ use matrix_sdk::{
     event_cache::{
         BackPaginationOutcome, PaginationStatus, RoomEventCacheUpdate, TimelineVectorDiffs,
     },
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    linked_chunk::{
+        ChunkIdentifier, LinkedChunkId, Position, Update, lazy_loader::from_all_chunks,
+    },
     store::StoreConfig,
     test_utils::{
         assert_event_matches_msg,
@@ -26,11 +28,12 @@ use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventF
 use ruma::{
     EventId, event_id,
     events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, TimelineEventType,
         room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     },
     room_id,
     room_version_rules::RedactionRules,
+    serde::Raw,
     user_id,
 };
 use strass::assert_let;
@@ -2172,6 +2175,133 @@ async fn test_deduplication() {
 }
 
 #[async_test]
+async fn test_deduplication_after_event_without_event_type() {
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
+
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server
+        .client_builder()
+        .on_builder({
+            let event_cache_store = event_cache_store.clone();
+            move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            }
+        })
+        .build()
+        .await;
+
+    mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(event_factory.text_msg("c").event_id(event_id!("$c")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
+
+    // An event with an ID, but no event type. The stores never persist such an
+    // event, so it must not reach the in-memory linked chunk either, otherwise
+    // the in-memory positions and the in-store positions would diverge.
+    //
+    // Note: it's received via a back-pagination, since a sync containing it
+    // would fail in the event handlers.
+    let event_without_event_type = Raw::<AnyTimelineEvent>::from_json_string(
+        r#"{
+            "event_id": "$no_type",
+            "room_id": "!foo:bar.baz",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 0,
+            "content": {}
+        }"#
+        .to_owned(),
+    )
+    .unwrap();
+
+    // Note: events must be presented in reversed order, since this is
+    // back-pagination.
+    mock_server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            event_factory.text_msg("b").event_id(event_id!("$b")).into_raw_timeline(),
+            event_without_event_type,
+            event_factory.text_msg("a").event_id(event_id!("$a")).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+
+    // The event without an event type has been dropped.
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(events.len(), 3);
+    assert_event_id!(events[0], "$a");
+    assert_event_id!(events[1], "$b");
+    assert_event_id!(events[2], "$c");
+
+    let (_, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Receive `$b` again, along with a new event (otherwise the sync would be
+    // ignored, since all its events would be duplicates): `$b` must be
+    // deduplicated, i.e. the old `$b` is removed and the new one is pushed at
+    // the back.
+    mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(event_factory.text_msg("b").event_id(event_id!("$b")))
+                .add_timeline_event(event_factory.text_msg("d").event_id(event_id!("$d"))),
+        )
+        .await;
+
+    assert_matches!(
+        updates_stream.recv().await.unwrap(),
+        RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
+            assert_eq!(diffs.len(), 2);
+            assert_matches!(&diffs[0], VectorDiff::Remove { index: 1 });
+            assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
+                assert_eq!(events.len(), 2);
+                assert_event_id!(&events[0], "$b");
+                assert_event_id!(&events[1], "$d");
+            });
+        }
+    );
+
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(events.len(), 4);
+    assert_event_id!(events[0], "$a");
+    assert_event_id!(events[1], "$c");
+    assert_event_id!(events[2], "$b");
+    assert_event_id!(events[3], "$d");
+
+    // The store must agree with the in-memory linked chunk.
+    let stored_linked_chunk = from_all_chunks::<10, _, _>(
+        event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let stored_events = stored_linked_chunk.items().map(|(_, event)| event).collect::<Vec<_>>();
+    assert_eq!(stored_events.len(), 4);
+    assert_event_id!(stored_events[0], "$a");
+    assert_event_id!(stored_events[1], "$c");
+    assert_event_id!(stored_events[2], "$b");
+    assert_event_id!(stored_events[3], "$d");
+}
+
+#[async_test]
 async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -2208,7 +2338,7 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
             JoinedRoomBuilder::new(room_id)
                 .set_timeline_limited()
                 .set_timeline_prev_batch("token-before-latest")
-                .add_timeline_bulk(latest_events.clone().into_iter().map(ruma::serde::Raw::cast)),
+                .add_timeline_bulk(latest_events.clone().into_iter().map(Raw::cast)),
         )
         .await;
 
@@ -2479,7 +2609,7 @@ async fn test_sync_while_back_paginate() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .set_timeline_prev_batch("token-before-sync-from-sync")
-                .add_timeline_bulk(sync_events.into_iter().map(ruma::serde::Raw::cast)),
+                .add_timeline_bulk(sync_events.into_iter().map(Raw::cast)),
         )
         .await;
 
