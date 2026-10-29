@@ -52,7 +52,9 @@ use super::{
     event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
     room::RoomEventCacheLinkedChunkUpdate,
 };
-use crate::{Room, config::RequestConfig, room::WeakRoom};
+use crate::{
+    Room, config::RequestConfig, event_cache::deduplicator::is_valid_event, room::WeakRoom,
+};
 
 pub struct PinnedEventsCacheState {
     /// The ID of the room owning this list of pinned events.
@@ -366,10 +368,11 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
     async fn replace_all_events(&mut self, mut new_events: Vec<Event>) -> Result<()> {
         trace!("resetting all pinned events in linked chunk");
 
-        // Events with no ID or no event type are never persisted by the stores,
-        // so they must not reach the in-memory linked chunk either: otherwise
-        // the positions in memory and in the store would diverge.
-        new_events.retain(|event| event.event_id().is_some() && event.kind.event_type().is_some());
+        // Invalid events - those with no ID or no event type - are never
+        // persisted by the stores, so they must not reach the in-memory
+        // linked chunk either: otherwise the positions in memory and in
+        // the store would diverge.
+        new_events.retain(is_valid_event);
 
         let previous_pinned_event_ids = self.state.current_event_ids();
 
