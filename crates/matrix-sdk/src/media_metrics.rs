@@ -29,6 +29,7 @@ use crate::{Client, Error, Room, media::MediaEventContent};
 
 /// The type of a media item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum MediaType {
     /// An image.
     Image,
@@ -41,9 +42,6 @@ pub enum MediaType {
 
     /// A generic file.
     File,
-
-    /// Any other media, such as a location preview.
-    Other,
 }
 
 /// The number of media events and the size of their cached representations.
@@ -63,6 +61,12 @@ pub struct MediaUsage {
 /// that is cached without a corresponding cached event is not included. The
 /// size of a media item is only counted once, even if it is referenced by
 /// several events.
+///
+/// Location events are not media events and are ignored, even if they contain
+/// a thumbnail. Events that cannot be deserialized are also ignored.
+///
+/// If a media item is shared by events of different types, its size is counted
+/// once and attributed to one of those types.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MediaMetrics {
     /// Metrics for all media events.
@@ -100,6 +104,9 @@ impl Room {
     }
 }
 
+/// Event types handled by `media_of`.
+const MEDIA_EVENT_TYPES: &[&str] = &["m.room.message", "m.sticker"];
+
 async fn collect_media_metrics(
     client: &Client,
     room_ids: &[OwnedRoomId],
@@ -116,7 +123,7 @@ async fn collect_media_metrics(
         };
 
         for room_id in room_ids {
-            for event_type in ["m.room.message", "m.sticker"] {
+            for &event_type in MEDIA_EVENT_TYPES {
                 let events = store.get_room_events(room_id, Some(event_type), None).await?;
 
                 for event in events {
@@ -166,46 +173,51 @@ fn media_of(event: &TimelineEvent) -> Option<(MediaType, Vec<OwnedMxcUri>)> {
                 MessageType::Video(content) => (MediaType::Video, content),
                 MessageType::Audio(content) => (MediaType::Audio, content),
                 MessageType::File(content) => (MediaType::File, content),
-                MessageType::Location(content) => (MediaType::Other, content),
                 _ => return None,
             };
 
-            media_uris(media_type, content)
+            let uris = media_uris(content);
+            (!uris.is_empty()).then_some((media_type, uris))
         }
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(sticker)) => {
             let content = &sticker.as_original()?.content;
-
-            media_uris(MediaType::Image, content)
+            let uris = media_uris(content);
+            (!uris.is_empty()).then_some((MediaType::Image, uris))
         }
 
         _ => None,
     }
 }
 
-fn media_uris(
-    media_type: MediaType,
-    content: &dyn MediaEventContent,
-) -> Option<(MediaType, Vec<OwnedMxcUri>)> {
+/// Collect the unique media sources for an event.
+///
+/// Image and video contents fall back to their full-size source when they have
+/// no thumbnail, so duplicate URIs must be removed here.
+fn media_uris(content: &dyn MediaEventContent) -> Vec<OwnedMxcUri> {
     let mut uris = Vec::new();
 
     for source in [content.source(), content.thumbnail_source()].into_iter().flatten() {
-        uris.push(match source {
+        let uri = match source {
             MediaSource::Plain(uri) => uri,
             MediaSource::Encrypted(file) => file.url.clone(),
-        });
+        };
+        if !uris.contains(&uri) {
+            uris.push(uri);
+        }
     }
 
-    uris.sort_unstable_by(|a, b| a.as_str().cmp(b.as_str()));
-    uris.dedup();
-
-    (!uris.is_empty()).then_some((media_type, uris))
+    uris
 }
 
 #[cfg(test)]
 mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
-    use ruma::{mxc_uri, serde::Raw};
+    use ruma::{
+        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, room::message::MessageType},
+        mxc_uri,
+        serde::Raw,
+    };
     use serde_json::json;
 
     use super::{MediaType, media_of};
@@ -242,6 +254,57 @@ mod tests {
                 mxc_uri!("mxc://example.org/thumbnail").to_owned(),
             ]
         );
+    }
+
+    #[test]
+    fn media_of_location_is_ignored() {
+        let event = timeline_event(json!({
+            "type": "m.room.message",
+            "event_id": "$event",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 0,
+            "content": {
+                "msgtype": "m.location",
+                "body": "Location",
+                "geo_uri": "geo:51.5008,0.1247",
+                "info": {
+                    "thumbnail_url": "mxc://example.org/thumbnail"
+                }
+            }
+        }));
+
+        let deserialized = event.raw().deserialize().unwrap();
+        let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) =
+            deserialized
+        else {
+            panic!("expected a room message event");
+        };
+        assert!(matches!(
+            &message.as_original().unwrap().content.msgtype,
+            MessageType::Location(_)
+        ));
+
+        assert!(media_of(&event).is_none());
+    }
+
+    #[test]
+    fn media_of_image_without_thumbnail_uses_source_once() {
+        let event = timeline_event(json!({
+            "type": "m.room.message",
+            "event_id": "$event",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 0,
+            "content": {
+                "msgtype": "m.image",
+                "body": "image.png",
+                "url": "mxc://example.org/image"
+            }
+        }));
+
+        let (media_type, uris) = media_of(&event).unwrap();
+
+        assert_eq!(media_type, MediaType::Image);
+        assert_eq!(uris, vec![mxc_uri!("mxc://example.org/image").to_owned()]);
     }
 
     #[test]
