@@ -528,6 +528,18 @@ impl EventCacheInner {
                 )
                 .await?;
 
+            // Saving events doesn't notify the linked chunk update observers,
+            // so index the resolved events explicitly.
+            #[cfg(feature = "experimental-search")]
+            self.linked_chunk_update_sender.send_to_search_index(
+                room_id.to_owned(),
+                maybe_resolved_events
+                    .iter()
+                    .filter_map(|resolved_event| resolved_event.as_resolved())
+                    .cloned()
+                    .collect(),
+            );
+
             // Now, replace the in-memory events.
             let timeline_event_diffs = state
                 .replace_in_memory_utds(&maybe_resolved_in_memory_events)
@@ -1518,6 +1530,59 @@ mod tests {
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
+    }
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_redecrypted_event_is_indexed() {
+        let room_id = room_id!("!test:localhost");
+        let event_id = event_id!("$some_id");
+
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
+
+        let (event, room_key) = send_encrypted(
+            &matrix_mock_server,
+            &alice,
+            room_id,
+            event_id,
+            RoomMessageEventContent::text_plain("It's a secret to everybody"),
+        )
+        .await;
+
+        let event_cache = bob.event_cache().unwrap();
+        let (room_cache, _) = event_cache.room(room_id).await.unwrap();
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+
+        // Bob receives the event as a UTD, which can't be indexed.
+        sync_room(
+            &matrix_mock_server,
+            &bob,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(event),
+        )
+        .await;
+        assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = subscriber.recv());
+
+        let room = bob.get_room(room_id).unwrap();
+        assert!(room.search("secret", 5, None).await.unwrap().events.is_empty());
+
+        // Once the room key arrives, the event is redecrypted…
+        sync_room_keys(&matrix_mock_server, &bob, &[room_key]).await;
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = subscriber.recv()
+        );
+
+        // … and indexed.
+        let mut results = Vec::new();
+        for _ in 0..50 {
+            results = room.search("secret", 5, None).await.unwrap().events;
+            if !results.is_empty() {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(results.len(), 1, "the redecrypted event should be indexed");
+        assert_eq!(results[0].1, event_id);
     }
 
     #[async_test]
