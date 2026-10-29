@@ -430,7 +430,10 @@ fn build_targets(
     let mut platform_build_paths = HashMap::new();
     for target in targets {
         let path = build_path_for_target(target, profile)?;
-        localize_private_symbols(&path, target)?;
+        // Cargo's `strip = "debuginfo"` never reaches a static library, since
+        // nothing links it; the stripped profile has to do it here.
+        let strip_debug_info = profile == "small-release-stripped";
+        localize_private_symbols(&path, target, strip_debug_info)?;
         let paths = platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
         paths.push(path);
     }
@@ -444,8 +447,15 @@ fn build_targets(
 /// `ld -r` merges the objects that use those symbols into one relocatable
 /// object, binding their references, and the unexported list turns the matching
 /// definitions into local symbols. That object and the untouched rest of the
-/// archive are wrapped back up under the original name.
-fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
+/// archive are wrapped back up under the original name, without debug info if
+/// `strip_debug_info` is set: `ld -r` leaves a debug map behind otherwise,
+/// pointing consumers' `dsymutil` at objects that only existed on the build
+/// machine.
+fn localize_private_symbols(
+    library: &Utf8Path,
+    target: &Target,
+    strip_debug_info: bool,
+) -> Result<()> {
     let sh = sh();
     let directory = library.parent().expect("the library lives in a directory");
     let symbols_list = directory.join("private_symbols.txt");
@@ -504,6 +514,9 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     // Plenty of the objects carry no symbols; that's not worth a warning each.
     cmd!(sh, "libtool -static -no_warning_for_no_symbols -o {library} {merged_object} {remainder}")
         .run()?;
+    if strip_debug_info {
+        cmd!(sh, "strip -S {library}").run()?;
+    }
 
     remove_dir_all(&objects_directory)?;
     remove_file(merged_object)?;
