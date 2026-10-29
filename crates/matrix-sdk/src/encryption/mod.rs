@@ -2297,23 +2297,32 @@ impl Encryption {
                     let is_verified = device.is_cross_signed_by_owner();
 
                     if is_verified {
-                        self.client.inner.verification_state.set(VerificationState::Verified);
+                        self.client
+                            .inner
+                            .verification_state
+                            .set_if_not_eq(VerificationState::Verified);
                     } else if matches!(self.get_user_identity(device.user_id()).await, Ok(None)) {
                         // We don't know our own identity yet, so we can't tell
                         // whether we're verified; it'll be updated after the
                         // next keys query.
-                        self.client.inner.verification_state.set(VerificationState::Unknown);
+                        self.client
+                            .inner
+                            .verification_state
+                            .set_if_not_eq(VerificationState::Unknown);
                     } else {
-                        self.client.inner.verification_state.set(VerificationState::Unverified);
+                        self.client
+                            .inner
+                            .verification_state
+                            .set_if_not_eq(VerificationState::Unverified);
                     }
                 } else {
                     warn!("Couldn't find out own device in the store.");
-                    self.client.inner.verification_state.set(VerificationState::Unknown);
+                    self.client.inner.verification_state.set_if_not_eq(VerificationState::Unknown);
                 }
             }
             Err(error) => {
                 warn!("Failed retrieving own device: {error}");
-                self.client.inner.verification_state.set(VerificationState::Unknown);
+                self.client.inner.verification_state.set_if_not_eq(VerificationState::Unknown);
             }
         }
     }
