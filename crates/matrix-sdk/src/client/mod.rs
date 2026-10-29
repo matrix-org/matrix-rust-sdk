@@ -462,11 +462,9 @@ impl ClientInner {
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
         respect_login_well_known: bool,
         well_known_lookup_disabled: bool,
-        event_cache: OnceCell<EventCache>,
         enable_automatic_back_pagination: bool,
         enable_event_cache: bool,
         send_queue: Arc<SendQueueData>,
-        latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_lock_config: CrossProcessLockConfig,
@@ -503,9 +501,9 @@ impl ClientInner {
             respect_login_well_known,
             well_known_lookup_disabled: StdRwLock::new(well_known_lookup_disabled),
             sync_beat: event_listener::Event::new(),
-            event_cache,
+            event_cache: OnceCell::new(),
             send_queue_data: send_queue,
-            latest_events,
+            latest_events: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
@@ -3878,14 +3876,10 @@ impl Client {
                 self.inner.caches.well_known.value(),
                 self.inner.respect_login_well_known,
                 self.well_known_lookup_disabled(),
-                self.inner.event_cache.clone(),
                 false,
-                // If the `EventCache` was enabled for `Self`, it **must** have been initialised.
-                // Otherwise, it **must not** have been initialised already. So defining
-                // `enable_event_cache` with `OnceCell::initialized` is correct.
-                self.inner.event_cache.initialized(),
+                // We don't need the `EventCache` in a notification client.
+                false,
                 self.inner.send_queue_data.clone(),
-                self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
                 #[cfg(feature = "e2e-encryption")]
