@@ -92,11 +92,8 @@ impl SwiftArgs {
                 // The dev profile seems to cause crashes on some platforms so
                 // we default to reldbg
                 // (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
-                let profile = profile.as_deref().unwrap_or(if release {
-                    "small-release-stripped"
-                } else {
-                    "reldbg"
-                });
+                let profile =
+                    profile.as_deref().unwrap_or(if release { STRIPPED_PROFILE } else { "reldbg" });
                 build_xcframework(
                     profile,
                     targets,
@@ -161,6 +158,10 @@ impl Platform {
         }
     }
 }
+
+/// The profile used for release builds, whose static library gets its debug
+/// info stripped.
+const STRIPPED_PROFILE: &str = "small-release-stripped";
 
 /// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
@@ -430,9 +431,7 @@ fn build_targets(
     let mut platform_build_paths = HashMap::new();
     for target in targets {
         let path = build_path_for_target(target, profile)?;
-        // Cargo's `strip = "debuginfo"` never reaches a static library, since
-        // nothing links it; the stripped profile has to do it here.
-        let strip_debug_info = profile == "small-release-stripped";
+        let strip_debug_info = profile == STRIPPED_PROFILE;
         localize_private_symbols(&path, target, strip_debug_info)?;
         let paths = platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
         paths.push(path);
@@ -447,10 +446,13 @@ fn build_targets(
 /// `ld -r` merges the objects that use those symbols into one relocatable
 /// object, binding their references, and the unexported list turns the matching
 /// definitions into local symbols. That object and the untouched rest of the
-/// archive are wrapped back up under the original name, without debug info if
-/// `strip_debug_info` is set: `ld -r` leaves a debug map behind otherwise,
-/// pointing consumers' `dsymutil` at objects that only existed on the build
-/// machine.
+/// archive are wrapped back up under the original name.
+///
+/// `ld -r` doesn't carry the merged objects' DWARF over, only a debug map
+/// pointing at them. With `strip_debug_info` set, the debug info is stripped
+/// from the library, as Cargo's `strip = "debuginfo"` never reaches a static
+/// library since nothing links it. Otherwise the extracted objects are kept so
+/// that `dsymutil` and debuggers can still find the debug info on this machine.
 fn localize_private_symbols(
     library: &Utf8Path,
     target: &Target,
@@ -516,9 +518,9 @@ fn localize_private_symbols(
         .run()?;
     if strip_debug_info {
         cmd!(sh, "strip -S {library}").run()?;
+        remove_dir_all(&objects_directory)?;
     }
 
-    remove_dir_all(&objects_directory)?;
     remove_file(merged_object)?;
     remove_file(remainder)?;
     remove_file(symbols_list)?;
