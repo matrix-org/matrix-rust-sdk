@@ -755,8 +755,6 @@ impl ClientBuilder {
             None => NotSet,
         };
 
-        let event_cache = OnceCell::new();
-        let latest_events = OnceCell::new();
         let thread_subscriptions_catchup = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
@@ -775,11 +773,9 @@ impl ClientBuilder {
             well_known,
             self.respect_login_well_known,
             self.well_known_lookup_disabled,
-            event_cache,
             self.enable_automatic_back_pagination,
             self.enable_event_cache,
             send_queue,
-            latest_events,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
             #[cfg(feature = "e2e-encryption")]
