@@ -21,7 +21,6 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
 use ruma::{EventId, RoomId, events::relation::RelationType, serde::Raw};
-use tokio::sync::broadcast::Sender;
 use tracing::trace;
 
 use super::{
@@ -30,6 +29,7 @@ use super::{
         EventLocation, event_linked_chunk::EventLinkedChunk, room::RoomEventCacheLinkedChunkUpdate,
     },
 };
+use crate::event_cache::caches::room::LinkedChunkUpdateSender;
 
 /// Load a linked chunk's full metadata, making sure the chunks are correct
 /// according to their links.
@@ -165,7 +165,7 @@ pub(super) async fn load_linked_chunk_metadata(
 pub(super) async fn send_updates_to_store(
     store: &EventCacheStoreLockGuard,
     linked_chunk_id: OwnedLinkedChunkId,
-    linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: &LinkedChunkUpdateSender,
     mut updates: Vec<Update<Event, Gap>>,
 ) -> Result<()> {
     if updates.is_empty() {
@@ -223,8 +223,7 @@ pub(super) async fn send_updates_to_store(
     .expect("joining failed")?;
 
     // Forward that the store got updated to observers.
-    let _ = linked_chunk_update_sender
-        .send(RoomEventCacheLinkedChunkUpdate { linked_chunk_id, updates });
+    linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate { linked_chunk_id, updates });
 
     Ok(())
 }

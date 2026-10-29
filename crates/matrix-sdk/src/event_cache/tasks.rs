@@ -38,6 +38,7 @@ use super::{
 };
 use crate::{
     client::WeakClient,
+    event_cache::caches::room::LinkedChunkUpdateSender,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
 };
 
@@ -174,7 +175,7 @@ pub(super) async fn auto_shrink_linked_chunk_task(
 #[instrument(skip_all)]
 pub(super) async fn thread_subscriber_task(
     client: WeakClient,
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateSender,
     thread_subscriber_sender: Sender<()>,
 ) {
     let mut send_q_rx = if let Some(client) = client.get() {
@@ -431,8 +432,9 @@ async fn handle_thread_subscriber_linked_chunk_update(
     true
 }
 
-/// Takes an [`Event`] and passes it to the [`RoomIndex`] of the given room
-/// which will add/remove/edit an event in the index based on the event type.
+/// Takes the [`Event`]s sent to the search index and passes them to the
+/// [`RoomIndex`] of their room, which will add/remove/edit them in the index
+/// based on their type.
 ///
 /// [`Event`]: matrix_sdk_base::event_cache::Event
 /// [`RoomIndex`]: matrix_sdk_search::index::RoomIndex
@@ -440,57 +442,12 @@ async fn handle_thread_subscriber_linked_chunk_update(
 #[instrument(skip_all)]
 pub(super) async fn search_indexing_task(
     client: WeakClient,
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    mut search_index_receiver: mpsc::UnboundedReceiver<(
+        ruma::OwnedRoomId,
+        Vec<matrix_sdk_base::event_cache::Event>,
+    )>,
 ) {
-    let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
-
-    // Indexing is slow (index opens and commits, under a global lock), and
-    // falling behind the broadcast channel drops updates whose events then
-    // never get indexed. So only queue the updates here, and index them in
-    // a separate task.
-    //
-    // The indexer stops on its own once `queue_sender` is dropped with this
-    // task.
-    let (queue_sender, queue_receiver) = mpsc::unbounded_channel();
-    matrix_sdk_common::executor::spawn(
-        index_linked_chunk_updates(client, queue_receiver).instrument(Span::current()),
-    );
-
-    loop {
-        match linked_chunk_update_receiver.recv().await {
-            Ok(room_ec_lc_update) => {
-                let _ = queue_sender.send(room_ec_lc_update);
-            }
-            Err(RecvError::Closed) => {
-                debug!("Linked chunk update channel has been closed, exiting search indexing task");
-                break;
-            }
-            Err(RecvError::Lagged(num_skipped)) => {
-                warn!(num_skipped, "Lagged behind linked chunk updates");
-            }
-        }
-    }
-}
-
-/// Index the queued linked chunk updates, one after the other, until the queue
-/// is closed or the client shuts down.
-#[cfg(feature = "experimental-search")]
-async fn index_linked_chunk_updates(
-    client: WeakClient,
-    mut queue_receiver: mpsc::UnboundedReceiver<RoomEventCacheLinkedChunkUpdate>,
-) {
-    while let Some(room_ec_lc_update) = queue_receiver.recv().await {
-        let OwnedLinkedChunkId::Room(room_id) = room_ec_lc_update.linked_chunk_id.clone() else {
-            trace!("Received non-room updates, ignoring.");
-            continue;
-        };
-
-        let mut timeline_events = room_ec_lc_update.events().peekable();
-
-        if timeline_events.peek().is_none() {
-            continue;
-        }
-
+    while let Some((room_id, events)) = search_index_receiver.recv().await {
         let Some(client) = client.get() else {
             trace!("Client is shutting down, exiting search task");
             return;
@@ -519,7 +476,7 @@ async fn index_linked_chunk_updates(
 
         if let Err(err) = client
             .search_index()
-            .bulk_handle_timeline_event(timeline_events, &room_cache, &room_id, &redaction_rules)
+            .bulk_handle_timeline_event(events.into_iter(), &room_cache, &room_id, &redaction_rules)
             .await
         {
             error!("Failed to handle events for indexing: {err}")

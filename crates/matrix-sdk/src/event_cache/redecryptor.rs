@@ -160,7 +160,9 @@ use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
     RoomEventCacheUpdate, TimelineVectorDiffs,
     caches::{
-        EventLocation, event_linked_chunk::EventLinkedChunk, room::RoomEventCacheLinkedChunkUpdate,
+        EventLocation,
+        event_linked_chunk::EventLinkedChunk,
+        room::{LinkedChunkUpdateSender, RoomEventCacheLinkedChunkUpdate},
     },
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
@@ -984,7 +986,7 @@ impl Redecryptor {
         client: &Client,
         cache: Weak<EventCacheInner>,
         receiver: UnboundedReceiver<DecryptionRetryRequest>,
-        linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: &LinkedChunkUpdateSender,
     ) -> Self {
         let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
