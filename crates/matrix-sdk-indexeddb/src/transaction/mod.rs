@@ -130,6 +130,26 @@ impl<'a> Transaction<'a> {
         T::Error: AsyncErrorDeps,
         K: IndexedKey<T> + Serialize,
     {
+        self.get_items_by_key_with_indexed_item_filter(range, |_| true).await
+    }
+
+    /// Query IndexedDB for items that match the given key range and filter
+    /// any items that don't match the given function `f`.
+    ///
+    /// Note that `f` operates on `T::IndexedType`, so that filtered items
+    /// do not need to be fully deserialized.
+    pub async fn get_items_by_key_with_indexed_item_filter<T, K, F>(
+        &self,
+        range: impl Into<IndexedKeyRange<K>>,
+        f: F,
+    ) -> Result<Vec<T>, TransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKey<T> + Serialize,
+        F: Fn(&T::IndexedType) -> bool,
+    {
         let range = self.serializer.encode_key_range::<T, K>(range);
         let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
         let array = if let Some(index) = K::INDEX {
@@ -139,9 +159,12 @@ impl<'a> Transaction<'a> {
         };
         let mut items = Vec::with_capacity(array.len());
         for value in array {
-            let item = T::from_indexed(value?, self.serializer.inner())
-                .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
-            items.push(item);
+            let indexed = value?;
+            if f(&indexed) {
+                let item = T::from_indexed(indexed, self.serializer.inner())
+                    .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
+                items.push(item);
+            }
         }
         Ok(items)
     }
@@ -159,6 +182,27 @@ impl<'a> Transaction<'a> {
     {
         let range: IndexedKeyRange<K> = range.into().encoded(self.serializer.inner());
         self.get_items_by_key::<T, K>(range).await
+    }
+
+    /// Query IndexedDB for items that match the given key component range and
+    /// filter any items that don't match the given function `f`.
+    ///
+    /// Note that `f` operates on `T::IndexedType`, so that filtered items
+    /// do not need to be fully deserialized.
+    pub async fn get_items_by_key_components_with_indexed_item_filter<'b, T, K, F>(
+        &self,
+        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
+        f: F,
+    ) -> Result<Vec<T>, TransactionError>
+    where
+        T: Indexed + 'b,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKey<T> + Serialize + 'b,
+        F: Fn(&T::IndexedType) -> bool,
+    {
+        let range: IndexedKeyRange<K> = range.into().encoded(self.serializer.inner());
+        self.get_items_by_key_with_indexed_item_filter::<T, K, F>(range, f).await
     }
 
     /// Query IndexedDB for items that match the given key. If more than one
