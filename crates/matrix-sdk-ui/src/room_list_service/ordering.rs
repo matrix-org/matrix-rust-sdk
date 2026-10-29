@@ -14,6 +14,8 @@
 
 //! Ordering of the room list.
 //!
+//! # The order
+//!
 //! 1. Rooms whose latest event is an unsent local event come first.
 //! 2. Then by recency, most recent first:
 //!    - a room with a latest event is ordered by its timestamp;
@@ -23,10 +25,64 @@
 //!      this is a pure bump-stamp order.
 //! 3. Ties are broken by display name, then by room ID.
 //!
-//! This is not a [`Sorter`](super::sorters::Sorter) because slotting needs a
-//! view of all rooms: a pairwise comparison mixing timestamps and bump stamps
-//! is not a total order. The order is recomputed once per batch of updates and
-//! emitted as a minimal set of moves, so reorders are atomic.
+//! # Why bump stamps?
+//!
+//! Two signals describe how recent a room is:
+//!
+//! - the timestamp of its latest event, which is what the room list shows. It
+//!   is computed lazily by the client, so many rooms don't have one yet (e.g.
+//!   right after login), or ever (e.g. their newest events aren't displayable);
+//! - its bump stamp (`RoomInfo::recency_stamp`, the MSC4186 `bump_stamp`), the
+//!   server's recency counter. Nearly every room has one, but it isn't a time,
+//!   so it can't be compared with a timestamp.
+//!
+//! The timestamp wins whenever a room has one. A room without one is placed
+//! relative to the anchors, the rooms having both, by comparing bump stamps:
+//! it borrows an anchor's timestamp, then sorts by its own bump stamp.
+//!
+//! ```text
+//! room  bump stamp  timestamp     recency (timestamp, bump stamp)
+//! D     40          -         ->  (300, 40)  above every anchor: borrows the top one's
+//! A     30          300       ->  (300, 30)  anchor
+//! P     25          -         ->  (300, 25)  first anchor at or above 25 is A
+//! B     20          200       ->  (200, 20)  anchor
+//! C     10          -         ->  (200, 10)  first anchor at or above 10 is B
+//! ```
+//!
+//! Sorted by recency, this gives D, A, P, B, C: the server's bump-stamp order,
+//! with the timestamps of the anchors respected.
+//!
+//! # Why the _smallest_ timestamp?
+//!
+//! Bump stamps and timestamps don't always agree. A just-sent message, before
+//! its sync echo, gives its room a fresh timestamp but an old bump stamp:
+//!
+//! ```text
+//! room  bump stamp  timestamp
+//! R     100         500        recent room
+//! S     5           1000       fresh timestamp, stale bump stamp
+//! O     4           -          old room without a preview
+//! ```
+//!
+//! If O borrowed from the nearest anchor, S, it would get 1000 and jump above
+//! R. Borrowing the smallest timestamp among all the anchors at or above its
+//! bump stamp (S and R) gives it 500 instead, so it stays below R: a room
+//! without a preview never outranks a room the server considers more recent.
+//!
+//! # Updates
+//!
+//! This is not a [`Sorter`](super::sorters::Sorter): placing a room without a
+//! timestamp depends on all the anchors, so it can't be decided by comparing
+//! two rooms alone. Instead, [`OrderingState::process`] handles each batch of
+//! input diffs as a whole:
+//!
+//! - a `Reset` or `Clear` re-sorts everything and emits a single `Reset` or
+//!   `Clear`;
+//! - `Set`s that don't change any sort input (see [`SortKey`]) can't move a
+//!   room, and are forwarded at the rooms' sorted positions;
+//! - anything else re-sorts the whole list, and emits the minimal set of moves
+//!   from the old order to the new one (see [`diff_orders`]), so all the
+//!   reorders caused by one batch are applied at once.
 
 use std::{
     cmp::Ordering,
@@ -126,7 +182,7 @@ impl OrderingState {
     /// Process one batch of input diffs, and return the batch of output diffs
     /// applying to the sorted order.
     fn process(&mut self, batch: Vec<VectorDiff<RoomListItem>>) -> Vec<VectorDiff<RoomListItem>> {
-        // Collect the updated rooms, and classify the diffs.
+        // 1. Collect the updated rooms, and classify the diffs.
         let mut updated_rooms: Vec<RoomListItem> = Vec::new();
         let mut rooms_added_or_removed = false;
         let mut is_reset = false;
@@ -162,11 +218,12 @@ impl OrderingState {
             }
         }
 
-        // Apply the batch to the unsorted rooms.
+        // 2. Apply the batch to the unsorted rooms.
         for diff in batch {
             diff.apply(&mut self.unsorted_rooms);
         }
 
+        // 3. A reset: re-sort everything, and emit a single `Reset` or `Clear`.
         if is_reset {
             self.set_order(sort_rooms(&self.unsorted_rooms));
 
@@ -177,7 +234,8 @@ impl OrderingState {
             };
         }
 
-        // Fast path: only `Set`s with unchanged sort keys can't reorder.
+        // 4. Only `Set`s with unchanged sort keys: nothing can move, forward
+        //    the `Set`s at the rooms' sorted positions.
         let sort_key_changed = updated_rooms
             .iter()
             .any(|room| self.sort_keys.get(room.room_id()) != Some(&SortKey::of(room)));
@@ -192,6 +250,9 @@ impl OrderingState {
                 .collect();
         }
 
+        // 5. Otherwise: re-sort, and emit the moves from the old order to the
+        //    new one, followed by the `Set`s of the updated rooms that didn't
+        //    move (the moved ones are inserted with their new value already).
         let new_sorted_room_ids = sort_rooms(&self.unsorted_rooms);
         let (kept, removes, inserts) = diff_orders(&self.sorted_room_ids, &new_sorted_room_ids);
         self.set_order(new_sorted_room_ids);
@@ -208,7 +269,6 @@ impl OrderingState {
             output.push(VectorDiff::Insert { index, value: rooms_by_id[room_id].clone() });
         }
 
-        // Value updates for rooms that did not move.
         for room in updated_rooms {
             if kept.contains(room.room_id()) {
                 let index = self.positions[room.room_id()];
@@ -263,9 +323,7 @@ struct Recency {
 /// Compute the [`Recency`] of every room in `rooms`. Rooms with neither a
 /// timestamp nor a bump stamp have none and sort last.
 fn compute_recencies(rooms: &[&RoomListItem]) -> Vec<Option<Recency>> {
-    // Anchors sorted by bump stamp, each timestamp replaced by the minimum of
-    // the anchors at or above it, so one anchor with a fresh timestamp but a
-    // stale bump stamp can't promote its neighbours.
+    // The anchors, sorted by bump stamp.
     let mut anchors: Vec<Anchor> = rooms
         .iter()
         .filter_map(|room| match (room.cached_latest_event_timestamp, room.cached_recency_stamp) {
@@ -279,6 +337,11 @@ fn compute_recencies(rooms: &[&RoomListItem]) -> Vec<Option<Recency>> {
 
     let top_anchor_timestamp = anchors.last().map(|anchor| anchor.timestamp);
 
+    // Replace each anchor's timestamp with the smallest timestamp among the
+    // anchors at or above it (a suffix minimum), so that looking up a single
+    // anchor in `borrowed_timestamp` gives the smallest timestamp among all
+    // the anchors at or above a bump stamp. See the module documentation for
+    // why.
     let mut suffix_min = u64::MAX;
     for anchor in anchors.iter_mut().rev() {
         suffix_min = suffix_min.min(anchor.timestamp);
@@ -313,8 +376,14 @@ struct Anchor {
     timestamp: u64,
 }
 
-/// The timestamp borrowed for `bump_stamp`: that of the first anchor at or
-/// above it. Above every anchor, the top anchor's; with no anchors, 0.
+/// The timestamp borrowed by a room without a timestamp, given its
+/// `bump_stamp`.
+///
+/// - At or below some anchor: the (suffix minimum) timestamp of the first
+///   anchor at or above it.
+/// - Above every anchor: the top anchor's real timestamp, so the room sorts
+///   just above it, as its bump stamp is higher.
+/// - No anchors at all: 0, so rooms are ordered by bump stamp only.
 fn borrowed_timestamp(
     anchors: &[Anchor],
     top_anchor_timestamp: Option<u64>,
@@ -361,9 +430,20 @@ fn cmp_rooms(
         .then_with(|| left.room_id().cmp(right.room_id()))
 }
 
-/// The minimal moves from `old` to `new`: rooms on the longest increasing
-/// subsequence stay put. Returns `(kept, removes, inserts)`, with `removes`
-/// as descending `old` indices and `inserts` as ascending `new` indices.
+/// The minimal moves from the `old` order to the `new` one.
+///
+/// The rooms that keep their relative order don't need to move: only the
+/// others are removed and inserted again at their new position. The largest
+/// such group of rooms is the longest increasing subsequence of their old
+/// positions, taken in the new order.
+///
+/// For example, from `[a, b, c, d]` to `[c, a, b, d]`, `a, b, d` keep their
+/// relative order, so the only move is `c`: removed at 2, inserted at 0.
+///
+/// Returns `(kept, removes, inserts)`: the rooms that don't move, the `old`
+/// indices to remove in descending order, and the `new` indices to insert in
+/// ascending order. Applying the removes, then the inserts, transforms `old`
+/// into `new`.
 fn diff_orders(
     old: &[OwnedRoomId],
     new: &[OwnedRoomId],
