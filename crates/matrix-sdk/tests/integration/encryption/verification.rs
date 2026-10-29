@@ -157,6 +157,38 @@ async fn test_reset_cross_signing_resets_verification() {
 }
 
 #[async_test]
+async fn test_unchanged_verification_state_is_not_republished() {
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
+
+    let user_id = owned_user_id!("@alice:example.org");
+    let device_id = owned_device_id!("4L1C3");
+    let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
+
+    // Subscribe to verification state updates
+    let mut verification_state_subscriber = alice.encryption().verification_state();
+
+    // Have Alice bootstrap cross-signing.
+    bootstrap_cross_signing(&alice).await;
+    assert_eq!(
+        verification_state_subscriber.next().now_or_never().unwrap().unwrap(),
+        VerificationState::Verified
+    );
+
+    // Another keys query for our own user doesn't change the state, so the
+    // subscribers mustn't be notified again.
+    server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(&user_id);
+        })
+        .await;
+
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
+    assert!(verification_state_subscriber.next().now_or_never().is_none());
+}
+
+#[async_test]
 async fn test_unchecked_mutual_verification() {
     let server = MatrixMockServer::new().await;
     server.mock_crypto_endpoints_preset().await;
