@@ -416,6 +416,12 @@ impl Indexed for Event {
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
 
+impl IndexedEventIdKey {
+    pub fn indexed_linked_chunk_id(&self) -> &IndexedLinkedChunkId {
+        &self.0
+    }
+}
+
 impl IndexedKey<Event> for IndexedEventIdKey {
     type KeyComponents<'a> = (LinkedChunkId<'a>, &'a EventId);
 
