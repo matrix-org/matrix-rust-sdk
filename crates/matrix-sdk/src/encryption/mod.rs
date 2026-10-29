@@ -2481,6 +2481,7 @@ mod tests {
         },
     };
 
+    use futures_util::FutureExt;
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
@@ -2773,10 +2774,13 @@ mod tests {
         // When the session is initialised and the encryption tasks spawn
         set_client_session(&client).await;
 
-        // Then we can get an updated value without waiting for any network
-        // requests, which stays unknown as we don't know our own identity yet
+        // Then the state is computed without waiting for any network requests.
+        // It stays unknown as we don't know our own identity yet, and since it
+        // didn't change, subscribers aren't notified again.
         assert!(keys_requested.load(Ordering::SeqCst).not());
-        assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
+        assert_eq!(client.encryption().verification_state().get(), VerificationState::Unknown);
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        assert!(verification_state.next().now_or_never().is_none());
     }
 
     #[test]
