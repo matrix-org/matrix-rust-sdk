@@ -51,7 +51,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
-use tracing::{error, instrument, trace};
+use tracing::{instrument, trace};
 
 use crate::{
     Client,
@@ -733,30 +733,22 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let Ok(caches) = self.all_caches_for_room(&room_id).await else {
-                error!(?room_id, "Room must exist");
-                continue;
-            };
+            trace!(?room_id, "Handling a `LeftRoomUpdate`");
 
-            if let Err(err) = caches.handle_left_room_update(left_room_update).await {
-                // Non-fatal error, try to continue to the next room.
-                error!("handling left room update: {err}");
-            }
+            self.all_caches_for_room(&room_id)
+                .await?
+                .handle_left_room_update(left_room_update)
+                .await?;
         }
 
         // Joined rooms.
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let Ok(caches) = self.all_caches_for_room(&room_id).await else {
-                error!(?room_id, "Room must exist");
-                continue;
-            };
-
-            if let Err(err) = caches.handle_joined_room_update(joined_room_update).await {
-                // Non-fatal error, try to continue to the next room.
-                error!(%room_id, "handling joined room update: {err}");
-            }
+            self.all_caches_for_room(&room_id)
+                .await?
+                .handle_joined_room_update(joined_room_update)
+                .await?;
         }
 
         // Invited rooms.
