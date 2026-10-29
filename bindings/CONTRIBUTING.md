@@ -85,8 +85,8 @@ work but debuggers are affected.
   xtask builds only the static library through
   `cargo rustc --crate-type staticlib`, as Cargo silently skips LTO when the
   `lib` crate type is built alongside it. Cargo's `strip` doesn't reach a
-  static library either, nothing links it, so the xtask strips the debug info
-  itself once the private symbols are merged.
+  static library either, since nothing links it, so the xtask strips the debug
+  info itself once the private symbols are merged.
 - On Android, pass it explicitly with `--profile small-release-stripped`, as
   the `--release` shorthand of `cargo xtask kotlin build-android-library` only
   selects the builtin `release` profile.
