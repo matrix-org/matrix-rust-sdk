@@ -212,6 +212,18 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
+    /// Remove the content of the given events from a room, if they are not
+    /// part of any linked chunk.
+    ///
+    /// Events must be removed from the linked chunks they belong to first,
+    /// with [`Self::handle_linked_chunk_updates`]. Events that are still part
+    /// of a linked chunk are left untouched, and so are unknown events.
+    async fn remove_unlinked_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -368,6 +380,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
+    }
+
+    async fn remove_unlinked_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error> {
+        self.0.remove_unlinked_events(room_id, event_ids).await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

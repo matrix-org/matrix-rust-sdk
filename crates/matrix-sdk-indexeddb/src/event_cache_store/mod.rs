@@ -741,6 +741,34 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip(self, event_ids))]
+    async fn remove_unlinked_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
+
+        for event_id in &event_ids {
+            let events = transaction.get_events_by_room(room_id, event_id).await?;
+
+            // The event is still part of a linked chunk, let's keep it.
+            if events.iter().any(|event| matches!(event, types::Event::InBand(_))) {
+                continue;
+            }
+
+            for event in events {
+                transaction.delete_event_by_id(event.linked_chunk_id(), event_id).await?;
+            }
+        }
+
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(())
     }

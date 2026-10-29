@@ -311,6 +311,10 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that removing a thread info works as expected.
     async fn test_remove_thread_info(&self);
+
+    /// Test that removing the content of events that aren't part of any linked
+    /// chunk works as expected.
+    async fn test_remove_unlinked_events(&self);
 }
 
 impl EventCacheStoreIntegrationTests for DynEventCacheStore {
@@ -2646,6 +2650,77 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert!(self.load_thread_info(room_id, another_thread_id, false).await.unwrap().is_some());
     }
 
+    async fn test_remove_unlinked_events(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        let event_linked = make_test_event_with_event_id(room_id, "linked", Some(event_id!("$0")));
+        let event_unlinked =
+            make_test_event_with_event_id(room_id, "unlinked", Some(event_id!("$1")));
+        let event_out_of_band =
+            make_test_event_with_event_id(room_id, "out-of-band", Some(event_id!("$2")));
+        let event_in_another_room =
+            make_test_event_with_event_id(another_room_id, "another room", Some(event_id!("$3")));
+
+        // Two events are part of the room linked chunk.
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_linked.clone(), event_unlinked.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // One event is saved out-of-band, and another one in another room.
+        self.save_event(room_id, event_out_of_band.clone()).await.unwrap();
+        self.save_event(another_room_id, event_in_another_room.clone()).await.unwrap();
+
+        // One event is removed from the linked chunk.
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::RemoveItem { at: Position::new(CId::new(0), 1) }],
+        )
+        .await
+        .unwrap();
+
+        // Remove the content of all the events.
+        self.remove_unlinked_events(
+            room_id,
+            vec![
+                event_id!("$0").to_owned(),
+                event_id!("$1").to_owned(),
+                event_id!("$2").to_owned(),
+                event_id!("$3").to_owned(),
+                event_id!("$unknown").to_owned(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        // The event still part of the linked chunk is untouched.
+        assert!(self.find_event(room_id, event_id!("$0")).await.unwrap().is_some());
+        let chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_matches!(&chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            check_test_event(&events[0], "linked");
+        });
+
+        // The events which aren't part of a linked chunk are removed.
+        assert!(self.find_event(room_id, event_id!("$1")).await.unwrap().is_none());
+        assert!(self.find_event(room_id, event_id!("$2")).await.unwrap().is_none());
+        assert_eq!(self.get_room_events(room_id, None, None).await.unwrap().len(), 1);
+
+        // The event in another room is untouched.
+        assert!(self.find_event(another_room_id, event_id!("$3")).await.unwrap().is_some());
+    }
+
     async fn test_thread_vs_room_linked_chunk(&self) {
         let room_id = room_id!("!r0:matrix.org");
 
@@ -3058,6 +3133,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_remove_thread_info().await;
+            }
+
+            #[async_test]
+            async fn test_remove_unlinked_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_remove_unlinked_events().await;
             }
         }
     };

@@ -1866,6 +1866,42 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, event_ids))]
+    async fn remove_unlinked_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
+        if event_ids.is_empty() {
+            return Ok(());
+        }
+
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_event_ids = event_ids
+            .iter()
+            .map(|event_id| self.encryption.encode_event_id(keys::EVENTS, event_id))
+            .collect::<Vec<_>>();
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut delete = txn.prepare(
+                    "DELETE FROM events \
+                    WHERE room_id = ? AND event_id = ? \
+                    AND NOT EXISTS (SELECT 1 FROM event_chunks WHERE event_chunks.event_id = events.event_id)",
+                )?;
+
+                for hashed_event_id in hashed_event_ids {
+                    delete.execute((&hashed_room_id, hashed_event_id))?;
+                }
+
+                Ok(())
+            })
+            .await
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         SqliteEventCacheStore::close(self).await
     }
