@@ -4974,7 +4974,7 @@ mod tests {
 
     use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+        JoinedRoomBuilder, SyncResponseBuilder, TestRoom, async_test, event_factory::EventFactory,
     };
     use ruma::{
         RoomVersionId, event_id,
@@ -5004,7 +5004,7 @@ mod tests {
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
         use matrix_sdk_base::store::RoomLoadSettings;
-        use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, message_like_event_content};
+        use matrix_sdk_test::{TestRoom, message_like_event_content};
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let sqlite_path = tmp_dir.path().join("cache_invalidation_while_encrypt.db");
@@ -5051,7 +5051,7 @@ mod tests {
             client.base_client().receive_sync_response(response).await.unwrap();
         }
 
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+        let room = client.get_room(TestRoom::Default.into()).expect("Room should exist");
 
         // Step 1, preshare the room keys.
         room.preshare_room_key().await.unwrap();
@@ -5099,15 +5099,13 @@ mod tests {
 
     #[async_test]
     async fn test_composer_draft() {
-        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
-
         let client = logged_in_client(None).await;
 
         let response = SyncResponseBuilder::default()
             .add_joined_room(JoinedRoomBuilder::default())
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+        let room = client.get_room(TestRoom::Default.into()).expect("Room should exist");
 
         assert_eq!(room.load_composer_draft(None).await.unwrap(), None);
 
