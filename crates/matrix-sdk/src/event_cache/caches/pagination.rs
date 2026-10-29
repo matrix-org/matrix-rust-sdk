@@ -218,6 +218,7 @@ where
                 LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token,
                     waited_for_initial_prev_token,
+                    generation,
                 } => {
                     if prev_token.is_none() && !waited_for_initial_prev_token {
                         // We didn't reload a pagination token, and we haven't
@@ -253,7 +254,9 @@ where
 
                     // We have a gap, so resolve it with a network
                     // back-pagination.
-                    return self.paginate_backwards_with_network(batch_size, prev_token).await;
+                    return self
+                        .paginate_backwards_with_network(batch_size, prev_token, generation)
+                        .await;
                 }
 
                 LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
@@ -282,11 +285,13 @@ where
     /// Run a single pagination request to the server.
     ///
     /// Returns `Ok(None)` if the pagination token used during the request has
-    /// disappeared from the in-memory linked chunk after handling the response.
+    /// disappeared from the in-memory linked chunk after handling the response,
+    /// or if the linked chunk has been cleared or replaced in the meantime.
     async fn paginate_backwards_with_network(
         &self,
         batch_size: u16,
         prev_token: Option<String>,
+        generation: u64,
     ) -> Result<Option<BackPaginationOutcome>> {
         let Some((events, new_token)) =
             self.cache.paginate_backwards_with_network(batch_size, &prev_token).await?
@@ -298,7 +303,9 @@ where
             }));
         };
 
-        self.cache.conclude_backwards_pagination_from_network(events, prev_token, new_token).await
+        self.cache
+            .conclude_backwards_pagination_from_network(events, prev_token, new_token, generation)
+            .await
     }
 }
 
@@ -372,6 +379,7 @@ pub(in super::super) trait PaginatedCache {
         events: Vec<Event>,
         prev_token: Option<String>,
         new_token: Option<String>,
+        generation: u64,
     ) -> impl Future<Output = Result<Option<BackPaginationOutcome>>> + SendOutsideWasm;
 }
 
@@ -437,6 +445,12 @@ pub(in super::super) enum LoadMoreEventsBackwardsOutcome {
         prev_token: Option<String>,
 
         waited_for_initial_prev_token: bool,
+
+        /// The [`EventLinkedChunk::generation`] at the time this outcome was
+        /// computed.
+        ///
+        /// [`EventLinkedChunk::generation`]: super::event_linked_chunk::EventLinkedChunk::generation
+        generation: u64,
     },
 
     /// The start of the timeline has been reached.
