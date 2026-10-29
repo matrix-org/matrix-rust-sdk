@@ -221,6 +221,15 @@ pub(crate) struct ClientLocks {
     /// explanation.
     pub(crate) mark_as_dm_lock: Mutex<()>,
 
+    /// Lock ensuring that only a single update to the `m.image_pack.rooms`
+    /// account data happens at once.
+    ///
+    /// [`Account::enable_image_pack_globally()`] and
+    /// [`Account::disable_image_pack_globally()`] fetch the event from the
+    /// server, modify it and upload it again. Without this lock, concurrent
+    /// calls can overwrite the changes of each other.
+    pub(crate) image_pack_rooms_lock: Mutex<()>,
+
     /// Lock ensuring that only a single secret store is getting opened at the
     /// same time.
     ///

@@ -51,6 +51,7 @@ use ruma::{
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
+        image_pack::rooms::ImagePackRoomsEventContent,
         macros::EventContent,
         marked_unread::MarkedUnreadEventContent,
         member_hints::MemberHintsEventContent,
@@ -77,6 +78,7 @@ use ruma::{
             },
             encryption::RoomEncryptionEventContent,
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
+            image_pack::RoomImagePackEventContent,
             join_rules::{JoinRule, RoomJoinRulesEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
@@ -1555,6 +1557,23 @@ impl EventFactory {
         users: impl IntoIterator<Item = OwnedUserId>,
     ) -> EventBuilder<IgnoredUserListEventContent> {
         self.global_account_data(IgnoredUserListEventContent::users(users))
+    }
+
+    /// Create a new `m.image_pack.rooms` global account data event.
+    pub fn image_pack_rooms(
+        &self,
+        content: ImagePackRoomsEventContent,
+    ) -> EventBuilder<ImagePackRoomsEventContent> {
+        self.global_account_data(content)
+    }
+
+    /// Create a new `m.room.image_pack` state event with the given state key.
+    pub fn image_pack(
+        &self,
+        state_key: impl Into<String>,
+        content: RoomImagePackEventContent,
+    ) -> EventBuilder<RoomImagePackEventContent> {
+        self.event(content).state_key(state_key)
     }
 
     /// Create a new `m.push_rules` global account data event.
