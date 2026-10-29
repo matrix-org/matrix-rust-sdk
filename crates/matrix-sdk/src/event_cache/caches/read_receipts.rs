@@ -360,8 +360,6 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        // We want to prioritize an `Unthreaded` receipt over a `Main`-threaded
-        // one, for better compatibility with thread-unaware clients.
         for receipt_thread in [ReceiptThread::Unthreaded, ReceiptThread::Main] {
             let receipt_event = self
                 .state_store
@@ -418,10 +416,11 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
     }
 
     fn receipt_thread_matches(&self, receipt_thread: &ReceiptThread) -> bool {
-        matches!(
-            receipt_thread,
-            ReceiptThread::Thread(thread_id) if self.thread_id == thread_id
-        )
+        match receipt_thread {
+            ReceiptThread::Unthreaded => true,
+            ReceiptThread::Thread(thread_id) => self.thread_id == thread_id,
+            _ => false,
+        }
     }
 
     async fn stored_receipt_event_for_user(
@@ -429,16 +428,27 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        self.state_store
-            .get_user_room_receipt_event(
-                self.room_id,
-                receipt_type,
-                &ReceiptThread::Thread(self.thread_id.to_owned()),
-                user_id,
-            )
-            .await
-            .ok()
-            .flatten()
+        for receipt_thread in
+            [ReceiptThread::Unthreaded, ReceiptThread::Thread(self.thread_id.to_owned())]
+        {
+            let receipt_event = self
+                .state_store
+                .get_user_room_receipt_event(
+                    self.room_id,
+                    receipt_type.clone(),
+                    &receipt_thread,
+                    user_id,
+                )
+                .await
+                .ok()
+                .flatten();
+
+            if receipt_event.is_some() {
+                return receipt_event;
+            }
+        }
+
+        None
     }
 }
 
