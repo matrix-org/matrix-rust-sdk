@@ -28,6 +28,12 @@ use super::{
     caches::event_linked_chunk::{Event, EventLinkedChunk},
 };
 
+/// A deserialized [`Event`] is considered valid if it has a `event_type` and
+/// `event_id` fields.
+pub fn is_valid_event(event: &Event) -> bool {
+    event.kind.event_type().is_some() && event.event_id().is_some()
+}
+
 /// Find duplicates in the given collection of new events, and return relevant
 /// information about the duplicates found in the new events, including the
 /// events that are not loaded in memory.
@@ -51,8 +57,12 @@ pub async fn filter_duplicate_events(
         new_events.retain(|event| {
             // Only keep events with IDs and event types, and those for which
             // `insert` returns `true` (meaning they were not in the set).
-            event.kind.event_type().is_some()
-                && event.event_id().is_some_and(|event_id| event_ids.insert(event_id.to_owned()))
+            if is_valid_event(event) {
+                // SAFETY: if the event was considered valid, it has an event id
+                event_ids.insert(event.event_id().unwrap().to_owned())
+            } else {
+                false
+            }
         });
     }
 
