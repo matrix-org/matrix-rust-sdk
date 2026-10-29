@@ -489,11 +489,20 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
     }
 
     async fn reload(&mut self, preprocessing: ReloadPreprocessing) -> Result<()> {
+        self.reload_rooms(preprocessing, |_| true).await
+    }
+
+    /// Like [`Self::reload`], but only for the rooms matching `filter`.
+    async fn reload_rooms(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+        filter: impl Fn(&RoomId) -> bool,
+    ) -> Result<()> {
         trace!("Reloading the state");
 
         // Iterate over all states and reload them.
         for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
-            self.state.by_room.iter_mut()
+            self.state.by_room.iter_mut().filter(|(room_id, _)| filter(room_id))
         {
             // Room.
             if let Some(room_state) = room {
