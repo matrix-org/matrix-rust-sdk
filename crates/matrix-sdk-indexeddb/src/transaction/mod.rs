@@ -477,6 +477,53 @@ impl<'a> Transaction<'a> {
         }
     }
 
+    /// Update items in the given key range by reading them, applying the
+    /// function `F`, and then writing them back to IndexedDB.
+    ///
+    /// Note that this is a potentially expensive operation, as IndexedDB does
+    /// not provide modification utilities.
+    pub async fn update_items_by_key<'b, T, K, F>(
+        &self,
+        range: impl Into<IndexedKeyRange<K>>,
+        f: F,
+    ) -> Result<(), TransactionError>
+    where
+        T: Indexed + Serialize + 'b,
+        T::IndexedType: Serialize + DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKey<T> + Serialize + 'b,
+        F: Fn(T) -> T,
+    {
+        self.update_items_by_key_with_indexed_item_filter(range, |_| true, f).await
+    }
+
+    /// Update items in the given key range by reading them, filtering any
+    /// `T::IndexedItem`s that don't match `filter`, applying `update`, and
+    /// then writing them back to IndexedDB.
+    ///
+    /// Note that this is a potentially expensive operation, as IndexedDB does
+    /// not provide modification utilities.
+    pub async fn update_items_by_key_with_indexed_item_filter<'b, T, K, F, U>(
+        &self,
+        range: impl Into<IndexedKeyRange<K>>,
+        filter: F,
+        update: U,
+    ) -> Result<(), TransactionError>
+    where
+        T: Indexed + Serialize + 'b,
+        T::IndexedType: Serialize + DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKey<T> + Serialize + 'b,
+        F: Fn(&T::IndexedType) -> bool,
+        U: Fn(T) -> T,
+    {
+        for item in self.get_items_by_key_with_indexed_item_filter::<T, K, F>(range, filter).await?
+        {
+            self.put_item(&update(item))?;
+        }
+        Ok(())
+    }
+
     /// Update items in the given key component range by reading them, applying
     /// the function `F`, and then writing them back to IndexedDB.
     ///
@@ -494,8 +541,39 @@ impl<'a> Transaction<'a> {
         K: IndexedKey<T> + Serialize + 'b,
         F: Fn(T) -> T,
     {
-        for item in self.get_items_by_key_components::<T, K>(range).await? {
-            self.put_item(&f(item))?;
+        self.update_items_by_key_components_with_indexed_item_filter::<T, K, _, F>(
+            range,
+            |_| true,
+            f,
+        )
+        .await
+    }
+
+    /// Update items in the given key component range by reading them, filtering
+    /// any `T::IndexedItem`s that don't match `filter`, applying `update`,
+    /// and then writing them back to IndexedDB.
+    ///
+    /// Note that this is a potentially expensive operation, as IndexedDB does
+    /// not provide modification utilities.
+    pub async fn update_items_by_key_components_with_indexed_item_filter<'b, T, K, F, U>(
+        &self,
+        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
+        filter: F,
+        update: U,
+    ) -> Result<(), TransactionError>
+    where
+        T: Indexed + Serialize + 'b,
+        T::IndexedType: Serialize + DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKey<T> + Serialize + 'b,
+        F: Fn(&T::IndexedType) -> bool,
+        U: Fn(T) -> T,
+    {
+        for item in self
+            .get_items_by_key_components_with_indexed_item_filter::<T, K, F>(range, filter)
+            .await?
+        {
+            self.put_item(&update(item))?;
         }
         Ok(())
     }
