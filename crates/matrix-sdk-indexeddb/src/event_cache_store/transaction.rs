@@ -466,9 +466,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             && self.contains_out_of_band_event(event.linked_chunk_id(), event_id).await?;
         let indexed = if promote { self.put_item(event)? } else { self.add_item(event)? };
 
-        self.update_events_by_event_id(event_id, |existing| {
-            existing.with_content(event.content().clone())
-        })
+        self.update_events_by_event_id_excluding(
+            &[event.linked_chunk_id()],
+            event_id,
+            |existing| existing.with_content(event.content().clone()),
+        )
         .await?;
 
         Ok(indexed)
