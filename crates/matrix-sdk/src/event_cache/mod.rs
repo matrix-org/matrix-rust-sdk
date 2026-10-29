@@ -45,7 +45,7 @@ use matrix_sdk_base::{
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
     OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
@@ -65,6 +65,7 @@ mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
+mod retention;
 mod search_backfill;
 mod states;
 mod tasks;
@@ -539,6 +540,34 @@ impl EventCache {
         self.inner.clear_all_rooms().await
     }
 
+    /// Remove the expired events of all the rooms if `room_id` is `None`, or a
+    /// single room otherwise, both in-memory and in-store.
+    ///
+    /// Following [MSC1763], an event is expired if it's a non-state event whose
+    /// `origin_server_ts` is strictly older than `before`. The most recent
+    /// event of a room never expires.
+    ///
+    /// If all the events of a thread are expired, the thread is removed
+    /// entirely, i.e. its cache, its [`ThreadInfo`], and its thread root event
+    /// if it's expired too. Otherwise, an expired thread root event is replaced
+    /// by a placeholder, so that the thread can still be displayed. See
+    /// [`expired_thread_root_placeholder`].
+    ///
+    /// The unread counts, the thread summaries and the latest events of the
+    /// affected rooms are computed again.
+    ///
+    /// Live observers of the affected rooms are notified of the changes.
+    ///
+    /// [MSC1763]: https://github.com/matrix-org/matrix-spec-proposals/pull/1763
+    /// [`expired_thread_root_placeholder`]: matrix_sdk_base::event_cache::retention::expired_thread_root_placeholder
+    pub async fn remove_expired_events(
+        &self,
+        room_id: Option<&RoomId>,
+        before: MilliSecondsSinceUnixEpoch,
+    ) -> Result<()> {
+        self.inner.remove_expired_events(room_id, before).await
+    }
+
     /// Subscribe to room _generic_ updates.
     ///
     /// If one wants to listen what has changed in a specific room for example,
@@ -719,6 +748,69 @@ impl EventCacheInner {
 
         // Then, we can clear and reload the states for all the rooms.
         self.state.clear_and_reload(&caches_for_all_rooms, None).await?;
+
+        Ok(())
+    }
+
+    /// Removes the expired events of all the rooms, or a single room.
+    #[instrument(skip(self))]
+    async fn remove_expired_events(
+        &self,
+        room_id: Option<&RoomId>,
+        before: MilliSecondsSinceUnixEpoch,
+    ) -> Result<()> {
+        // Rooms that haven't been loaded in memory have to be cleaned too, so
+        // the list of rooms comes from the client.
+        let room_ids = match room_id {
+            Some(room_id) => vec![room_id.to_owned()],
+            None => self.client()?.rooms().iter().map(|room| room.room_id().to_owned()).collect(),
+        };
+
+        let removed = {
+            // The constraints are very similar to what we do in
+            // `clear_all_rooms`. See this information to understand them.
+            let caches_for_all_rooms = self.by_room.write().await;
+
+            let removed = self
+                .state
+                .remove_expired_events_and_reload(&caches_for_all_rooms, &room_ids, before)
+                .await?;
+
+            // Forget the removed threads' caches, if any exists in memory.
+            for (room_id, removed) in &removed {
+                if let Some(caches) = caches_for_all_rooms.get(room_id) {
+                    let mut threads = caches.threads.write().await;
+
+                    for thread_id in &removed.removed_threads {
+                        threads.remove(thread_id);
+                    }
+                }
+            }
+
+            removed
+        };
+
+        // Compute again everything that might have been based on the removed
+        // events.
+        for (room_id, removed) in removed {
+            let caches = self.all_caches_for_room(&room_id).await?;
+
+            caches.room.state().write().await?.update_read_receipts(None).await?;
+
+            for thread_id in
+                removed.updated_threads.into_iter().chain(removed.replaced_thread_roots)
+            {
+                let thread = caches.thread(thread_id).await?;
+
+                thread.update_thread_summary().await?;
+                thread.state().write().await?.update_read_receipts(None).await?;
+            }
+
+            // Let observers know the room has changed, so that the latest
+            // events are computed again, even for rooms that
+            // weren't loaded in memory.
+            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate { room_id });
+        }
 
         Ok(())
     }

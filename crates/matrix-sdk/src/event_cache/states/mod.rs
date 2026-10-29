@@ -15,7 +15,7 @@
 //! This module handles the state of the [`EventCache`].
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -26,7 +26,7 @@ use matrix_sdk_base::{
     timer,
     tracing_timer::TracingTimer,
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{instrument, trace};
 
@@ -39,6 +39,7 @@ use super::{
         room::{self, RoomEventCacheState},
         thread::{self, ThreadEventCacheState},
     },
+    retention::{RemovedExpiredEvents, remove_expired_events_from_store},
 };
 
 pub(in super::super) mod selectors;
@@ -280,6 +281,85 @@ impl StateLock {
         }
 
         Ok(())
+    }
+
+    /// Remove the expired events —in-store— of the given rooms, i.e. non-state
+    /// events whose `origin_server_ts` is strictly older than `before`, and
+    /// reload the in-memory states of the affected rooms.
+    ///
+    /// The in-memory states of the removed threads are dropped.
+    ///
+    /// The `caches_for_all_rooms_exclusive_lock_guard` argument ensures an
+    /// exclusive lock over all the caches has been acquired. This is required
+    /// to ensure safety for this method.
+    ///
+    /// Returns what has been removed, for each affected room.
+    #[instrument(skip_all)]
+    pub(super) async fn remove_expired_events_and_reload(
+        &self,
+        _caches_for_all_rooms_exclusive_lock_guard: &RwLockWriteGuard<'_, CachesByRoom>,
+        room_ids: &[OwnedRoomId],
+        before: MilliSecondsSinceUnixEpoch,
+    ) -> Result<BTreeMap<OwnedRoomId, RemovedExpiredEvents>> {
+        let tracing_timer = timer!("`remove_expired_events_and_reload` lock");
+
+        let state_guard = self.inner.locked_state.write().await;
+
+        let (mut guard, is_dirty) = match state_guard.store.lock().await? {
+            EventCacheStoreLockState::Clean(store_guard) => (
+                ReloadableStateLockWriteGuard {
+                    state: state_guard,
+                    store: store_guard,
+                    tracing_timer,
+                },
+                false,
+            ),
+            EventCacheStoreLockState::Dirty(store_guard) => (
+                ReloadableStateLockWriteGuard {
+                    state: state_guard,
+                    store: store_guard,
+                    tracing_timer,
+                },
+                true,
+            ),
+        };
+
+        let mut removed = BTreeMap::new();
+
+        for room_id in room_ids {
+            let outcome = remove_expired_events_from_store(&guard.store, room_id, before).await?;
+
+            if outcome.is_empty() {
+                continue;
+            }
+
+            // Forget the in-memory states of the removed threads.
+            if let Some(state_for_room) = guard.state.by_room.get_mut(room_id) {
+                for thread_id in &outcome.removed_threads {
+                    state_for_room.threads.remove(thread_id);
+                }
+            }
+
+            removed.insert(room_id.clone(), outcome);
+        }
+
+        // At this point, the in-memory `LinkedChunk`s of the affected rooms are
+        // desynchronised from the storage. Resynchronise them by reloading
+        // them. If the cross-process lock was dirty, all the rooms must
+        // be reloaded.
+        guard
+            .reload_rooms(ReloadPreprocessing::None, |room_id| {
+                is_dirty || removed.contains_key(room_id)
+            })
+            .await?;
+
+        if is_dirty {
+            // All good because the state has been reloaded, mark the
+            // cross-process lock as non-dirty.
+            EventCacheStoreLockGuard::clear_dirty(&guard.store);
+        }
+
+        Ok(removed)
     }
 
     /// Insert a new cache state at location `cache_state_selector` if none
