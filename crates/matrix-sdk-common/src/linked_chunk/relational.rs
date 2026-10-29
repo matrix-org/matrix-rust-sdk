@@ -547,6 +547,24 @@ where
             }
         }
     }
+
+    /// Remove items from all the linked chunks of a room, if they don't have a
+    /// position, i.e. if they are not part of a linked chunk.
+    ///
+    /// Items that have a position in a linked chunk are left untouched.
+    pub fn remove_unlinked_items(&mut self, room_id: &RoomId, item_ids: &[ItemId]) {
+        for (_, items) in self
+            .items
+            .iter_mut()
+            .filter(|(linked_chunk_id, _)| linked_chunk_id.room_id() == room_id)
+        {
+            for item_id in item_ids {
+                if items.get(item_id).is_some_and(|(_, position)| position.is_none()) {
+                    items.remove(item_id);
+                }
+            }
+        }
+    }
 }
 
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
