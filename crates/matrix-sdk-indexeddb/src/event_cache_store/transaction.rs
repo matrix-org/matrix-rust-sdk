@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::ops::Deref;
+use std::{collections::HashSet, ops::Deref};
 
 use indexed_db_futures::transaction as inner;
 use matrix_sdk_base::{
@@ -37,7 +37,7 @@ use crate::{
     serializer::indexed_type::{
         IndexedTypeSerializer,
         range::IndexedKeyRange,
-        traits::{Indexed, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds},
+        traits::{Indexed, IndexedKey, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds},
     },
     transaction::{Transaction, TransactionError},
 };
@@ -508,7 +508,42 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         event_id: &EventId,
         f: F,
     ) -> Result<(), TransactionError> {
-        self.update_items_by_key_components::<Event, IndexedEventEventIdKey, F>(event_id, f).await
+        self.update_events_by_event_id_excluding(&[], event_id, f).await
+    }
+
+    /// Same as [`Self::update_events_by_event_id`], but does not update events
+    /// associated with the provided [`LinkedChunkId`]s in `exclude`.
+    pub async fn update_events_by_event_id_excluding<F>(
+        &self,
+        exclude: &[LinkedChunkId<'_>],
+        event_id: &EventId,
+        f: F,
+    ) -> Result<(), TransactionError>
+    where
+        F: Fn(Event) -> Event,
+    {
+        if exclude.is_empty() {
+            self.update_items_by_key_components::<Event, IndexedEventEventIdKey, _>(event_id, f)
+                .await?;
+        } else {
+            let exclude = exclude
+                .iter()
+                .map(|linked_chunk_id| {
+                    IndexedEventIdKey::encode(
+                        (*linked_chunk_id, event_id),
+                        self.serializer().inner(),
+                    )
+                })
+                .collect::<HashSet<_>>();
+            self.update_items_by_key_components_with_indexed_item_filter::<_, IndexedEventEventIdKey, _, _>(
+                event_id,
+                |indexed| !exclude.contains(&indexed.id),
+                f,
+            )
+            .await?;
+        }
+
+        Ok(())
     }
 
     /// Update events in the given position range matching the given linked

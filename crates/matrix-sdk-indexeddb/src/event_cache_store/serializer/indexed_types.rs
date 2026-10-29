@@ -401,7 +401,7 @@ impl Indexed for Event {
 /// - The (possibly) hashed Event ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
 
 impl IndexedKey<Event> for IndexedEventIdKey {
