@@ -28,7 +28,7 @@ use eyeball_im::{
 use imbl::Vector;
 use ruma::EventId;
 
-use super::{TimelineItem, metadata::EventMeta};
+use super::{TimelineItem, VirtualTimelineItem, metadata::EventMeta};
 
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
@@ -54,9 +54,9 @@ use super::{TimelineItem, metadata::EventMeta};
 /// Other methods like [`push_local`] or [`push_date_divider`] insert the items
 /// in the correct region, and check a couple of invariants.
 ///
-/// [`TimelineStart`]: super::VirtualTimelineItem::TimelineStart
-/// [`DateDivider`]: super::VirtualTimelineItem::DateDivider
-/// [`ReadMarker`]: super::VirtualTimelineItem::ReadMarker
+/// [`TimelineStart`]: VirtualTimelineItem::TimelineStart
+/// [`DateDivider`]: VirtualTimelineItem::DateDivider
+/// [`ReadMarker`]: VirtualTimelineItem::ReadMarker
 /// [`Remote`]: super::EventTimelineItemKind::Remote
 /// [`Local`]: super::EventTimelineItemKind::Local
 /// [`iter_all_regions`]: ObservableItemsTransaction::iter_all_regions
@@ -429,6 +429,44 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.clear();
     }
 
+    /// Clear all timeline items that are not local echoes nor date dividers,
+    /// and all remote events.
+    ///
+    /// Adjacent day dividers are merged, i.e. the oldest are removed, the
+    /// newest are kept.
+    pub fn clear_remotes_only(&mut self) {
+        self.for_each(|entry| {
+            if entry.is_remote_event()
+                || entry.as_virtual().is_some_and(|vitem| match vitem {
+                    VirtualTimelineItem::DateDivider(_) => false,
+                    VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => true,
+                })
+            {
+                // SAFETY: It's fine to not remove the remote event now as they
+                // will all be removed a couple lines hereinafter.
+                let _remote_event_index = ObservableItemsTransactionEntry::remove(entry);
+            }
+        });
+
+        // Remove adjacent date dividers.
+        let mut index = 0;
+
+        while index < self.items.len() {
+            if self.items[index].is_date_divider()
+                && self.items.get(index + 1).is_none_or(|item| item.is_date_divider())
+            {
+                self.items.remove(index);
+                // don't increment `index` because all elements have shifted
+            } else {
+                index += 1;
+            }
+        }
+
+        // All remote events can be removed: no one maps to a local event or a
+        // date divider.
+        self.all_remote_events.clear();
+    }
+
     /// Call the given closure for every element in this `ObservableItems`, with
     /// an entry struct that allows updating that element.
     pub fn for_each<F>(&mut self, mut f: F)
@@ -686,17 +724,17 @@ pub struct ObservableItemsTransactionEntry<'observable_transaction_items, 'obser
 }
 
 impl ObservableItemsTransactionEntry<'_, '_> {
-    /// Remove this timeline item, and its associated remote event if any.
-    pub fn remove_timeline_index_and_remote_event(this: Self) {
+    /// Remove this timeline item.
+    ///
+    /// It does **NOT** remove the associated remote event if any! Instead, the
+    /// remote event index is returned.
+    #[must_use = "Do not forget to remove the associated remove event if any"]
+    pub fn remove(this: Self) -> Option<usize> {
         let timeline_item_index = ObservableVectorTransactionEntry::index(&this.entry);
 
         ObservableVectorTransactionEntry::remove(this.entry);
 
-        if let Some(event_index) =
-            this.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index)
-        {
-            this.all_remote_events.remove(event_index);
-        }
+        this.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index)
     }
 }
 
@@ -720,7 +758,7 @@ mod observable_items_tests {
     use assert_matches::assert_matches;
     use eyeball_im::VectorDiff;
     use ruma::{
-        MilliSecondsSinceUnixEpoch,
+        MilliSecondsSinceUnixEpoch, UInt,
         events::room::message::{MessageType, TextMessageEventContent},
         owned_user_id, uint,
     };
@@ -800,6 +838,15 @@ mod observable_items_tests {
 
     fn read_marker() -> Arc<TimelineItem> {
         TimelineItem::read_marker()
+    }
+
+    fn date_divider(ms: u32) -> Arc<TimelineItem> {
+        Arc::new(TimelineItem {
+            kind: TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                MilliSecondsSinceUnixEpoch(UInt::from(ms)),
+            )),
+            internal_id: TimelineUniqueId(format!("__date_divider_{ms}")),
+        })
     }
 
     fn event_meta(event_id: &str) -> EventMeta {
@@ -1464,6 +1511,92 @@ mod observable_items_tests {
     }
 
     #[test]
+    fn test_transaction_clear_remotes_only() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev0"));
+        transaction.push_back(item("$ev0"), Some(0));
+
+        // Timeline item without a remote event (for example a read marker).
+        transaction.push_back(read_marker(), None);
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev1"));
+        transaction.push_back(item("$ev1"), Some(1));
+
+        // Remote event without a timeline item (for example a reaction).
+        transaction.push_back_remote_event(event_meta("$ev2"));
+
+        // Virtual event: a date divider.
+        transaction.push_back(date_divider(7), None);
+
+        // Remote event with its timeline item.
+        transaction.push_back_remote_event(event_meta("$ev3"));
+        transaction.push_back(item("$ev3"), Some(3));
+
+        // Virtual event: a date divider.
+        transaction.push_back(date_divider(42), None);
+
+        // Local event.
+        transaction.push_local(local_item("t0"));
+
+        // Virtual event: a date divider.
+        transaction.push_back(date_divider(153), None);
+
+        // Local event.
+        transaction.push_local(local_item("t1"));
+
+        assert_mapping! {
+            on transaction:
+
+            | event_id | event_index | timeline_item_index |
+            |----------|-------------|---------------------|
+            | "$ev0"   | 0           | 0                   |
+            | "$ev1"   | 1           | 2                   |
+            | "$ev2"   | 2           |                     |
+            | "$ev3"   | 3           | 4                   |
+        }
+
+        assert_eq!(transaction.all_remote_events().0.len(), 4);
+        assert_eq!(transaction.len(), 9);
+
+        // Let's clear the remote events only.
+        //
+        // Note that date divider 7 is removed because it becomes adjacent to
+        // 42. However, 42 doesn't become adjacent to 153 because there is a
+        // local event between them.
+        //
+        // Note that all remote events are cleared.
+        transaction.clear_remotes_only();
+
+        assert!(transaction.all_remote_events().0.is_empty());
+        assert_eq!(transaction.len(), 4);
+
+        // Date divider 42.
+        let date = assert_matches!(
+            transaction.get(0).unwrap().kind(),
+            TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(date)) => date
+        );
+        assert_eq!(date.get(), UInt::from(42u32));
+
+        // Local event `t0`.
+        assert!(transaction.get(1).unwrap().is_local_echo());
+
+        // Date divider 153.
+        let date = assert_matches!(
+            transaction.get(2).unwrap().kind(),
+            TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(date)) => date
+        );
+        assert_eq!(date.get(), UInt::from(153u32));
+
+        // Local event `t0`.
+        assert!(transaction.get(3).unwrap().is_local_echo());
+    }
+
+    #[test]
     fn test_transaction_for_each() {
         let mut items = ObservableItems::new();
 
@@ -1495,7 +1628,7 @@ mod observable_items_tests {
     }
 
     #[test]
-    fn test_transaction_for_each_remove_timeline_item_and_remote_event() {
+    fn test_transaction_for_each_remove() {
         let mut items = ObservableItems::new();
 
         // Push events to iterate on.
@@ -1523,7 +1656,7 @@ mod observable_items_tests {
         // Iterate over events, and remove one.
         transaction.for_each(|entry| {
             if entry.as_event().unwrap().event_id().unwrap().as_str() == "$ev1" {
-                ObservableItemsTransactionEntry::remove_timeline_index_and_remote_event(entry);
+                assert_eq!(ObservableItemsTransactionEntry::remove(entry), Some(1));
             }
         });
 
@@ -1533,10 +1666,10 @@ mod observable_items_tests {
             | event_id | event_index | timeline_item_index |
             |----------|-------------|---------------------|
             | "$ev0"   | 0           | 0                   |
-            | "$ev2"   | 1           | 1                   | // has shifted
+            | "$ev2"   | 2           | 1                   | // has shifted
         }
 
-        assert_eq!(transaction.all_remote_events().0.len(), 2);
+        assert_eq!(transaction.all_remote_events().0.len(), 3);
         assert_eq!(transaction.len(), 2);
     }
 

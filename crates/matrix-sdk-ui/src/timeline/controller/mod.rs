@@ -59,7 +59,6 @@ pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
     observable_items::{
         AllRemoteEvents, ObservableItems, ObservableItemsEntry, ObservableItemsTransaction,
-        ObservableItemsTransactionEntry,
     },
     state::TimelineState,
     state_transaction::TimelineStateTransaction,
