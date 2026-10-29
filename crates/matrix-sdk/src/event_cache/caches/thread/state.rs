@@ -35,7 +35,6 @@ use ruma::{
     },
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
@@ -56,14 +55,13 @@ use super::{
         read_receipts::{
             MaybeReceiptEventContent, ThreadReadReceiptEventFilter, compute_unread_counts,
         },
-        room::RoomEventCacheLinkedChunkUpdate,
         subscriber::SubscribersHandle,
     },
     ThreadEventCacheUpdateSender,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor;
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 pub struct ThreadEventCacheState {
     /// The room owning this thread.
@@ -98,7 +96,7 @@ pub struct ThreadEventCacheState {
     /// during a sync or a back-pagination.
     ///
     /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateSender,
 
     /// Have we ever waited for a previous-batch-token to come from sync, in the
     /// context of pagination? We do this at most once per room/thread (?), the
@@ -130,7 +128,7 @@ impl ThreadEventCacheState {
         room_version_rules: RoomVersionRules,
         store_guard: EventCacheStoreLockGuard,
         update_sender: ThreadEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
     ) -> Result<Self> {
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 

@@ -36,8 +36,8 @@ use self::pagination::RoomPagination;
 pub use self::{
     state::RoomEventCacheState,
     updates::{
-        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-        RoomEventCacheUpdateSender,
+        LinkedChunkUpdateSender, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
+        RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     },
 };
 use super::{

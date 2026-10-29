@@ -121,6 +121,56 @@ impl RoomEventCacheLinkedChunkUpdate {
     }
 }
 
+/// Sends [`RoomEventCacheLinkedChunkUpdate`]s to their observers.
+///
+/// The search index gets its own unbounded channel: a broadcast receiver that
+/// lags behind drops updates, whose events would then never get indexed.
+#[derive(Clone, Debug)]
+pub struct LinkedChunkUpdateSender {
+    sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+
+    #[cfg(feature = "experimental-search")]
+    search_index_sender: tokio::sync::mpsc::UnboundedSender<(OwnedRoomId, Vec<Event>)>,
+}
+
+impl LinkedChunkUpdateSender {
+    /// Create a new [`LinkedChunkUpdateSender`], sending room events to be
+    /// indexed to `search_index_sender`.
+    pub fn new(
+        #[cfg(feature = "experimental-search")]
+        search_index_sender: tokio::sync::mpsc::UnboundedSender<(OwnedRoomId, Vec<Event>)>,
+    ) -> Self {
+        Self {
+            sender: Sender::new(128),
+            #[cfg(feature = "experimental-search")]
+            search_index_sender,
+        }
+    }
+
+    /// Send an update to all the observers.
+    pub fn send(&self, update: RoomEventCacheLinkedChunkUpdate) {
+        #[cfg(feature = "experimental-search")]
+        if let OwnedLinkedChunkId::Room(room_id) = &update.linked_chunk_id {
+            self.send_to_search_index(room_id.clone(), update.clone().events().collect());
+        }
+
+        let _ = self.sender.send(update);
+    }
+
+    /// Send events of a room to the search index only.
+    #[cfg(feature = "experimental-search")]
+    pub fn send_to_search_index(&self, room_id: OwnedRoomId, events: Vec<Event>) {
+        if !events.is_empty() {
+            let _ = self.search_index_sender.send((room_id, events));
+        }
+    }
+
+    /// Subscribe to the updates.
+    pub fn subscribe(&self) -> Receiver<RoomEventCacheLinkedChunkUpdate> {
+        self.sender.subscribe()
+    }
+}
+
 /// A small type to send updates in all channels.
 #[derive(Clone)]
 pub struct RoomEventCacheUpdateSender {

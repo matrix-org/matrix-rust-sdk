@@ -35,7 +35,6 @@ use ruma::{
     },
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
@@ -60,12 +59,11 @@ use super::{
         },
         subscriber::SubscribersHandle,
     },
-    RFindMapOutcome, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender,
-    sort_positions_descending,
+    RFindMapOutcome, RoomEventCacheUpdateSender, sort_positions_descending,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor;
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 pub struct RoomEventCacheState {
     /// Whether thread support has been enabled for the event cache.
@@ -94,7 +92,7 @@ pub struct RoomEventCacheState {
 
     /// A clone of
     /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    pub(super) linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    pub(super) linked_chunk_update_sender: LinkedChunkUpdateSender,
 
     /// The rules for the version of this room.
     room_version_rules: RoomVersionRules,
@@ -131,7 +129,7 @@ impl RoomEventCacheState {
         room_version_rules: RoomVersionRules,
         enabled_thread_support: bool,
         update_sender: RoomEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
         store_guard: EventCacheStoreLockGuard,
         pagination_status: SharedObservable<SharedPaginationStatus>,
         back_pagination_queue: Option<BackPaginationQueue>,
