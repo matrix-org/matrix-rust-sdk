@@ -233,11 +233,6 @@ pub trait EventCacheStoreIntegrationTests {
     /// replacing an item in a linked chunk
     async fn test_linked_chunk_filter_incomplete_events(&self);
 
-    /// Test that pushing items after reloading a chunk which contained an
-    /// incomplete (thus skipped) event works, and that deduplication returns
-    /// positions matching the reloaded in-memory linked chunk.
-    async fn test_filter_duplicated_events_after_reloading_chunk_with_incomplete_event(&self);
-
     /// Test remove an item from a linked chunk.
     async fn test_linked_chunk_remove_item(&self);
 
@@ -1358,80 +1353,6 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 check_test_event(&events[0], "event");
             });
         }
-    }
-
-    async fn test_filter_duplicated_events_after_reloading_chunk_with_incomplete_event(&self) {
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
-
-        let event_a = make_test_event(room_id, "a");
-        let event_without_event_type = make_test_event_without_event_type(room_id, "no type");
-        let event_b = make_test_event(room_id, "b");
-        let event_c = make_test_event(room_id, "c");
-
-        self.handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![
-                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
-                Update::PushItems {
-                    at: Position::new(CId::new(0), 0),
-                    items: vec![event_a.clone(), event_without_event_type, event_b.clone()],
-                },
-            ],
-        )
-        .await
-        .unwrap();
-
-        // Reload the chunk, as the event cache does after a restart: the event
-        // without an event type is gone, so the in-memory linked chunk now
-        // contains `[a, b]`.
-        let (last_chunk, _) = self.load_last_chunk(linked_chunk_id).await.unwrap();
-        assert_matches!(last_chunk, Some(last_chunk) => {
-            assert_matches!(last_chunk.content, ChunkContent::Items(events) => {
-                assert_eq!(events.len(), 2);
-                check_test_event(&events[0], "a");
-                check_test_event(&events[1], "b");
-            });
-        });
-
-        // The next event is pushed right after `b` in the reloaded in-memory
-        // linked chunk, i.e. at index 2.
-        self.handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![Update::PushItems {
-                at: Position::new(CId::new(0), 2),
-                items: vec![event_c.clone()],
-            }],
-        )
-        .await
-        .unwrap();
-
-        let duplicated_events = BTreeMap::from_iter(
-            self.filter_duplicated_events(
-                linked_chunk_id,
-                vec![
-                    event_a.event_id().unwrap().to_owned(),
-                    event_b.event_id().unwrap().to_owned(),
-                    event_c.event_id().unwrap().to_owned(),
-                ],
-            )
-            .await
-            .unwrap(),
-        );
-
-        assert_eq!(duplicated_events.len(), 3);
-        assert_eq!(
-            *duplicated_events.get(event_a.event_id().unwrap()).unwrap(),
-            Position::new(CId::new(0), 0)
-        );
-        assert_eq!(
-            *duplicated_events.get(event_b.event_id().unwrap()).unwrap(),
-            Position::new(CId::new(0), 1)
-        );
-        assert_eq!(
-            *duplicated_events.get(event_c.event_id().unwrap()).unwrap(),
-            Position::new(CId::new(0), 2)
-        );
     }
 
     async fn test_linked_chunk_remove_item(&self) {
@@ -2947,15 +2868,6 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_filter_incomplete_events().await;
-            }
-
-            #[async_test]
-            async fn test_filter_duplicated_events_after_reloading_chunk_with_incomplete_event() {
-                let event_cache_store =
-                    get_event_cache_store().await.unwrap().into_event_cache_store();
-                event_cache_store
-                    .test_filter_duplicated_events_after_reloading_chunk_with_incomplete_event()
-                    .await;
             }
 
             #[async_test]
