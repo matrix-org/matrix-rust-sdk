@@ -38,16 +38,21 @@ pub async fn filter_duplicate_events(
     linked_chunk: &EventLinkedChunk,
     mut new_events: Vec<Event>,
 ) -> Result<DeduplicationOutcome, EventCacheError> {
-    // Remove all events with no ID, or that are duplicated among the new
-    // events, i.e. `new_events` contains duplicated events in itself (e.g.
-    // `[$e0, $e1, $e0]`, here `$e0` is duplicated).
+    // Remove all events with no ID, with no event type, or that are duplicated
+    // among the new events, i.e. `new_events` contains duplicated events in
+    // itself (e.g. `[$e0, $e1, $e0]`, here `$e0` is duplicated).
+    //
+    // Events with no ID or no event type are never persisted by the stores, so
+    // they must not reach the in-memory linked chunk either: otherwise the
+    // positions in memory and in the store would diverge.
     {
         let mut event_ids = BTreeSet::new();
 
         new_events.retain(|event| {
-            // Only keep events with IDs, and those for which `insert` returns
-            // `true` (meaning they were not in the set).
-            event.event_id().is_some_and(|event_id| event_ids.insert(event_id.to_owned()))
+            // Only keep events with IDs and event types, and those for which
+            // `insert` returns `true` (meaning they were not in the set).
+            event.kind.event_type().is_some()
+                && event.event_id().is_some_and(|event_id| event_ids.insert(event_id.to_owned()))
         });
     }
 
@@ -102,7 +107,7 @@ pub async fn filter_duplicate_events(
 pub(super) struct DeduplicationOutcome {
     /// All events passed to the deduplicator.
     ///
-    /// All events in this collection have a valid event ID.
+    /// All events in this collection have a valid event ID and event type.
     ///
     /// This collection does not contain duplicated events in itself.
     pub all_events: Vec<Event>,
@@ -322,6 +327,12 @@ mod tests {
         let ev3 = f.text_msg("wassup").sender(User::Alice).event_id(eid3).into_event();
         // An invalid event (doesn't have an event id.).
         let ev4 = TimelineEvent::from_plaintext(Raw::from_json_string("{}".to_owned()).unwrap());
+        // An invalid event (has an event id, but no event type).
+        let ev5 = TimelineEvent::from_plaintext(
+            Raw::from_json_string(r#"{"event_id":"$5"}"#.to_owned()).unwrap(),
+        );
+        assert!(ev5.event_id().is_some());
+        assert!(ev5.kind.event_type().is_none());
 
         // Prefill the store with ev1 and ev2.
         event_cache_store
@@ -373,7 +384,7 @@ mod tests {
             event_cache_store_guard,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
-            vec![ev1, ev2, ev3, ev4],
+            vec![ev1, ev2, ev3, ev4, ev5],
         )
         .await
         .unwrap();
