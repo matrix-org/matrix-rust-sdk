@@ -23,12 +23,12 @@ use std::{
 use bitflags::bitflags;
 use eyeball_im::{
     ObservableVector, ObservableVectorEntries, ObservableVectorEntry, ObservableVectorTransaction,
-    ObservableVectorTransactionEntry, VectorSubscriber,
+    VectorSubscriber,
 };
 use imbl::Vector;
 use ruma::EventId;
 
-use super::{TimelineItem, VirtualTimelineItem, metadata::EventMeta};
+use super::{TimelineItem, metadata::EventMeta};
 
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
@@ -434,48 +434,49 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     ///
     /// Adjacent day dividers are merged, i.e. the oldest are removed, the
     /// newest are kept.
+    ///
+    /// This method tries to generate a single `VectorDiff::Clear` then few
+    /// inserts, rather than many `VectorDiff::Remove`.
     pub fn clear_remotes_only(&mut self) {
-        self.for_each(|entry| {
-            if entry.is_remote_event()
-                || entry.as_virtual().is_some_and(|vitem| match vitem {
-                    VirtualTimelineItem::DateDivider(_) => false,
-                    VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => true,
-                })
-            {
-                // SAFETY: It's fine to not remove the remote event now as they
-                // will all be removed a couple lines hereinafter.
-                let _remote_event_index = ObservableItemsTransactionEntry::remove(entry);
+        // In this algorithm, we collect items we want to keep. Then, we will
+        // clear everything, and re-insert the kept/rescued items.
+        //
+        // Capacity is defined optimistically.
+        let mut rescued_items = Vec::with_capacity(4);
+
+        let mut items = self.items.entries();
+
+        while let Some(item) = items.next() {
+            // Keep the local event.
+            if item.is_local_echo() {
+                rescued_items.push(item.clone());
             }
-        });
-
-        // Remove adjacent date dividers.
-        let mut index = 0;
-
-        while index < self.items.len() {
-            if self.items[index].is_date_divider()
-                && self.items.get(index + 1).is_none_or(|item| item.is_date_divider())
-            {
-                self.items.remove(index);
-                // don't increment `index` because all elements have shifted
-            } else {
-                index += 1;
+            // Keep the date divider if non-adjacent to another date divider.
+            else if item.is_date_divider() {
+                // There is a last kept item and is a date divider, then we can
+                // override it by this new one.
+                if let Some(last_rescued_item) = rescued_items.last_mut()
+                    && last_rescued_item.is_date_divider()
+                {
+                    *last_rescued_item = item.clone();
+                }
+                // Otherwise, this is the first date divider or the last item is a local event, we
+                // can keep date divider.
+                else {
+                    rescued_items.push(item.clone());
+                }
             }
         }
 
-        // All remote events can be removed: no one maps to a local event or a
-        // date divider.
+        // Now we can clear all items and remote events: a single
+        // `VectorDiff::Clear` for the items!
+        self.items.clear();
         self.all_remote_events.clear();
-    }
 
-    /// Call the given closure for every element in this `ObservableItems`, with
-    /// an entry struct that allows updating that element.
-    pub fn for_each<F>(&mut self, mut f: F)
-    where
-        F: FnMut(ObservableItemsTransactionEntry<'_, 'observable_items>),
-    {
-        self.items.for_each(|entry| {
-            f(ObservableItemsTransactionEntry { entry, all_remote_events: self.all_remote_events })
-        })
+        // And re-insert few items.
+        for item in rescued_items {
+            self.items.push_back(item);
+        }
     }
 
     /// Check whether there is at least one [`Local`] timeline item.
@@ -710,44 +711,6 @@ impl Deref for ObservableItemsTransaction<'_> {
 
     fn deref(&self) -> &Self::Target {
         &self.items
-    }
-}
-
-/// A handle to a single timeline item in an `ObservableItemsTransaction`.
-pub struct ObservableItemsTransactionEntry<'observable_transaction_items, 'observable_items> {
-    entry: ObservableVectorTransactionEntry<
-        'observable_transaction_items,
-        'observable_items,
-        Arc<TimelineItem>,
-    >,
-    all_remote_events: &'observable_transaction_items mut AllRemoteEvents,
-}
-
-impl ObservableItemsTransactionEntry<'_, '_> {
-    /// Remove this timeline item.
-    ///
-    /// It does **NOT** remove the associated remote event if any! Instead, the
-    /// remote event index is returned.
-    #[must_use = "Do not forget to remove the associated remove event if any"]
-    pub fn remove(this: Self) -> Option<usize> {
-        let timeline_item_index = ObservableVectorTransactionEntry::index(&this.entry);
-
-        ObservableVectorTransactionEntry::remove(this.entry);
-
-        this.all_remote_events.timeline_item_has_been_removed_at(timeline_item_index)
-    }
-}
-
-// It's fine to deref to an immutable reference to `Arc<TimelineItem>`.
-//
-// We don't want, however, to deref to a mutable reference: it should be done
-// via proper methods to control precisely the mapping between remote events and
-// timeline items.
-impl Deref for ObservableItemsTransactionEntry<'_, '_> {
-    type Target = Arc<TimelineItem>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.entry
     }
 }
 
@@ -1592,85 +1555,8 @@ mod observable_items_tests {
         );
         assert_eq!(date.get(), UInt::from(153u32));
 
-        // Local event `t0`.
+        // Local event `t1`.
         assert!(transaction.get(3).unwrap().is_local_echo());
-    }
-
-    #[test]
-    fn test_transaction_for_each() {
-        let mut items = ObservableItems::new();
-
-        // Push events to iterate on.
-        let mut transaction = items.transaction();
-        transaction.push_back(item("$ev0"), Some(0));
-        transaction.push_back(item("$ev1"), Some(1));
-        transaction.push_back(item("$ev2"), Some(2));
-
-        let mut nth = 0;
-
-        // Iterate over events.
-        transaction.for_each(|entry| {
-            match nth {
-                0 => {
-                    assert_event_id!(entry, "$ev0");
-                }
-                1 => {
-                    assert_event_id!(entry, "$ev1");
-                }
-                2 => {
-                    assert_event_id!(entry, "$ev2");
-                }
-                _ => unreachable!(),
-            }
-
-            nth += 1;
-        });
-    }
-
-    #[test]
-    fn test_transaction_for_each_remove() {
-        let mut items = ObservableItems::new();
-
-        // Push events to iterate on.
-        let mut transaction = items.transaction();
-
-        transaction.push_back_remote_event(event_meta("$ev0"));
-        transaction.push_back(item("$ev0"), Some(0));
-
-        transaction.push_back_remote_event(event_meta("$ev1"));
-        transaction.push_back(item("$ev1"), Some(1));
-
-        transaction.push_back_remote_event(event_meta("$ev2"));
-        transaction.push_back(item("$ev2"), Some(2));
-
-        assert_mapping! {
-            on transaction:
-
-            | event_id | event_index | timeline_item_index |
-            |----------|-------------|---------------------|
-            | "$ev0"   | 0           | 0                   |
-            | "$ev1"   | 1           | 1                   |
-            | "$ev2"   | 2           | 2                   |
-        }
-
-        // Iterate over events, and remove one.
-        transaction.for_each(|entry| {
-            if entry.as_event().unwrap().event_id().unwrap().as_str() == "$ev1" {
-                assert_eq!(ObservableItemsTransactionEntry::remove(entry), Some(1));
-            }
-        });
-
-        assert_mapping! {
-            on transaction:
-
-            | event_id | event_index | timeline_item_index |
-            |----------|-------------|---------------------|
-            | "$ev0"   | 0           | 0                   |
-            | "$ev2"   | 2           | 1                   | // has shifted
-        }
-
-        assert_eq!(transaction.all_remote_events().0.len(), 3);
-        assert_eq!(transaction.len(), 2);
     }
 
     #[test]
