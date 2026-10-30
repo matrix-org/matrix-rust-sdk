@@ -1635,7 +1635,6 @@ mod timed_tests {
     }
 
     #[async_test]
-    #[should_panic]
     async fn test_shrink_when_loading_the_last_chunk_fails() {
         let room_id = room_id!("!galette:saucisse.bzh");
 

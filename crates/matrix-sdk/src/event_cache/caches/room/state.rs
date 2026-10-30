@@ -143,7 +143,7 @@ impl RoomEventCacheState {
         //
         // If loading the full linked chunk failed, we'll clear the event cache,
         // as it indicates that at some point, there's some malformed data.
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -170,6 +170,11 @@ impl RoomEventCacheState {
             Ok(linked_chunk) => linked_chunk,
             Err(err) => {
                 error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // The metadata no longer reflects the storage, which is about
+                // to be cleared. Drop it, so that the order
+                // tracker doesn't start from a stale state.
+                full_linked_chunk_metadata = None;
 
                 // Try to clear storage for this room.
                 store_guard
@@ -393,7 +398,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
 
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&self.store, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -417,6 +422,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                     // If loading the last chunk failed, clear the entire linked
                     // chunk.
                     error!("error when reloading a linked chunk from memory: {err}");
+
+                    // The metadata no longer reflects the storage, which is
+                    // about to be cleared. Drop it, so that the order tracker
+                    // doesn't start from a stale state.
+                    full_linked_chunk_metadata = None;
 
                     // Clear storage for this room.
                     self.store
