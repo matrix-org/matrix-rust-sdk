@@ -1559,7 +1559,14 @@ impl StateStore for SqliteStateStore {
                             .get_state_event_by_id(&encoded_room_id, &event_id)?
                             .map(|value| this.deserialize_json::<Raw<AnySyncStateEvent>>(&value))
                         {
-                            let event = raw_event.deserialize()?;
+                            let Some(event_type) = raw_event.get_field::<String>("type")? else {
+                                warn!("Skipping redaction of state event without a type");
+                                continue;
+                            };
+                            let Some(state_key) = raw_event.get_field::<String>("state_key")? else {
+                                warn!("Skipping redaction of state event without a state key");
+                                continue;
+                            };
                             let redacted = redact(
                                 raw_event.deserialize_as::<CanonicalJsonObject>()?,
                                 redaction_rules.get_or_insert_with(make_redaction_rules),
@@ -1568,9 +1575,8 @@ impl StateStore for SqliteStateStore {
                             .map_err(Error::Redaction)?;
                             let data = this.serialize_json(&redacted)?;
 
-                            let event_type =
-                                this.encode_key(keys::STATE_EVENT, event.event_type().to_string());
-                            let state_key = this.encode_key(keys::STATE_EVENT, event.state_key());
+                            let event_type = this.encode_key(keys::STATE_EVENT, event_type);
+                            let state_key = this.encode_key(keys::STATE_EVENT, state_key);
 
                             txn.set_state_event(
                                 &encoded_room_id,
@@ -2590,6 +2596,69 @@ mod tests {
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
+    }
+
+    #[matrix_sdk_test::async_test]
+    async fn test_redaction_of_state_events_with_invalid_content() {
+        use std::collections::BTreeMap;
+
+        use matrix_sdk_base::StateChanges;
+        use ruma::{
+            event_id,
+            events::{AnySyncStateEvent, StateEventType},
+            room_id,
+            serde::Raw,
+        };
+        use serde_json::json;
+
+        for (event_type, state_key) in
+            [(StateEventType::RoomTopic, ""), (StateEventType::SpaceChild, "not a room ID")]
+        {
+            let store = get_store().await.unwrap();
+            let room_id = room_id!("!redacted-state:localhost");
+            let event: Raw<AnySyncStateEvent> = Raw::new(&json!({
+                "type": event_type,
+                "state_key": state_key,
+                "content": {},
+                "event_id": "$state",
+                "sender": "@alice:localhost",
+                "origin_server_ts": 1,
+            }))
+            .unwrap()
+            .cast_unchecked();
+            assert!(event.deserialize().is_err());
+
+            let mut changes = StateChanges::default();
+            changes.state.insert(
+                room_id.to_owned(),
+                BTreeMap::from([(
+                    event_type.clone(),
+                    BTreeMap::from([(state_key.to_owned(), event)]),
+                )]),
+            );
+            store.save_changes(&changes).await.unwrap();
+
+            let redaction = Raw::new(&json!({
+                "type": "m.room.redaction",
+                "content": {},
+                "redacts": "$state",
+                "event_id": "$redaction",
+                "sender": "@alice:localhost",
+                "origin_server_ts": 2,
+            }))
+            .unwrap()
+            .cast_unchecked();
+            let mut changes = StateChanges::default();
+            changes.add_redaction(room_id, event_id!("$state"), redaction);
+            store.save_changes(&changes).await.unwrap();
+
+            let saved =
+                store.get_state_event(room_id, event_type, state_key).await.unwrap().unwrap();
+            let json = serde_json::to_value(saved).unwrap();
+            assert_eq!(json["state_key"], state_key);
+            assert_eq!(json["content"], json!({}));
+            assert_eq!(json["unsigned"]["redacted_because"]["event_id"], "$redaction");
+        }
     }
 
     /// Specific to this store, which keys stripped storage off the room state,
