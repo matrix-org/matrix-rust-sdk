@@ -66,7 +66,7 @@ mod keys {
 }
 
 /// The database name.
-const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
+pub const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
 
 /// An SQLite-based media store.
 #[derive(Clone)]
