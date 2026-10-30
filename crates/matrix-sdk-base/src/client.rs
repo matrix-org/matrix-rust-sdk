@@ -42,7 +42,7 @@ use ruma::DeviceId;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
-    OwnedRoomId, OwnedUserId, RoomId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
         StateEvent, StateEventType,
@@ -1219,7 +1219,7 @@ impl BaseClient {
     /// observable before the next sync reflects it.
     ///
     /// **Note:** This method should only be called when global profile syncing
-    /// is enabled
+    /// is enabled.
     pub async fn own_profile_updated(&self, update: UserProfileUpdate) -> Result<()> {
         let own_user_id = self.session_meta().ok_or(Error::InsufficientData)?.user_id.clone();
         let state_store_guard = self.state_store_lock().lock().await;
@@ -1229,6 +1229,37 @@ impl BaseClient {
         self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
 
         self.notify_global_profile_updates(BTreeSet::from([own_user_id]), &state_store_guard)
+    }
+
+    /// Receive global profiles fetched from the homeserver outside of a sync,
+    /// e.g. via MSC4536, along with any users whose global profiles need to
+    /// be marked as unavailable.
+    ///
+    /// Updates the internal and cached state accordingly, and notifies any
+    /// subscribers of the changed user IDs.
+    ///
+    /// **Note:** This method should only be called when global profile syncing
+    /// is enabled.
+    pub async fn receive_fetched_global_profiles(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfileUpdate>,
+        unavailable_profiles: BTreeMap<OwnedUserId, MilliSecondsSinceUnixEpoch>,
+    ) -> Result<()> {
+        if profiles.is_empty() && unavailable_profiles.is_empty() {
+            return Ok(());
+        }
+
+        let state_store_guard = self.state_store_lock().lock().await;
+        let user_ids = profiles.keys().cloned().collect();
+
+        let changes = StateChanges {
+            global_profiles: profiles,
+            unavailable_global_profiles: unavailable_profiles,
+            ..Default::default()
+        };
+        self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
+
+        self.notify_global_profile_updates(user_ids, &state_store_guard)
     }
 
     /// Notify the rest of the SDK that the global profiles of the given users

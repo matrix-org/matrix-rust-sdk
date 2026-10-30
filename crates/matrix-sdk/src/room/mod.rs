@@ -74,6 +74,7 @@ use ruma::{
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::{
+        FeatureFlag,
         client::{
             config::{set_global_account_data, set_room_account_data},
             context,
@@ -1307,6 +1308,40 @@ impl Room {
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
             .collect())
+    }
+
+    /// Fetch the missing global profiles of this room's joined members in the
+    /// background, e.g. after loading the members with [`Room::members()`].
+    ///
+    /// This returns once the fetch is queued, without waiting for the profiles.
+    /// They are announced through
+    /// [`Client::subscribe_to_global_profile_updates()`] as they are
+    /// stored.
+    ///
+    /// This does nothing unless the room is joined, global profiles are being
+    /// synced (see [`Client::is_global_profile_sync_enabled()`]) and the
+    /// homeserver supports [MSC4536]. The first two are needed for the sync to
+    /// keep the fetched profiles up to date.
+    ///
+    /// [MSC4536]: https://github.com/matrix-org/matrix-spec-proposals/pull/4536
+    pub async fn fetch_missing_global_profiles_in_background(&self) -> Result<()> {
+        if self.state() != RoomState::Joined {
+            return Ok(());
+        }
+
+        if !self.client.is_global_profile_sync_enabled().await? {
+            return Ok(());
+        }
+
+        if !self.client.unstable_features().await?.contains(&FeatureFlag::Msc4536) {
+            debug!("The homeserver doesn't support fetching multiple profiles");
+            return Ok(());
+        }
+
+        let user_ids = self.inner.joined_user_ids().await?;
+        self.client.global_profile_fetcher().enqueue(user_ids);
+
+        Ok(())
     }
 
     /// Get the user IDs of the members with the given memberships, without the

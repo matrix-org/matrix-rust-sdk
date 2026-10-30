@@ -132,6 +132,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_global_profiles_saving(&self) -> TestResult;
     /// Test loading global profiles for several users at once.
     async fn test_global_profiles_bulk_loading(&self) -> TestResult;
+    /// Test missing global profiles inc tracking unavailable ones.
+    async fn test_missing_global_profiles(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -2422,6 +2424,60 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         Ok(())
     }
+
+    async fn test_missing_global_profiles(&self) -> TestResult {
+        // Given four users without any stored global profiles.
+        let alice = user_id!("@alice:localhost");
+        let bob = user_id!("@bob:localhost");
+        let carol = user_id!("@carol:localhost");
+        let dan = user_id!("@dan:localhost");
+        let requested = [dan, carol, bob, alice].map(ToOwned::to_owned);
+        assert_eq!(
+            self.get_missing_global_profiles(&requested).await?,
+            vec![dan, carol, bob, alice]
+        );
+
+        // When Alice's profile is stored with Bob's marked as unavailable, and
+        // Carol's is marked as unavailable later on.
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(alice.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        changes
+            .unavailable_global_profiles
+            .insert(bob.to_owned(), MilliSecondsSinceUnixEpoch(uint!(1000)));
+        self.save_changes(&changes).await?;
+
+        let mut changes = StateChanges::default();
+        changes
+            .unavailable_global_profiles
+            .insert(carol.to_owned(), MilliSecondsSinceUnixEpoch(uint!(2000)));
+        self.save_changes(&changes).await?;
+
+        // Then only Dan's profile is missing.
+        assert_eq!(self.get_missing_global_profiles(&requested).await?, vec![dan]);
+
+        // When Bob's profile is received, and then dropped at a later date.
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(bob.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Bob"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        self.save_changes(&changes).await?;
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(bob.to_owned(), UserProfileUpdate::Dropped);
+        self.save_changes(&changes).await?;
+
+        // Then Bob's profile is missing again, as it's no longer marked as
+        // unavailable.
+        assert_eq!(self.get_missing_global_profiles(&requested).await?, vec![dan, bob]);
+
+        Ok(())
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -2644,6 +2700,12 @@ macro_rules! statestore_integration_tests {
             async fn test_global_profiles_bulk_loading() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_global_profiles_bulk_loading().await
+            }
+
+            #[async_test]
+            async fn test_missing_global_profiles() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_missing_global_profiles().await
             }
         }
     };

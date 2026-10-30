@@ -531,6 +531,17 @@ pub trait StateStore: AsyncTraitDeps {
         user_ids: &'a [OwnedUserId],
     ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error>;
 
+    /// Get which of the given users' global profiles can be fetched directly,
+    /// rather than waiting for them to come via /sync.
+    ///
+    /// These are the users without a stored global profile, and whose profile
+    /// isn't marked as unavailable, see
+    /// [`StateChanges::unavailable_global_profiles`].
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -859,6 +870,13 @@ impl<T: StateStore> StateStore for &T {
         (*self).get_global_profiles(user_ids).await
     }
 
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        (*self).get_missing_global_profiles(user_ids).await
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         (*self).close().await
     }
@@ -1183,6 +1201,13 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         user_ids: &'a [OwnedUserId],
     ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
         self.deref().get_global_profiles(user_ids).await
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        self.deref().get_missing_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1530,6 +1555,13 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         user_ids: &'a [OwnedUserId],
     ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
         self.0.get_global_profiles(user_ids).await.map_err(Into::into)
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        self.0.get_missing_global_profiles(user_ids).await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1922,6 +1954,13 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         user_ids: &'a [OwnedUserId],
     ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
         self.store.get_global_profiles(user_ids).await
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        self.store.get_missing_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

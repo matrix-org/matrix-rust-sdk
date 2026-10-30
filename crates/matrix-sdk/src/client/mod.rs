@@ -20,7 +20,7 @@ use std::{
     fmt::{self, Debug},
     future::{Future, ready},
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
+    sync::{Arc, Mutex as StdMutex, OnceLock as StdOnceLock, RwLock as StdRwLock, Weak},
     time::Duration,
 };
 
@@ -104,7 +104,7 @@ use crate::{
         oauth::OAuth,
     },
     client::{
-        homeserver_capabilities::HomeserverCapabilities,
+        global_profiles::GlobalProfileFetcher, homeserver_capabilities::HomeserverCapabilities,
         thread_subscriptions::ThreadSubscriptionCatchup,
     },
     config::{RequestConfig, SyncToken},
@@ -138,6 +138,7 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+pub(crate) mod global_profiles;
 pub(crate) mod homeserver_capabilities;
 pub(crate) mod thread_subscriptions;
 
@@ -416,6 +417,10 @@ pub(crate) struct ClientInner {
     /// background.
     thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
 
+    /// Service fetching missing global profiles in the background, created
+    /// lazily on first use.
+    global_profile_fetcher: StdOnceLock<GlobalProfileFetcher>,
+
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
@@ -514,6 +519,7 @@ impl ClientInner {
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
             thread_subscription_catchup,
+            global_profile_fetcher: StdOnceLock::new(),
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
@@ -4077,6 +4083,10 @@ impl Client {
 
     pub(crate) fn thread_subscription_catchup(&self) -> &ThreadSubscriptionCatchup {
         self.inner.thread_subscription_catchup.get().unwrap()
+    }
+
+    pub(crate) fn global_profile_fetcher(&self) -> &GlobalProfileFetcher {
+        self.inner.global_profile_fetcher.get_or_init(|| GlobalProfileFetcher::new(self))
     }
 
     /// Pause the client for background suspension.
