@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::ops::Deref;
+use std::{collections::HashSet, ops::Deref};
 
 use indexed_db_futures::transaction as inner;
 use matrix_sdk_base::{
@@ -29,8 +29,8 @@ use crate::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
             IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventOutOfBandKey,
             IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
-            IndexedThreadIdKey,
+            IndexedLease, IndexedLeaseIdKey, IndexedLinkedChunkId, IndexedNextChunkIdKey,
+            IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -466,9 +466,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             && self.contains_out_of_band_event(event.linked_chunk_id(), event_id).await?;
         let indexed = if promote { self.put_item(event)? } else { self.add_item(event)? };
 
-        self.update_events_by_event_id(event_id, |existing| {
-            existing.with_content(event.content().clone())
-        })
+        self.update_events_by_event_id_excluding(
+            &[event.linked_chunk_id()],
+            event_id,
+            |existing| existing.with_content(event.content().clone()),
+        )
         .await?;
 
         Ok(indexed)
@@ -489,9 +491,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
 
         let indexed = self.put_item(event)?;
 
-        self.update_events_by_event_id(event_id, |existing| {
-            existing.with_content(event.content().clone())
-        })
+        self.update_events_by_event_id_excluding(
+            &[event.linked_chunk_id()],
+            event_id,
+            |existing| existing.with_content(event.content().clone()),
+        )
         .await?;
 
         Ok(indexed)
@@ -508,7 +512,39 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         event_id: &EventId,
         f: F,
     ) -> Result<(), TransactionError> {
-        self.update_items_by_key_components::<Event, IndexedEventEventIdKey, F>(event_id, f).await
+        self.update_events_by_event_id_excluding(&[], event_id, f).await
+    }
+
+    /// Same as [`Self::update_events_by_event_id`], but does not update events
+    /// associated with the provided [`LinkedChunkId`]s in `exclude`.
+    pub async fn update_events_by_event_id_excluding<F>(
+        &self,
+        exclude: &[LinkedChunkId<'_>],
+        event_id: &EventId,
+        f: F,
+    ) -> Result<(), TransactionError>
+    where
+        F: Fn(Event) -> Event,
+    {
+        if exclude.is_empty() {
+            self.update_items_by_key_components::<Event, IndexedEventEventIdKey, _>(event_id, f)
+                .await?;
+        } else {
+            let exclude = exclude
+                .iter()
+                .map(|linked_chunk_id| {
+                    IndexedLinkedChunkId::encode_from(linked_chunk_id, self.serializer().inner())
+                })
+                .collect::<HashSet<_>>();
+            self.update_items_by_key_components_with_indexed_item_filter::<_, IndexedEventEventIdKey, _, _>(
+                event_id,
+                |indexed| !exclude.contains(indexed.id.indexed_linked_chunk_id()),
+                f,
+            )
+            .await?;
+        }
+
+        Ok(())
     }
 
     /// Update events in the given position range matching the given linked
