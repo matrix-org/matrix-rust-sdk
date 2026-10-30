@@ -449,8 +449,8 @@ fn build_targets(
 /// archive are wrapped back up under the original name.
 ///
 /// `ld -r` doesn't carry the merged objects' DWARF over, only a debug map
-/// pointing at them. With `strip_debug_info` set, the debug info is stripped
-/// from the library, as Cargo's `strip = "debuginfo"` never reaches a static
+/// pointing at them. With `strip_debug_info` set, that debug map is left out of
+/// the merged object, as Cargo's `strip = "debuginfo"` never reaches a static
 /// library since nothing links it. Otherwise the extracted objects are kept so
 /// that `dsymutil` and debuggers can still find the debug info on this machine.
 fn localize_private_symbols(
@@ -508,7 +508,10 @@ fn localize_private_symbols(
         members.len(),
         all_members.lines().count()
     );
-    cmd!(sh, "ld -r -unexported_symbols_list {symbols_list} -o {merged_object}")
+    // Drop the debug map while merging rather than stripping the library
+    // afterwards as `strip` corrupts aws-lc's assembly objects.
+    let strip_flag = strip_debug_info.then_some("-S");
+    cmd!(sh, "ld -r -unexported_symbols_list {symbols_list} {strip_flag...} -o {merged_object}")
         .args(&objects)
         .quiet()
         .run()?;
@@ -517,7 +520,6 @@ fn localize_private_symbols(
     cmd!(sh, "libtool -static -no_warning_for_no_symbols -o {library} {merged_object} {remainder}")
         .run()?;
     if strip_debug_info {
-        cmd!(sh, "strip -S {library}").run()?;
         remove_dir_all(&objects_directory)?;
     }
 
