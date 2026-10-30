@@ -807,7 +807,7 @@ mod timed_tests {
         RoomState,
         event_cache::{
             Gap,
-            store::{EventCacheStore as _, MemoryStore},
+            store::{ControlledMemoryStore, EventCacheStore as _, MemoryStore},
         },
         linked_chunk::{
             ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update,
@@ -1632,6 +1632,96 @@ mod timed_tests {
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id(), Some(evid1));
         assert!(outcome.reached_start);
+    }
+
+    #[async_test]
+    #[should_panic]
+    async fn test_shrink_when_loading_the_last_chunk_fails() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let f = EventFactory::new().room(room_id);
+
+        let ev1 =
+            f.text_msg("hello world").sender(User::Alice).event_id(event_id!("$1")).into_event();
+        let ev2 = f.text_msg("howdy").sender(User::Bob).event_id(event_id!("$2")).into_event();
+
+        // Fill the event cache store with an initial linked chunk with 2 events
+        // chunks.
+        let event_cache_store = ControlledMemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev1],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev2],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder({
+                let event_cache_store = event_cache_store.clone();
+
+                move |builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                            .event_cache_store(event_cache_store),
+                    )
+                }
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+        let events = room_event_cache.events().await.unwrap();
+        assert_eq!(events.len(), 1);
+
+        // Shrink while loading the last chunk fails: the chunks' metadata are
+        // loaded, but the storage is then cleared.
+        event_cache_store.fail_next_last_chunk_load();
+        room_event_cache
+            .inner
+            .state
+            .reload_no_preprocessing()
+            .await
+            .expect("shrinking should succeed");
+
+        // Reading the events lazily creates a new first chunk.
+        assert!(room_event_cache.events().await.unwrap().is_empty());
+
+        event_cache_store.stop_failing_next_last_chunk_load();
+
+        // Shrinking again must not panic: the order tracker must not have kept
+        // the metadata of the chunks that have been cleared.
+        room_event_cache
+            .inner
+            .state
+            .reload_no_preprocessing()
+            .await
+            .expect("shrinking should succeed");
+
+        assert!(room_event_cache.events().await.unwrap().is_empty());
     }
 
     #[async_test]
