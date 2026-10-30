@@ -77,6 +77,7 @@ use ruma::{
         client::{
             config::{set_global_account_data, set_room_account_data},
             context,
+            delayed_events::update_delayed_event,
             filter::LazyLoadOptions,
             membership::{
                 Invite3pid, ban_user, forget_room, get_member_events,
@@ -2663,7 +2664,9 @@ impl Room {
     ///
     /// If you want to set a transaction ID for the event, use
     /// [`.with_transaction_id()`][SendRawMessageLikeEvent::with_transaction_id]
-    /// on the returned value before `.await`ing it.
+    /// on the returned value before `.await`ing it. To schedule the event as a
+    /// delayed event ([MSC4140]), use
+    /// [`.into_delayed()`][SendRawMessageLikeEvent::into_delayed].
     ///
     /// # Arguments
     ///
@@ -2672,6 +2675,8 @@ impl Room {
     ///   type can be `serde_json::Value`, but also other raw JSON types; for
     ///   the full list check the documentation of
     ///   [`IntoRawMessageLikeEventContent`].
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     ///
     /// # Examples
     ///
@@ -2700,6 +2705,39 @@ impl Room {
         // Note: the recorded instrument fields are saved in
         // `SendRawMessageLikeEvent::into_future`.
         SendRawMessageLikeEvent::new(self, event_type, content)
+    }
+
+    /// Update a delayed event that was previously scheduled with
+    /// [`SendRawMessageLikeEvent::into_delayed`] or
+    /// [`SendRawStateEvent::into_delayed`] ([MSC4140]).
+    ///
+    /// Depending on the `action` this cancels the delayed event, restarts its
+    /// timeout, or sends it to the room right away.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_id` - The identifier of the delayed event, as returned by the
+    ///   homeserver when the event was scheduled.
+    ///
+    /// * `action` - What to do with the delayed event.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    #[instrument(skip_all)]
+    pub async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: update_delayed_event::UpdateAction,
+    ) -> Result<update_delayed_event::unstable_v2::Response> {
+        let request = update_delayed_event::unstable_v2::Request::new(delay_id, action);
+
+        // Ruma declares this endpoint as not requiring authentication, but the
+        // homeserver only lets the owner of the delayed event update it, so the
+        // access token must be sent anyway.
+        Ok(self
+            .client
+            .send(request)
+            .with_request_config(RequestConfig::default().force_auth())
+            .await?)
     }
 
     /// Send an attachment to this room.
@@ -3354,6 +3392,10 @@ impl Room {
     ///
     /// Returns the parsed response from the server.
     ///
+    /// To schedule the event as a delayed event ([MSC4140]), use
+    /// [`.into_delayed()`][SendRawStateEvent::into_delayed] on the returned
+    /// value before `.await`ing it.
+    ///
     /// # Arguments
     ///
     /// - `event_type` - The type of the event that we're sending out.
@@ -3383,6 +3425,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     #[instrument(skip_all)]
     pub fn send_state_event_raw<'a>(
