@@ -432,7 +432,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     /// Clear all timeline items that are not local echoes nor date dividers,
     /// and all remote events.
     ///
-    /// Adjacent day dividers are merged, i.e. the oldest are removed, the
+    /// Adjacent date dividers are merged, i.e. the oldest are removed, the
     /// newest are kept.
     ///
     /// This method tries to generate a single `VectorDiff::Clear` then few
