@@ -39,20 +39,21 @@ use super::{
     EventCacheStore, EventCacheStoreError, MemoryStore, Result,
 };
 
-/// A [`MemoryStore`] whose linked chunk writes can be blocked, or made to
-/// fail.
+/// A [`MemoryStore`] where we can control which operations succeed or fail.
 ///
 /// This is meant for tests that need to control when, or whether, the event
 /// cache persists its data: for instance to check what the rest of the SDK
 /// does while the store is slow, or when it returns an error.
 ///
-/// Only [`EventCacheStore::handle_linked_chunk_updates`] is affected. All the
-/// other methods are forwarded to the inner [`MemoryStore`] as is.
+/// Only [`EventCacheStore::handle_linked_chunk_updates`] and
+/// [`EventCacheStore::load_last_chunk`] are affected. All the other methods are
+/// forwarded to the inner [`MemoryStore`] as is.
 #[derive(Debug, Clone, Default)]
 pub struct ControlledMemoryStore {
     inner: MemoryStore,
     writes_blocked: Arc<AtomicBool>,
     writes_failing: Arc<AtomicBool>,
+    fail_last_chunk_load: Arc<AtomicBool>,
     write_started: Arc<Notify>,
     write_finished: Arc<Notify>,
 }
@@ -87,6 +88,16 @@ impl ControlledMemoryStore {
     /// Make linked chunk writes succeed again.
     pub fn stop_failing_writes(&self) {
         self.writes_failing.store(false, Ordering::SeqCst);
+    }
+
+    /// Make calls to [`EventCacheStore::load_last_chunk`] fail.
+    pub fn fail_next_last_chunk_load(&self) {
+        self.fail_last_chunk_load.store(true, Ordering::SeqCst);
+    }
+
+    /// Stop making calls to [`EventCacheStore::load_last_chunk`] fail.
+    pub fn stop_failing_next_last_chunk_load(&self) {
+        self.fail_last_chunk_load.store(false, Ordering::SeqCst);
     }
 
     /// Wait until a linked chunk write starts.
@@ -169,6 +180,12 @@ impl EventCacheStore for ControlledMemoryStore {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+        if self.fail_last_chunk_load.load(Ordering::SeqCst) {
+            return Err(EventCacheStoreError::backend(std::io::Error::other(
+                "`load_last_chunk` failure requested by the test",
+            )));
+        }
+
         self.inner.load_last_chunk(linked_chunk_id).await
     }
 
