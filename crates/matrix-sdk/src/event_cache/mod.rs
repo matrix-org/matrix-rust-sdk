@@ -72,7 +72,6 @@ mod tasks;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
-pub(crate) use self::caches::room::RFindMapOutcome;
 pub use self::{
     back_pagination_queue::BackPaginationQueue,
     caches::{

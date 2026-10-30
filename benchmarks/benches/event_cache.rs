@@ -1,12 +1,9 @@
 use std::{pin::Pin, sync::Arc};
 
-use assert_matches::assert_matches;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
     RoomInfo, RoomState, SqliteEventCacheStore, StateStore,
     cross_process_lock::CrossProcessLockConfig,
-    latest_events::{LatestEventValue, bench_new_remote},
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     store::StoreConfig,
     sync::{JoinedRoomUpdate, RoomUpdates},
     test_utils::client::MockClientBuilder,
@@ -14,9 +11,9 @@ use matrix_sdk::{
 use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
 use matrix_sdk_test::{User, base64_sha256_hash, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId, RoomId, event_id,
+    OwnedRoomId, RoomId,
     events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
-    room_id, user_id,
+    room_id,
 };
 use tempfile::tempdir;
 use tokio::runtime::Builder;
@@ -353,143 +350,10 @@ fn find_event_relations(c: &mut Criterion) {
     group.finish()
 }
 
-fn find_latest_event(c: &mut Criterion) {
-    const NUM_EVENTS_PER_CHUNK: usize = 50;
-
-    // Number of stored chunks. Only the last one is loaded in memory.
-    const NUM_CHUNKS: u64 = 12;
-    const LAST_CHUNK: u64 = NUM_CHUNKS - 1;
-
-    // Create a new asynchronous runtime.
-    let runtime = Builder::new_multi_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .expect("Failed to create an asynchronous runtime");
-
-    let mut group = c.benchmark_group("Latest event");
-    group.sample_size(10);
-
-    let room_id = room_id!("!latesteventroom:ben.ch");
-    let own_user_id = user_id!("@me:ben.ch");
-    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
-
-    // Make the state store aware of the room, so that the event cache can be
-    // created for it.
-    let mut changes = matrix_sdk::StateChanges::default();
-    changes.add_room(RoomInfo::new(room_id, RoomState::Joined));
-    let state_store = runtime.block_on(async {
-        let state_store = matrix_sdk::MemoryStore::new();
-        state_store.save_changes(&changes).await.unwrap();
-        Arc::new(state_store)
-    });
-
-    // Which chunk holds the only candidate for the latest event.
-    let scenarios = [
-        ("in memory", LAST_CHUNK),
-        ("1st previous chunk", LAST_CHUNK - 1),
-        ("10th previous chunk", LAST_CHUNK - 10),
-    ];
-
-    for (scenario, candidate_chunk) in scenarios {
-        // Fill the chunks with reactions, which can't be the latest event, and
-        // put the candidate at the end of `candidate_chunk`.
-        let mut updates = Vec::new();
-
-        for chunk in 0..NUM_CHUNKS {
-            let mut events: Vec<_> = (0..NUM_EVENTS_PER_CHUNK)
-                .map(|_| event_factory.reaction(event_id!("$unknown"), "👍").into_event())
-                .collect();
-
-            if chunk == candidate_chunk {
-                events.push(event_factory.text_msg("hello world").into_event());
-            }
-
-            updates.push(Update::NewItemsChunk {
-                previous: chunk.checked_sub(1).map(ChunkIdentifier::new),
-                new: ChunkIdentifier::new(chunk),
-                next: None,
-            });
-            updates.push(Update::PushItems {
-                at: Position::new(ChunkIdentifier::new(chunk), 0),
-                items: events,
-            });
-        }
-
-        // Declare new stores for this set of events.
-        let temp_dir = Arc::new(tempdir().unwrap());
-
-        let stores = vec![
-            ("memory", MemoryStore::default().into_event_cache_store()),
-            (
-                "SQLite",
-                runtime.block_on(async {
-                    SqliteEventCacheStore::open(temp_dir.path().join("bench"), None)
-                        .await
-                        .unwrap()
-                        .into_event_cache_store()
-                }),
-            ),
-        ];
-
-        for (store_name, event_cache_store) in stores {
-            let (client, room_event_cache, _drop_handles) = runtime.block_on(async {
-                event_cache_store
-                    .handle_linked_chunk_updates(LinkedChunkId::Room(room_id), updates.clone())
-                    .await
-                    .unwrap();
-
-                let client = MockClientBuilder::new(None)
-                    .on_builder(|builder| {
-                        builder.store_config(
-                            StoreConfig::new(CrossProcessLockConfig::multi_process(
-                                "cross-process-store-locks-holder-name",
-                            ))
-                            .state_store(state_store.clone())
-                            .event_cache_store(event_cache_store),
-                        )
-                    })
-                    .build()
-                    .await;
-
-                // Only the last chunk is loaded in memory.
-                let (room_event_cache, drop_handles) =
-                    client.event_cache().unwrap().room(room_id).await.unwrap();
-
-                (client, room_event_cache, drop_handles)
-            });
-
-            group.bench_function(
-                BenchmarkId::new(format!("Latest event new_remote[{store_name}]"), scenario),
-                |bencher| {
-                    bencher.to_async(&runtime).iter(|| async {
-                        let value = bench_new_remote(&room_event_cache, own_user_id).await;
-                        assert_matches!(value, Some(LatestEventValue::Remote(_)));
-                    })
-                },
-            );
-
-            {
-                let _guard = runtime.enter();
-                drop(room_event_cache);
-                drop(client);
-                drop(_drop_handles);
-            }
-        }
-    }
-
-    {
-        let _guard = runtime.enter();
-        drop(state_store);
-    }
-
-    group.finish()
-}
-
 criterion_group! {
     name = event_cache;
     config = Criterion::default();
-    targets = handle_room_updates, find_event_relations, find_latest_event,
+    targets = handle_room_updates, find_event_relations,
 }
 
 criterion_main!(event_cache);
