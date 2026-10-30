@@ -77,7 +77,8 @@ impl Default for ReadReceipts {
 }
 
 fn new_nonempty_ring_buffer() -> RingBuffer<OwnedEventId> {
-    // 10 pending read receipts per room should be enough for everyone. SAFETY:
-    // `unwrap` is safe because 10 is not zero.
+    // 10 pending read receipts per room should be enough for everyone.
+    //
+    // SAFETY: `unwrap` is safe because 10 is not zero.
     RingBuffer::new(NonZeroUsize::new(10).unwrap())
 }
