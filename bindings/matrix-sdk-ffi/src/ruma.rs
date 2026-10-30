@@ -31,6 +31,7 @@ use ruma::{
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
+        invite_permission_config::InvitePermissionAction as RumaInvitePermissionAction,
         location::AssetType as RumaAssetType,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         media_preview_config::{
@@ -1307,6 +1308,48 @@ pub enum AccountDataEvent {
         /// The passphrase from which to generate the key.
         passphrase: Option<PassPhrase>,
     },
+}
+
+/// The current room invite permission state.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum InvitePermissionState {
+    /// No default restriction on room invitations.
+    Unrestricted,
+
+    /// All room invitations are blocked.
+    Block,
+
+    /// An invite permission not supported by the SDK.
+    Unsupported,
+}
+
+/// The room invite permissions that can be set.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum InvitePermissionAction {
+    /// Allow room invitations.
+    Allow,
+
+    /// Block all room invitations.
+    Block,
+}
+
+impl From<Option<RumaInvitePermissionAction>> for InvitePermissionState {
+    fn from(action: Option<RumaInvitePermissionAction>) -> Self {
+        match action {
+            None => Self::Unrestricted,
+            Some(RumaInvitePermissionAction::Block) => Self::Block,
+            Some(_) => Self::Unsupported,
+        }
+    }
+}
+
+impl From<InvitePermissionAction> for Option<RumaInvitePermissionAction> {
+    fn from(action: InvitePermissionAction) -> Self {
+        match action {
+            InvitePermissionAction::Allow => None,
+            InvitePermissionAction::Block => Some(RumaInvitePermissionAction::Block),
+        }
+    }
 }
 
 /// The policy that decides if media previews should be shown in the timeline.
