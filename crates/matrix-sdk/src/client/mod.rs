@@ -4389,6 +4389,9 @@ pub(crate) mod tests {
         assign,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
+            invite_permission_config::{
+                InvitePermissionAction, InvitePermissionConfigEventContent,
+            },
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
         owned_device_id, owned_room_id, owned_user_id,
@@ -5956,6 +5959,295 @@ pub(crate) mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[async_test]
+    async fn test_disable_room_invites() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{body_json, method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("PUT"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .and(body_json(json!({
+                "default_action": "block"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let mut config = InvitePermissionConfigEventContent::new();
+        // Set config to block invites.
+        config.default_action = Some(InvitePermissionAction::Block);
+
+        // Disables invites.
+        client.account().set_invite_permission_config(config).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_enable_room_invites() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{body_json, method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("PUT"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .and(body_json(json!({})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+        let mut config = InvitePermissionConfigEventContent::new();
+        // Just to be explicit.
+        config.default_action = None;
+
+        // Enables invites.
+        client.account().set_invite_permission_config(config).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_fetch_disabled_invite_permission_config() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "default_action": "block"
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let config = client.account().fetch_invite_permission_config().await.unwrap();
+        // Invites are disabled.
+        assert_eq!(config.unwrap().default_action, Some(InvitePermissionAction::Block));
+    }
+
+    #[async_test]
+    async fn test_fetch_enabled_invite_permission_config() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let config = client.account().fetch_invite_permission_config().await.unwrap();
+        // Invites are enabled.
+        assert_eq!(config.unwrap().default_action, None);
+    }
+
+    #[async_test]
+    async fn test_fetch_missing_invite_permission_config() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_NOT_FOUND",
+                "error": "Account data not found"
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let config = client.account().fetch_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(config.is_none());
+    }
+
+    #[async_test]
+    async fn test_get_disabled_invite_permission_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {
+                        "default_action": "block"
+                    },
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        let config = client.account().get_invite_permission_config().await.unwrap();
+
+        // Invites are disabled.
+        assert_eq!(config.unwrap().default_action, Some(InvitePermissionAction::Block));
+    }
+
+    #[async_test]
+    async fn test_get_enabled_invite_permission_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {},
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        let config = client.account().get_invite_permission_config().await.unwrap();
+
+        assert!(config.is_some());
+        // Invites are enabled.
+        assert_eq!(config.unwrap().default_action, None);
+    }
+
+    #[async_test]
+    async fn test_get_invite_permission_config_not_found() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let config = client.account().get_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(config.is_none());
+    }
+
+    #[async_test]
+    async fn test_observe_invite_permission_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Room invitations are disabled.
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {
+                        "default_action": "block"
+                    },
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        let (initial_value, stream) =
+            client.account().observe_invite_permission_config().await.unwrap();
+
+        let initial_value = initial_value.unwrap();
+        assert_eq!(initial_value.default_action, Some(InvitePermissionAction::Block));
+
+        let mut stream = pin!(stream);
+        assert_pending!(stream);
+
+        // Room invitations are enabled again.
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {},
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        assert_next_matches!(
+            stream,
+            InvitePermissionConfigEventContent { default_action: None, .. }
+        );
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_observe_invite_permission_config_after_initial_subscription() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let (initial_value, stream) =
+            client.account().observe_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(initial_value.is_none());
+
+        let mut stream = pin!(stream);
+        assert_pending!(stream);
+
+        // Room invitations are disabled.
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {
+                        "default_action": "block"
+                    },
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        assert_next_matches!(
+            stream,
+            InvitePermissionConfigEventContent {
+                default_action: Some(InvitePermissionAction::Block),
+                ..
+            }
+        );
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_observe_invite_permission_config_not_found() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let (initial_value, _) = client.account().observe_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(initial_value.is_none());
     }
 
     #[async_test]

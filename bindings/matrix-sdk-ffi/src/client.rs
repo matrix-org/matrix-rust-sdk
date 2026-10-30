@@ -103,6 +103,7 @@ use ruma::{
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
+        invite_permission_config::InvitePermissionConfigEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         push_rules::PushRulesEventContent,
@@ -151,8 +152,9 @@ use crate::{
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{
-        AccountDataEvent, AccountDataEventType, InviteAvatars, MediaPreviewConfig, MediaPreviews,
-        MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
+        AccountDataEvent, AccountDataEventType, InviteAvatars, InvitePermissionAction,
+        InvitePermissionState, MediaPreviewConfig, MediaPreviews, MediaSource, PresenceState,
+        RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -2328,6 +2330,51 @@ impl Client {
         Ok(self.inner.server_vendor_info(None).await?)
     }
 
+    /// Subscribe to changes in the room invite permission configuration.
+    pub async fn subscribe_to_invite_permission(
+        &self,
+        listener: Box<dyn InvitePermissionListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let (initial_value, stream) =
+            self.inner.account().observe_invite_permission_config().await?;
+
+        // Missing configuration is treated as unrestricted.
+        let state = initial_value
+            .map_or(InvitePermissionState::Unrestricted, |config| config.default_action.into());
+
+        // Send the initial value to the listener.
+        listener.on_change(state);
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            // Listen for changes and notify the listener.
+            let mut stream = pin!(stream);
+            while let Some(config) = stream.next().await {
+                listener.on_change(config.default_action.into());
+            }
+        }))))
+    }
+
+    /// Set the room invite permission for this account.
+    pub async fn set_invite_permission(
+        &self,
+        action: InvitePermissionAction,
+    ) -> Result<(), ClientError> {
+        let mut config = InvitePermissionConfigEventContent::new();
+        config.default_action = action.into();
+
+        self.inner.account().set_invite_permission_config(config).await?;
+        Ok(())
+    }
+
+    /// Get the room invite permission stored in the cache.
+    pub async fn get_invite_permission(
+        &self,
+    ) -> Result<Option<InvitePermissionState>, ClientError> {
+        let config = self.inner.account().get_invite_permission_config().await?;
+
+        Ok(config.map(|config| config.default_action.into()))
+    }
+
     /// Subscribe to changes in the media preview configuration.
     pub async fn subscribe_to_media_preview_config(
         &self,
@@ -2847,6 +2894,11 @@ mod recent_emoji {
                 .collect::<Vec<RecentEmoji>>())
         }
     }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait InvitePermissionListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_change(&self, invite_permission: InvitePermissionState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]

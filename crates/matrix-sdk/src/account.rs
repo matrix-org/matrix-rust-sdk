@@ -58,6 +58,7 @@ use ruma::{
         AnyGlobalAccountDataEventContent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        invite_permission_config::InvitePermissionConfigEventContent,
         media_preview_config::{
             InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
             UnstableMediaPreviewConfigEventContent,
@@ -1153,6 +1154,89 @@ impl Account {
         self.set_account_data(content).await?;
 
         Ok(())
+    }
+
+    /// Set the invite permission configuration for this account.
+    ///
+    /// The configuration determines how the server should handle incoming
+    /// room invitations. If `default_action` is unset, then it allows
+    /// invitations as normal, but it is still subject to other
+    /// restrictions such as ignored users.
+    ///
+    /// See the [Matrix specification](https://spec.matrix.org/v1.19/client-server-api/#minvite_permission_config).
+    pub async fn set_invite_permission_config(
+        &self,
+        config: InvitePermissionConfigEventContent,
+    ) -> Result<()> {
+        self.set_account_data(config).await?;
+        Ok(())
+    }
+
+    /// Fetches the invite permission configuration from the server.
+    ///
+    /// Returns `None` if no configuration has been set for this account.
+    pub async fn fetch_invite_permission_config(
+        &self,
+    ) -> Result<Option<InvitePermissionConfigEventContent>> {
+        self.fetch_account_data_static::<InvitePermissionConfigEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Gets the invite permission configuration stored in the local state
+    /// store.
+    ///
+    /// Returns `None` if no configuration has been receceived yet.
+    pub async fn get_invite_permission_config(
+        &self,
+    ) -> Result<Option<InvitePermissionConfigEventContent>> {
+        self.account_data::<InvitePermissionConfigEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Observes changes to the invite permission configuration.
+    ///
+    /// This will return the current value of the configuration from the local
+    /// state store and a stream that will yield new values as they are
+    /// received.
+    ///
+    /// The initial value may be `None` if no configuration has been received
+    /// yet.
+    pub async fn observe_invite_permission_config(
+        &self,
+    ) -> Result<
+        (
+            Option<InvitePermissionConfigEventContent>,
+            impl Stream<Item = InvitePermissionConfigEventContent> + use<>,
+        ),
+        Error,
+    > {
+        let observer = self
+            .client
+            .observe_events::<GlobalAccountDataEvent<InvitePermissionConfigEventContent>, ()>();
+
+        let mut stream = observer.subscribe().map(|event| event.0.content);
+
+        let result_stream = async_stream::stream! {
+            // The observer needs to be alive for the lifetime of the stream, we need to take
+            // ownership.
+            let _observer = observer;
+
+            while let Some(item) = stream.next().await {
+                yield item;
+            }
+        };
+
+        // We need to read the initial value after subscribing to avoid missing
+        // updates.
+        let initial_value = self.get_invite_permission_config().await?;
+
+        Ok((initial_value, result_stream))
     }
 
     /// Adds the given user ID to the account's ignore list.
