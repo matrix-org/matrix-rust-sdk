@@ -60,6 +60,11 @@ use crate::event_cache::RoomEventCache;
 
 type Key = String;
 
+/// Marker file, in the search index directory, telling that the events saved in
+/// the event cache store have been indexed. Bump it when the index format
+/// changes, so the events get indexed again.
+pub(crate) const REINDEX_MARKER: &str = "reindexed-v1";
+
 /// Type of location to store [`RoomIndex`]
 #[derive(Clone, Debug)]
 pub enum SearchIndexStoreKind {
@@ -114,6 +119,40 @@ impl SearchIndex {
 
         let size = dir_size(self.directory()?).ok()?;
         usize::try_from(size).ok()
+    }
+
+    /// Delete all the room indexes, from memory and from disk, along with the
+    /// reindex marker. Any other file in the directory is kept, so it can be
+    /// shared with other data, like the stores.
+    pub async fn clear(&self) -> std::io::Result<()> {
+        // Hold the lock, so no index is opened or written to meanwhile.
+        let mut room_indexes = self.room_indexes.lock().await;
+
+        // Drop the open indexes, so their files are closed before deletion.
+        room_indexes.clear();
+
+        let Some(directory) = self.directory() else { return Ok(()) };
+
+        let entries = match std::fs::read_dir(directory) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            entries => entries?,
+        };
+
+        for entry in entries {
+            let entry = entry?;
+
+            if entry.file_name() == REINDEX_MARKER {
+                std::fs::remove_file(entry.path())?;
+            } else if entry.file_type()?.is_dir()
+                && entry.file_name().to_str().is_some_and(|name| RoomId::parse(name).is_ok())
+            {
+                // Room indexes are stored in directories named after their
+                // room.
+                std::fs::remove_dir_all(entry.path())?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Acquire [`SearchIndexGuard`] for this [`SearchIndex`].
@@ -695,6 +734,59 @@ mod tests {
         guard.bulk_execute(Vec::new(), room_id).unwrap();
 
         assert!(!dir.path().join(room_id.as_str()).exists());
+    }
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_clear_deletes_the_room_indexes_only() {
+        use super::{REINDEX_MARKER, SearchIndexStoreKind};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.search_index_store(SearchIndexStoreKind::UnencryptedDirectory(
+                    dir.path().to_path_buf(),
+                ))
+            })
+            .build()
+            .await;
+
+        let room_id = room_id!("!room_id:localhost");
+        mock_server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    EventFactory::new()
+                        .text_msg("this is a sentence")
+                        .room(room_id)
+                        .sender(user_id!("@user_id:localhost")),
+                ),
+            )
+            .await;
+
+        // Let the indexer open the room index.
+        let room_index = dir.path().join(room_id.as_str());
+        for _ in 0..50 {
+            if room_index.exists() {
+                break;
+            }
+            crate::sleep::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(room_index.exists());
+
+        // The directory can be shared with other data.
+        let other_file = dir.path().join("matrix-sdk-crypto.sqlite3");
+        std::fs::write(&other_file, b"").unwrap();
+        std::fs::write(dir.path().join(REINDEX_MARKER), b"").unwrap();
+
+        client.search_index().clear().await.unwrap();
+
+        assert!(client.search_index().lock().await.index_map.is_empty());
+        assert!(!room_index.exists());
+        assert!(!dir.path().join(REINDEX_MARKER).exists());
+        assert!(other_file.exists());
     }
 
     #[cfg(feature = "experimental-search")]

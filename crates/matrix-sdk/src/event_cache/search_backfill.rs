@@ -183,17 +183,13 @@ impl EventCache {
     }
 }
 
-/// Marker file, in the search index directory, telling that the events saved in
-/// the event cache store have been indexed. Bump it when the index format
-/// changes, so the events get indexed again.
-#[cfg(feature = "experimental-search")]
-const REINDEX_MARKER: &str = "reindexed-v1";
-
 impl EventCache {
     /// Index the events saved in the event cache store, once: the search index
     /// may have missed some, or have been recreated.
     #[cfg(feature = "experimental-search")]
     async fn reindex_stored_events(&self, client: &Client) {
+        use crate::search_index::REINDEX_MARKER;
+
         let dir = client.search_index().directory();
         if dir.is_some_and(|dir| dir.join(REINDEX_MARKER).exists()) {
             return;
