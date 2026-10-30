@@ -118,8 +118,11 @@ where
     ///
     /// This must only be used when the updates do not affect the observed
     /// linked chunk, but would affect the fully-loaded collection.
+    /// Pending updates from the observed linked chunk are applied first.
     pub fn map_updates(&mut self, updates: &[Update<Item, Gap>]) {
-        // `updates` may refer to chunks created by unflushed in-band updates.
+        // Both sources update the same mapper. Apply queued changes before the
+        // out-of-band changes, rather than leaving the mapper in an older
+        // state.
         self.flush_updates(false);
         let _ = self.mapper.map(updates);
     }
@@ -568,17 +571,60 @@ mod tests {
 
     #[async_test]
     async fn test_out_of_band_updates_after_unflushed_in_band_updates() {
-        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+        let chunk0 = ChunkIdentifier::new(0);
+        let chunk1 = ChunkIdentifier::new(1);
+        let chunk2 = ChunkIdentifier::new(2);
 
-        let mut tracker = linked_chunk.order_tracker(None).unwrap();
+        // Chunk 0 contains 'a', 'b' in storage; only chunk 1 ('c') is loaded.
+        let mut linked_chunk = from_last_chunk::<3, char, ()>(
+            Some(RawChunk {
+                content: ChunkContent::Items(vec!['c']),
+                previous: Some(chunk0),
+                identifier: chunk1,
+                next: None,
+            }),
+            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(chunk1),
+        )
+        .unwrap()
+        .unwrap();
+        let mut tracker = linked_chunk
+            .order_tracker(Some(vec![
+                ChunkMetadata {
+                    previous: None,
+                    identifier: chunk0,
+                    next: Some(chunk1),
+                    num_items: 2,
+                },
+                ChunkMetadata {
+                    previous: Some(chunk0),
+                    identifier: chunk1,
+                    next: None,
+                    num_items: 1,
+                },
+            ]))
+            .unwrap();
 
-        linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+        // Appending fills chunk 1 and creates chunk 2. The reader has not
+        // consumed those updates yet, so the mapper still holds the
+        // initial metadata.
+        linked_chunk.push_items_back(['d', 'e', 'f']);
+        assert_eq!(tracker.mapper.chunks, [(chunk0, 2), (chunk1, 1)]);
 
-        tracker
-            .map_updates(&[Update::RemoveItem { at: Position::new(ChunkIdentifier::new(1), 0) }]);
+        // Remove 'a' from storage. Unlike the loaded items, this removal is not
+        // recorded in the linked chunk's update history.
+        tracker.map_updates(&[Update::RemoveItem { at: Position::new(chunk0, 0) }]);
 
-        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
-        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 2)), Some(2));
-        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(1), 0)), None);
+        // map_updates must apply both sources: the stored prefix is now just
+        // 'b', and the loaded suffix is 'c', 'd', 'e', 'f'. Without the flush,
+        // chunk 1 still has length 1 and chunk 2 is missing from the mapper.
+        assert_eq!(tracker.mapper.chunks, [(chunk0, 1), (chunk1, 3), (chunk2, 1)]);
+        assert_eq!(tracker.ordering(Position::new(chunk0, 0)), Some(0));
+        assert_eq!(tracker.ordering(Position::new(chunk0, 1)), None);
+        assert_order(&linked_chunk, &tracker, 1);
+
+        // A later flush must not replay the append and count those items twice.
+        tracker.flush_updates(false);
+        assert_eq!(tracker.mapper.chunks, [(chunk0, 1), (chunk1, 3), (chunk2, 1)]);
+        assert_order(&linked_chunk, &tracker, 1);
     }
 }
