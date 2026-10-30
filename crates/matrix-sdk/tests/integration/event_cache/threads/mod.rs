@@ -1,4 +1,5 @@
 mod read_receipts;
+mod thread_info;
 
 use std::{ops::Not, time::Duration};
 
