@@ -2170,6 +2170,7 @@ impl Client {
     ///   will start as if they were empty.
     /// - This will empty the media cache according to the current media
     ///   retention policy.
+    /// - This will delete the search index.
     pub async fn clear_caches(
         &self,
         sync_service: Option<Arc<SyncService>>,
@@ -2205,6 +2206,11 @@ impl Client {
             if let Some(event_cache) = self.inner.event_cache() {
                 event_cache.clear_all_rooms().await?;
             }
+
+            // Delete the search index. It may share its directory with the
+            // stores, so only its own files are deleted.
+            #[cfg(feature = "experimental-search")]
+            self.inner.search_index().clear().await.map_err(ClientError::from_err)?;
 
             // Delete the state store file, if it exists.
             #[cfg(feature = "sqlite")]
