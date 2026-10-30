@@ -1631,16 +1631,22 @@ async fn test_send_message_updates() -> Result<()> {
     sync_service.start().await;
 
     assert_let!(diffs = stream.next().await.unwrap());
-    assert_eq!(diffs.len(), 4);
+    assert_eq!(diffs.len(), 7);
 
-    // FIXME: this is some "bouncing" behavior! The timeline should only trigger
-    // a single `Set` update for the sent event, here, ideally.
     {
+        // Timeline is cleared. The date divider and the local echo are
+        // reinserted.
+        assert_let!(VectorDiff::Clear = &diffs[0]);
+        assert_let!(VectorDiff::PushBack { value } = &diffs[1]);
+        assert!(value.is_date_divider());
+        assert_let!(VectorDiff::PushBack { value } = &diffs[2]);
+        assert!(value.as_event().unwrap().is_local_echo());
+
         // Removal of the duplicate event.
-        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
+        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[3]);
 
         // The duplicate event is reinserted.
-        assert_let!(VectorDiff::PushFront { value } = &diffs[1]);
+        assert_let!(VectorDiff::PushFront { value } = &diffs[4]);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.content().as_message().unwrap().body(), "Hello world");
         // No more a local echo.
@@ -1648,11 +1654,11 @@ async fn test_send_message_updates() -> Result<()> {
         assert_eq!(&timeline_unique_id, value.unique_id());
 
         // A date divider is re-inserted at start.
-        assert_let!(VectorDiff::PushFront { value } = &diffs[2]);
+        assert_let!(VectorDiff::PushFront { value } = &diffs[5]);
         assert!(value.is_date_divider());
 
         // And the other date divider is removed.
-        assert_let!(VectorDiff::Remove { index: 2 } = &diffs[3]);
+        assert_let!(VectorDiff::Remove { index: 2 } = &diffs[6]);
     }
 
     Ok(())
