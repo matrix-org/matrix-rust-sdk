@@ -119,6 +119,8 @@ where
     /// This must only be used when the updates do not affect the observed
     /// linked chunk, but would affect the fully-loaded collection.
     pub fn map_updates(&mut self, updates: &[Update<Item, Gap>]) {
+        // `updates` may refer to chunks created by unflushed in-band updates.
+        self.flush_updates(false);
         let _ = self.mapper.map(updates);
     }
 
@@ -562,5 +564,21 @@ mod tests {
         // 'e' has been shifted back by 2 places, aka the number of items in the
         // first chunk.
         assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(2), 1)), Some(1));
+    }
+
+    #[async_test]
+    async fn test_out_of_band_updates_after_unflushed_in_band_updates() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        let mut tracker = linked_chunk.order_tracker(None).unwrap();
+
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+        tracker
+            .map_updates(&[Update::RemoveItem { at: Position::new(ChunkIdentifier::new(1), 0) }]);
+
+        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
+        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 2)), Some(2));
+        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(1), 0)), None);
     }
 }
