@@ -650,6 +650,33 @@ async fn test_room_redact() {
     assert_eq!(response.event_id, event_id);
 }
 
+#[async_test]
+async fn test_room_redact_match_event_id() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+
+    // The actual `event_id` that is supposed to be redacted.
+    let redacted = event_id!("$acR1l0raoZnm60CBwAVgqbZqoO_mYU81xysh1u7XcJk");
+
+    // A decoy, mounted first so it would win if the matcher were too loose.
+    let other = event_id!("$h29iv0s8:example.com");
+
+    server.mock_room_redact().match_event_id(other).ok(event_id!("$other")).never().mount().await;
+    server
+        .mock_room_redact()
+        .match_event_id(redacted)
+        .ok(event_id!("$redaction"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let response = room.redact(redacted, None, None).await.unwrap();
+
+    assert_eq!(response.event_id, event_id!("$redaction"));
+}
+
 #[cfg(not(target_family = "wasm"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_fetch_members_deduplication() {

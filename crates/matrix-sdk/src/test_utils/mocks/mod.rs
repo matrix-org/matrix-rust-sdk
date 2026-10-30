@@ -3232,6 +3232,19 @@ impl<'a> MockEndpoint<'a, SetEncryptionStateEndpoint> {
 pub struct RoomRedactEndpoint;
 
 impl<'a> MockEndpoint<'a, RoomRedactEndpoint> {
+    /// Only match a request that contains a specific `event_id` in its path.
+    ///
+    /// Without this, the mock would match the redaction of any event.
+    pub fn match_event_id(self, event_id: &EventId) -> Self {
+        Self {
+            mock: self.mock.and(path_regex(format!(
+                r"^/_matrix/client/v3/rooms/.*/redact/{}/",
+                regex::escape(event_id.as_str())
+            ))),
+            ..self
+        }
+    }
+
     /// Returns a redact endpoint that emulates success, i.e. the redaction
     /// event has been sent with the given event id.
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
