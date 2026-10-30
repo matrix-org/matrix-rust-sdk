@@ -2178,8 +2178,9 @@ impl Client {
     /// - This will empty all the room's persisted event caches, so all rooms
     ///   will start as if they were empty.
     /// - This will delete the search index.
-    /// - This will get rid of the backing state store, event cache store and
-    ///   media store files, if provided. The crypto store is kept.
+    /// - This will close all the stores, then get rid of the backing state
+    ///   store, event cache store and media store files, if provided. The
+    ///   crypto store is kept.
     pub async fn clear_caches(
         &self,
         sync_service: Option<Arc<SyncService>>,
@@ -2190,23 +2191,16 @@ impl Client {
                 sync_service.inner.expire_sessions().await;
             }
 
-            // Disable the send queues, as they might read and write to the
-            // state store. Events being send might still be active, and cause
-            // errors if processing finishes, so this will only minimize damage.
-            // Since this method should only be called in exceptional cases,
-            // this has been deemed acceptable.
-            self.inner.send_queue().set_enabled(false).await;
+            // Disable the send queues, and close all the stores: in-flight
+            // operations complete, then the database connections are released,
+            // so the files below aren't deleted while still in use. This must
+            // come after expiring the sessions, which saves the reset sync
+            // position in the crypto store.
+            self.inner.pause().await?;
 
-            // Clear all the room chunks. It's important to _not_ call
-            // `EventCacheStore::clear_all_events` here, because there might be
-            // live observers of the linked chunks, and that would cause some
-            // very bad state mismatch.
-            if let Some(event_cache) = self.inner.event_cache() {
-                event_cache.clear_all_rooms().await?;
-            }
-
-            // Delete the search index. It may share its directory with the
-            // stores, so only its own files are deleted.
+            // Delete the search index, now that no new event can be saved, and
+            // indexed, anymore. It may share its directory with the stores, so
+            // only its own files are deleted.
             #[cfg(feature = "experimental-search")]
             self.inner.search_index().clear().await.map_err(ClientError::from_err)?;
 
