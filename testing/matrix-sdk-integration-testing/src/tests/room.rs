@@ -284,8 +284,8 @@ async fn test_event_with_context() -> Result<()> {
         assert_event_matches_msg(&next_events[7], "19");
 
         {
-            // Synapse is pranking us here, pretending there might be other events
-            // afterwards.
+            // Synapse is pranking us here, pretending there might be other
+            // events afterwards.
             let next_messages = room
                 .messages(
                     MessagesOptions::forward().from(Some(next_messages.end.unwrap().as_str())),
@@ -462,7 +462,8 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
         let send_result = bob_room.send(RoomMessageEventContent::text_plain("hi Alyx!")).await?;
         let original_event_id = send_result.response.event_id;
 
-        // Bob edits that message they sent, and adds intentional mentions in the edit.
+        // Bob edits that message they sent, and adds intentional mentions in
+        // the edit.
         let mentions = Mentions::with_user_ids([alice_user_id.to_owned()]);
         let send_edit_result = bob_room
             .send(
@@ -512,8 +513,6 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // No rooms as of yet, we have not synced with the server as of yet.
     assert!(alice2.rooms().is_empty());
 
-    alice2.event_cache().subscribe()?;
-
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 
     sync_service2.room_list_service().set_room_subscriptions(&[&room_id]).await;
@@ -527,7 +526,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     assert!(room2.latest_encryption_state().await?.is_encrypted(), "The room should be encrypted");
 
     // Paginate events backwards.
-    let (event_cache, _drop_handles) = room2.event_cache().await.unwrap();
+    let (event_cache, _drop_handles) = alice2.event_cache().unwrap().room(&room_id).await.unwrap();
 
     let pagination_outcome = event_cache.pagination().run_backwards_until(100).await?;
     assert!(pagination_outcome.reached_start, "Pagination should have finished");
@@ -598,8 +597,6 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
-    bob.event_cache().subscribe()?;
-
     // Spawn sync for bob.
     let bob_sync_service = SyncService::builder(bob.clone()).build().await?;
     bob_sync_service.start().await;
@@ -625,6 +622,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room1_sub = bob
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room1.room_id())
         .await?
         .expect("room 1 exists");
@@ -632,6 +630,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room2_sub = bob
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room2.room_id())
         .await?
         .expect("room 2 exists");
@@ -700,8 +699,6 @@ async fn test_latest_event_few_rooms() -> Result<()> {
         .build()
         .await?;
 
-    bob2.event_cache().subscribe()?;
-
     let bob2_sync_service = SyncService::builder(bob2.clone()).build().await?;
     bob2_sync_service.start().await;
 
@@ -713,6 +710,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room1_sub = bob2
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room1.room_id())
         .await?
         .expect("room 1 exists");
@@ -720,6 +718,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     let mut room2_sub = bob2
         .latest_events()
         .await
+        .unwrap()
         .listen_and_subscribe_to_room(room2.room_id())
         .await?
         .expect("room 2 exists");
@@ -730,18 +729,16 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     debug!("Running check for second client, room1");
     assert_latest_event_is_remote_event(&room1, &mut room1_sub, &room1_msg_event_id).await;
 
-    // Test passes if we uncomment this line, since more events will be fetched from
-    // the server and there will be a latest event update.
-    room2.event_cache().await?.0.pagination().run_backwards_until(100).await?;
-
-    //warn!("Subscribing to rooms on second client…");
-    //bob2_sync_service
-    //.room_list_service()
-    //.set_room_subscriptions(&[room1.room_id(), room2.room_id()])
-    //.await;
-
-    //// Wait for a bit, for a sync response to be returned.
-    //sleep(Duration::from_secs(3)).await;
+    // Test passes if we uncomment this line, since more events will be fetched
+    // from the server and there will be a latest event update.
+    bob2.event_cache()
+        .unwrap()
+        .room(room2.room_id())
+        .await?
+        .0
+        .pagination()
+        .run_backwards_until(100)
+        .await?;
 
     warn!("Rendering timeline.");
     let timeline = TimelineBuilder::new(&room2).build().await?;
@@ -785,9 +782,6 @@ async fn test_invite_declined_and_later_accepted() -> Result<()> {
 
     let alice_user_id = alice.user_id().unwrap().to_owned();
     let bob_user_id = bob.user_id().unwrap().to_owned();
-
-    alice.event_cache().subscribe()?;
-    bob.event_cache().subscribe()?;
 
     // Step 1, Alice creates a room.
     let (alice_room, event_id) = {

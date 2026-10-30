@@ -652,7 +652,7 @@ pub(in super::super) fn sort_positions_descending(positions: &mut [Position]) {
 mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::linked_chunk::Update;
-    use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
+    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, event_factory::EventFactory};
     use ruma::{EventId, OwnedEventId, event_id, user_id};
     use strass::assert_let;
 
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn test_debug_string() {
-        let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
+        let event_factory = EventFactory::new().room(*DEFAULT_TEST_ROOM_ID).sender(User::Alice);
 
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.chunks.push_items_back(vec![

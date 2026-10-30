@@ -28,6 +28,12 @@ use super::{
     caches::event_linked_chunk::{Event, EventLinkedChunk},
 };
 
+/// A deserialized [`Event`] is considered valid if it has a `event_type` and
+/// `event_id` fields.
+pub fn is_valid_event(event: &Event) -> bool {
+    event.kind.event_type().is_some() && event.event_id().is_some()
+}
+
 /// Find duplicates in the given collection of new events, and return relevant
 /// information about the duplicates found in the new events, including the
 /// events that are not loaded in memory.
@@ -38,16 +44,25 @@ pub async fn filter_duplicate_events(
     linked_chunk: &EventLinkedChunk,
     mut new_events: Vec<Event>,
 ) -> Result<DeduplicationOutcome, EventCacheError> {
-    // Remove all events with no ID, or that are duplicated among the new
-    // events, i.e. `new_events` contains duplicated events in itself (e.g.
-    // `[$e0, $e1, $e0]`, here `$e0` is duplicated).
+    // Remove all events with no ID, with no event type, or that are duplicated
+    // among the new events, i.e. `new_events` contains duplicated events in
+    // itself (e.g. `[$e0, $e1, $e0]`, here `$e0` is duplicated).
+    //
+    // Events with no ID or no event type are never persisted by the stores, so
+    // they must not reach the in-memory linked chunk either: otherwise the
+    // positions in memory and in the store would diverge.
     {
         let mut event_ids = BTreeSet::new();
 
         new_events.retain(|event| {
-            // Only keep events with IDs, and those for which `insert` returns
-            // `true` (meaning they were not in the set).
-            event.event_id().is_some_and(|event_id| event_ids.insert(event_id.to_owned()))
+            // Only keep events with IDs and event types, and those for which
+            // `insert` returns `true` (meaning they were not in the set).
+            if is_valid_event(event) {
+                // SAFETY: if the event was considered valid, it has an event id
+                event_ids.insert(event.event_id().unwrap().to_owned())
+            } else {
+                false
+            }
         });
     }
 
@@ -102,7 +117,7 @@ pub async fn filter_duplicate_events(
 pub(super) struct DeduplicationOutcome {
     /// All events passed to the deduplicator.
     ///
-    /// All events in this collection have a valid event ID.
+    /// All events in this collection have a valid event ID and event type.
     ///
     /// This collection does not contain duplicated events in itself.
     pub all_events: Vec<Event>,
@@ -154,15 +169,16 @@ pub(super) struct DeduplicationOutcome {
 #[cfg(test)]
 #[cfg(not(target_family = "wasm"))] // These tests uses the cross-process lock, so need time support.
 mod tests {
-    use std::ops::Not as _;
+    use std::{ops::Not as _, sync::Arc};
 
     use matrix_sdk_base::{
-        deserialized_responses::TimelineEvent, event_cache::store::EventCacheStoreLock,
-        linked_chunk::ChunkIdentifier,
+        deserialized_responses::TimelineEvent,
+        event_cache::store::{EventCacheStore, EventCacheStoreLock, MemoryStore},
+        linked_chunk::{ChunkIdentifier, Update},
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{EventId, owned_event_id, serde::Raw, user_id};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
+    use ruma::{EventId, event_id, owned_event_id, room_id, serde::Raw, user_id};
 
     use super::*;
 
@@ -176,14 +192,6 @@ mod tests {
 
     #[async_test]
     async fn test_store_based_duplicated_event_ids_from_in_memory_vs_in_store() {
-        use std::sync::Arc;
-
-        use matrix_sdk_base::{
-            event_cache::store::{EventCacheStore, MemoryStore},
-            linked_chunk::Update,
-        };
-        use ruma::room_id;
-
         let user_id = user_id!("@user:example.com");
         let event_id_0 = owned_event_id!("$ev0");
         let event_id_1 = owned_event_id!("$ev1");
@@ -314,15 +322,6 @@ mod tests {
 
     #[async_test]
     async fn test_storage_deduplication() {
-        use std::sync::Arc;
-
-        use matrix_sdk_base::{
-            event_cache::store::{EventCacheStore as _, MemoryStore},
-            linked_chunk::{ChunkIdentifier, Position, Update},
-        };
-        use matrix_sdk_test::{ALICE, BOB};
-        use ruma::{event_id, room_id};
-
         let user_id = user_id!("@user:example.com");
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
@@ -333,11 +332,17 @@ mod tests {
         let eid2 = event_id!("$2");
         let eid3 = event_id!("$3");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(eid1).into_event();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(eid2).into_event();
-        let ev3 = f.text_msg("wassup").sender(*ALICE).event_id(eid3).into_event();
+        let ev1 = f.text_msg("hello world").sender(User::Alice).event_id(eid1).into_event();
+        let ev2 = f.text_msg("how's it going").sender(User::Bob).event_id(eid2).into_event();
+        let ev3 = f.text_msg("wassup").sender(User::Alice).event_id(eid3).into_event();
         // An invalid event (doesn't have an event id.).
         let ev4 = TimelineEvent::from_plaintext(Raw::from_json_string("{}".to_owned()).unwrap());
+        // An invalid event (has an event id, but no event type).
+        let ev5 = TimelineEvent::from_plaintext(
+            Raw::from_json_string(r#"{"event_id":"$5"}"#.to_owned()).unwrap(),
+        );
+        assert!(ev5.event_id().is_some());
+        assert!(ev5.kind.event_type().is_none());
 
         // Prefill the store with ev1 and ev2.
         event_cache_store
@@ -389,7 +394,7 @@ mod tests {
             event_cache_store_guard,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
-            vec![ev1, ev2, ev3, ev4],
+            vec![ev1, ev2, ev3, ev4, ev5],
         )
         .await
         .unwrap();

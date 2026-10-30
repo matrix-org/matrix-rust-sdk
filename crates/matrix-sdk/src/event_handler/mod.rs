@@ -45,10 +45,7 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(target_family = "wasm")]
-use anymap2::any::CloneAny;
-#[cfg(not(target_family = "wasm"))]
-use anymap2::any::CloneAnySendSync;
+use anymap3::CloneAny;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::stream::{FuturesUnordered, StreamExt};
@@ -84,9 +81,9 @@ type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + S
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
 #[cfg(not(target_family = "wasm"))]
-type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+type AnyMap = anymap3::Map<dyn CloneAny + Send + Sync>;
 #[cfg(target_family = "wasm")]
-type AnyMap = anymap2::Map<dyn CloneAny>;
+type AnyMap = anymap3::Map<dyn CloneAny>;
 
 #[derive(Default)]
 pub(crate) struct EventHandlerStore {
@@ -729,7 +726,7 @@ where
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, async_test,
+        InvitedRoomBuilder, JoinedRoomBuilder, TestRoom, async_test,
         event_factory::{EventFactory, PreviousMembership},
     };
     use serde::Serialize;
@@ -826,7 +823,7 @@ mod tests {
                     .add_typing(
                         f.typing(vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")]),
                     )
-                    .add_state_event(f.default_power_levels()),
+                    .add_state_event(f.power_levels()),
             )
             .add_invited_room(
                 InvitedRoomBuilder::new(room_id!("!test_invited:example.org")).add_state_event({
@@ -944,13 +941,13 @@ mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_a)
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_state_event(f.default_power_levels())
+                    .add_state_event(f.power_levels())
                     .add_state_event(f.room_name("room name")),
             )
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id_b)
                     .add_timeline_event(MEMBER_EVENT.clone())
-                    .add_state_event(f.default_power_levels()),
+                    .add_state_event(f.power_levels()),
             )
             .build_sync_response();
         client.process_sync(response).await?;
@@ -997,7 +994,7 @@ mod tests {
         );
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
-            *DEFAULT_TEST_ROOM_ID,
+            TestRoom::Default.into(),
             // lint is buggy: rustc wants the explicit conversion from ! to ()
             // here, but clippy thinks it's useless.
             #[allow(clippy::unused_unit)]

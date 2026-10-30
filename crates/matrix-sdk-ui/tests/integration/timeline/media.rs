@@ -27,7 +27,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
+    JoinedRoomBuilder, TestResult, User, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
     AttachmentConfig, AttachmentSource, EventSendState, EventTimelineItem, MediaUploadProgress,
@@ -45,10 +45,12 @@ use ruma::{
     },
     mxc_uri, owned_mxc_uri, room_id, uint,
 };
+#[cfg(feature = "unstable-msc4274")]
 use serde_json::json;
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tempfile::TempDir;
+#[cfg(feature = "unstable-msc4274")]
 use wiremock::ResponseTemplate;
 
 fn create_temporary_file(filename: &str) -> anyhow::Result<(TempDir, PathBuf)> {
@@ -91,7 +93,7 @@ async fn test_send_attachment_from_file() -> TestResult {
     mock.sync_room(
         &client,
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(event_id)),
+            .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(event_id)),
     )
     .await;
 
@@ -108,11 +110,8 @@ async fn test_send_attachment_from_file() -> TestResult {
 
     // Set up mocks for the file upload.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(2))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .mount()
         .await;
@@ -241,7 +240,7 @@ async fn test_send_attachment_from_bytes() -> TestResult {
     let f = EventFactory::new();
     mock.sync_room(
         &client,
-        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(&ALICE)),
+        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(User::Alice)),
     )
     .await;
 
@@ -261,11 +260,8 @@ async fn test_send_attachment_from_bytes() -> TestResult {
 
     // Set up mocks for the file upload.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(2))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .mount()
         .await;
@@ -610,7 +606,7 @@ async fn test_send_gallery_from_bytes() -> TestResult {
                 "rickroll.gif".to_owned(),
                 owned_mxc_uri!("mxc://sdk.rs/rickroll"),
             )
-            .sender(&ALICE),
+            .sender(User::Alice),
         ),
     )
     .await;
@@ -629,26 +625,41 @@ async fn test_send_gallery_from_bytes() -> TestResult {
 
     // Set up mocks for the file upload.
     mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(2))
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
         .mock_once()
         .mount()
         .await;
 
-    mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
+    mock.mock_room_send()
+        .respond_with(|req: &wiremock::Request| {
+            let content: serde_json::Value = serde_json::from_slice(&req.body).unwrap();
+            assert_eq!(content["com.example.gallery"], true);
+            assert_eq!(content["itemtypes"][0]["org.matrix.msc2448.is_spoiler"], true);
+            assert_eq!(content["itemtypes"][0]["url"], "mxc://sdk.rs/media");
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$media" }))
+        })
+        .mock_once()
+        .mount()
+        .await;
 
     // Queue sending of a gallery.
     let gallery = GalleryConfig::new()
         .caption(Some(TextMessageEventContent::plain("caption")))
+        .extra_content(Some(serde_json::Map::from_iter([(
+            "com.example.gallery".to_owned(),
+            json!(true),
+        )])))
         .add_item(GalleryItemInfo {
             source: AttachmentSource::Data { bytes: data, filename: filename.to_owned() },
             content_type: mime::TEXT_PLAIN,
             attachment_info: AttachmentInfo::File(BaseFileInfo { size: None }),
             caption: Some(TextMessageEventContent::plain("item caption")),
             thumbnail: None,
+            extra_content: Some(serde_json::Map::from_iter([(
+                "org.matrix.msc2448.is_spoiler".to_owned(),
+                json!(true),
+            )])),
         });
     timeline.send_gallery(gallery).await?;
 
@@ -775,8 +786,8 @@ async fn sync_own_image(mock: &MatrixMockServer, client: &Client, room_id: &Room
 
     mock.sync_room(client, JoinedRoomBuilder::new(room_id).add_timeline_event(image())).await;
 
-    // The edit target is read before anything is queued; it's in the event cache
-    // already, but the send queue may still look it up.
+    // The edit target is read before anything is queued; it's in the event
+    // cache already, but the send queue may still look it up.
     mock.mock_room_event().match_event_id().ok(image().into()).mount().await;
 }
 
@@ -811,15 +822,12 @@ async fn test_edit_with_attachment() -> TestResult {
     assert_eq!(image_uri(&item), "mxc://sdk.rs/original");
     assert_pending!(timeline_stream);
 
-    // The upload takes a moment, so the local echo of the edit is observable before
-    // the media has been uploaded.
+    // The upload takes a moment, so the local echo of the edit is observable
+    // before the media has been uploaded.
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)).set_body_json(
-            json!({
-              "content_uri": "mxc://sdk.rs/new-media"
-            }),
-        ))
+        .with_delay(Duration::from_secs(1))
+        .ok(mxc_uri!("mxc://sdk.rs/new-media"))
         .mock_once()
         .mount()
         .await;
@@ -837,8 +845,8 @@ async fn test_edit_with_attachment() -> TestResult {
         )
         .await?;
 
-    // The local echo of the edit is applied to the edited item, with the new media
-    // served from the local cache.
+    // The local echo of the edit is applied to the edited item, with the new
+    // media served from the local cache.
     {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
@@ -870,8 +878,8 @@ async fn test_edit_with_attachment() -> TestResult {
         assert_eq!(progress.current, progress.total);
     }
 
-    // Once the upload completes, the item points at the uploaded media, while the
-    // edit itself is still pending.
+    // Once the upload completes, the item points at the uploaded media, while
+    // the edit itself is still pending.
     {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
@@ -994,8 +1002,8 @@ async fn test_edit_text_message_with_attachment() -> TestResult {
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/new-media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
 
-    // Add an image to it, keeping the text as the caption; this time through the
-    // timeline.
+    // Add an image to it, keeping the text as the caption; this time through
+    // the timeline.
     timeline
         .edit_with_attachment(
             event_id!("$text"),
@@ -1069,8 +1077,8 @@ async fn test_retry_failed_edit_with_attachment() -> TestResult {
         )
         .await?;
 
-    // The failure is surfaced on the edit. The media has been uploaded by then, so
-    // the item doesn't point at the local cache anymore.
+    // The failure is surfaced on the edit. The media has been uploaded by then,
+    // so the item doesn't point at the local cache anymore.
     let item = loop {
         assert_let_timeout!(
             Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()

@@ -272,9 +272,8 @@ impl ClientBuilder {
     /// Tell the client that the system is memory constrained, like in a push
     /// notification process for example.
     ///
-    /// So far, at the time of writing (2025-04-07), it changes the defaults of
-    /// `matrix_sdk::SqliteStoreConfig` (if the `sqlite` feature is enabled).
-    /// Please check `matrix_sdk::SqliteStoreConfig::with_low_memory_config`.
+    /// It disables the Event Cache and the Latest Events, see
+    /// [`matrix_sdk::ClientBuilder::with_event_cache`].
     pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.system_is_memory_constrained = true;
@@ -506,27 +505,27 @@ impl ClientBuilder {
         let mut inner_builder = MatrixClient::builder()
             .cross_process_store_config(builder.cross_process_lock_config.into());
 
-        let store_path = if let Some(store) = &builder.store {
+        let (store_path, cache_path) = if let Some(store) = &builder.store {
             match store.build()? {
                 #[cfg(feature = "sqlite")]
                 StoreBuilderOutcome::Sqlite { config, cache_path, store_path: data_path } => {
                     inner_builder = inner_builder
-                        .sqlite_store_with_config_and_cache_path(config, Some(cache_path));
+                        .sqlite_store_with_config_and_cache_path(config, Some(&cache_path));
 
-                    Some(data_path)
+                    (Some(data_path), Some(cache_path))
                 }
                 #[cfg(feature = "indexeddb")]
                 StoreBuilderOutcome::IndexedDb { name, passphrase } => {
                     inner_builder = inner_builder.indexeddb_store(&name, passphrase.as_deref());
 
-                    None
+                    (None, None)
                 }
 
-                StoreBuilderOutcome::InMemory => None,
+                StoreBuilderOutcome::InMemory => (None, None),
             }
         } else {
             debug!("Not using a session store");
-            None
+            (None, None)
         };
 
         #[cfg(feature = "experimental-search")]
@@ -615,6 +614,7 @@ impl ClientBuilder {
             .with_decryption_settings(builder.decryption_settings)
             .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
             .with_enable_automatic_back_pagination(builder.enable_automatic_back_pagination)
+            .with_event_cache(!builder.system_is_memory_constrained)
             .disable_well_known_lookup(builder.disable_well_known_lookup);
 
         match builder.sliding_sync_version_builder {
@@ -730,7 +730,9 @@ impl ClientBuilder {
 
         let sdk_client = inner_builder.build().await?;
 
-        Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
+        Ok(Arc::new(
+            Client::new(sdk_client, builder.session_delegate, store_path, cache_path).await?,
+        ))
     }
 }
 
@@ -904,20 +906,20 @@ impl ClientBuilder {
     /// `path` is the directory where the search index will be stored. It must
     /// be unique per session.
     ///
-    /// `password` is an optional password to encrypt the search index at rest.
-    /// If `None`, the search index will be stored unencrypted.
+    /// `key` is an optional high-entropy key to encrypt the search index at
+    /// rest. If `None`, the search index will be stored unencrypted.
     pub fn with_search_index_store(
         self: Arc<Self>,
         path: String,
-        password: Option<String>,
+        key: Option<String>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
 
         // Note: creation of the path is deferred to later.
         let path = PathBuf::from(path);
 
-        let kind = if let Some(password) = password {
-            SearchIndexStoreKind::EncryptedDirectory(path, password)
+        let kind = if let Some(key) = key {
+            SearchIndexStoreKind::EncryptedDirectory(path, key)
         } else {
             SearchIndexStoreKind::UnencryptedDirectory(path)
         };

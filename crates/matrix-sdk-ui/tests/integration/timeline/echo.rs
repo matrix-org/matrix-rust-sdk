@@ -214,7 +214,8 @@ async fn test_dedup_by_event_id_late() {
         // right now. Ideally we'd wait on a channel to produce a value or sth.
         // like that, but wiremock doesn't allow to handle multiple queries at
         // the same time.
-        .ok_with_delay(event_id, Duration::from_millis(500))
+        .with_delay(Duration::from_millis(500))
+        .ok(event_id)
         .mount()
         .await;
 

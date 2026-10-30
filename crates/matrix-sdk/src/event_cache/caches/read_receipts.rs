@@ -227,6 +227,13 @@ impl ReadReceiptsExt for ReadReceipts {
             self.num_unread += 1;
         }
 
+        // A redacted event keeps the push actions it had when it arrived (e.g.
+        // a "notify" for an undecryptable event), but once redacted
+        // there's nothing left to be notified about.
+        if is_redacted(event.raw()) {
+            return;
+        }
+
         let mut has_notify = false;
         let mut has_mention = false;
 
@@ -710,20 +717,25 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
     }
 
     // Filter out redacted events.
-    #[derive(serde::Deserialize)]
-    struct UnsignedContent {
-        redacted_because: Option<Raw<AnySyncTimelineEvent>>,
-    }
-
-    // Filter out redactions.
-    if let Ok(Some(UnsignedContent { redacted_because: Some(_redaction) })) =
-        event.get_field::<UnsignedContent>("unsigned")
-    {
+    if is_redacted(event) {
         tracing::trace!("not interesting because redacted");
         return false;
     }
 
     true
+}
+
+/// Has the event been redacted?
+fn is_redacted(event: &Raw<AnySyncTimelineEvent>) -> bool {
+    #[derive(serde::Deserialize)]
+    struct UnsignedContent {
+        redacted_because: Option<Raw<AnySyncTimelineEvent>>,
+    }
+
+    matches!(
+        event.get_field::<UnsignedContent>("unsigned"),
+        Ok(Some(UnsignedContent { redacted_because: Some(_) }))
+    )
 }
 
 /// A type representing `Option<ReceiptEventContent>`.
@@ -774,7 +786,7 @@ mod tests {
 
     use matrix_sdk_base::{read_receipts::ReadReceipts, store::MemoryStore};
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, event_id,
         events::{
@@ -801,10 +813,10 @@ mod tests {
     fn test_stop_on_event_ids() {
         use std::collections::HashSet;
 
-        use matrix_sdk_test::BOB;
+        use matrix_sdk_test::User;
 
         let room = room_id!("!omelette:fromage.fr");
-        let f = EventFactory::new().room(room).sender(*BOB);
+        let f = EventFactory::new().room(room).sender(User::Bob);
         let outcome = BackPaginationOutcome {
             reached_start: false,
             events: vec![
@@ -904,6 +916,27 @@ mod tests {
 
         let other_user_id = user_id!("@bob:example.org");
         assert!(marks_as_unread(&ev, other_user_id).not());
+    }
+
+    #[test]
+    fn test_redacted_event_does_not_count_as_notification() {
+        use ruma::events::room::message::RedactedRoomMessageEventContent;
+
+        let user_id = user_id!("@alice:example.org");
+        let other_user_id = user_id!("@bob:example.org");
+
+        // An event that notified when it arrived (e.g. because it was
+        // undecryptable) and was redacted since: it keeps its push actions.
+        let mut event = EventFactory::new()
+            .redacted(other_user_id, RedactedRoomMessageEventContent::new())
+            .event_id(event_id!("$ida"))
+            .into_event();
+        event.set_push_actions(vec![Action::Notify]);
+
+        let mut receipts = ReadReceipts::default();
+        receipts.process_event(&event, user_id);
+        assert_eq!(receipts.num_unread, 0);
+        assert_eq!(receipts.num_notifications, 0, "redacted event counted as a notification");
     }
 
     #[test]
@@ -1178,12 +1211,14 @@ mod tests {
 
     /// A thread-aware client can receive an unthreaded receipt from another
     /// client of the same user. Its target can be a thread reply, but it still
-    /// marks earlier main-timeline events as read (Matrix spec, "Threaded read
-    /// receipts"). Only the main-timeline events after it remain unread.
+    /// marks earlier main-timeline events as read. Only the main-timeline
+    /// events after it remain unread.
+    ///
+    /// See <https://spec.matrix.org/v1.19/client-server-api/#threaded-read-receipts>.
     #[async_test]
     async fn test_unthreaded_receipt_on_an_in_thread_event() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
         let own_user_id = user_id!("@not_alice:example.org");
 
         let mut linked_chunk = EventLinkedChunk::new();
@@ -1245,7 +1280,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_noop() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         // Create a non-empty linked chunk, with no messages sent by the current
         // user.
@@ -1289,7 +1324,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_implicit() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
         let own_user_id = user_id!("@not_alice:example.org");
 
         // Create a non-empty linked chunk, with one message sent by the current
@@ -1332,7 +1367,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_active_receipt() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         // Create a non-empty linked chunk, with no messages sent by the current
         // user.
@@ -1376,7 +1411,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_new_receipt_event() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
         let own_user_id = user_id!("@not_alice:example.org");
 
         // Create a non-empty linked chunk, with no messages sent by the current
@@ -1426,7 +1461,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_stashes_pending_receipts() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
         let own_user_id = user_id!("@not_alice:example.org");
 
         // Create a non-empty linked chunk, with no messages sent by the current
@@ -1477,7 +1512,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_matched_pending_receipt() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
         let own_user_id = user_id!("@not_alice:example.org");
 
         // Create a non-empty linked chunk, with no messages sent by the current
@@ -1524,7 +1559,7 @@ mod tests {
     #[test]
     fn test_select_best_receipt_mixed() {
         let room_id = room_id!("!roomid:example.org");
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
         let own_user_id = user_id!("@not_alice:example.org");
 
         // Create a non-empty linked chunk, with one message sent by the current

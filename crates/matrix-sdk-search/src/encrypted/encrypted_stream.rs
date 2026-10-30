@@ -86,6 +86,11 @@ impl<
         Ok(AesWriter { writer, enc, mac, finalized: false })
     }
 
+    /// Get a mutable reference to the underlying writer.
+    pub(crate) fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+
     /// Encrypts the passed buffer and writes all resulting encrypted blocks to
     /// the underlying writer
     ///
@@ -116,7 +121,7 @@ impl<
         let mac_result = <M as Mac>::finalize_reset(&mut self.mac).into_bytes();
         self.writer.write_all(mac_result.as_slice())?;
 
-        // Mark the file as finalized and flush our underlying writer.
+        // Mark the file as finalized.
         self.finalized = true;
 
         Ok(())

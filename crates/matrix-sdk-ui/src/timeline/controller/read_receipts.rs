@@ -205,13 +205,13 @@ impl ReadReceiptsState {
 
         // The new receipt is deemed more recent from now on because:
         //
-        // - If old_receipt_pos is Some, we already checked all the cases where it
-        //   wouldn't be more recent.
+        // - If old_receipt_pos is Some, we already checked all the cases where
+        //   it wouldn't be more recent.
         // - If both old_receipt_pos and new_receipt_pos are None, they are both
-        //   explicit read receipts so the server should only send us a more recent
-        //   receipt.
-        // - If old_receipt_pos is None and new_receipt_pos is Some, the new receipt is
-        //   more recent because it has a place in the timeline.
+        //   explicit read receipts so the server should only send us a more
+        //   recent receipt.
+        // - If old_receipt_pos is None and new_receipt_pos is Some, the new
+        //   receipt is more recent because it has a place in the timeline.
 
         if !is_own_user_id {
             trace!(

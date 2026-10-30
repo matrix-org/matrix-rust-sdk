@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     io::{self, Write, stdout},
     path::{Path, PathBuf},
+    pin::pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -17,7 +18,7 @@ use crossterm::{
     },
     execute,
 };
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
@@ -150,8 +151,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    client.event_cache().subscribe()?;
-
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
     let mut app = App::new(client, share_pos).await?;
@@ -273,7 +272,7 @@ impl App {
         let (stream, entries_controller) = all_rooms.entries_with_dynamic_adapters(50_000);
         entries_controller.set_filter(Box::new(new_filter_non_left()));
 
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         let mut previous_rooms = HashSet::new();
 
@@ -334,7 +333,7 @@ impl App {
                 // item changes.
                 let i = items.clone();
                 let timeline_task = spawn(async move {
-                    pin_mut!(stream);
+                    let mut stream = pin!(stream);
                     let items = i;
                     while let Some(diffs) = stream.next().await {
                         let mut items = items.lock();
@@ -395,7 +394,7 @@ impl App {
         for room in client.rooms_filtered(RoomStateFilter::JOINED.union(RoomStateFilter::LEFT)) {
             let room_id = room.room_id();
 
-            let maybe_room_cache = room.event_cache().await;
+            let maybe_room_cache = client.event_cache().unwrap().room(room_id).await;
             let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
                 warn!("Failed to get RoomEventCache: {maybe_room_cache:?}");
                 continue;
@@ -451,10 +450,9 @@ impl App {
 
         while !rooms.is_empty() {
             let room = &rooms[idx];
-
             let room_id = room.room_id();
 
-            let maybe_room_cache = room.event_cache().await;
+            let maybe_room_cache = client.event_cache().unwrap().room(room_id).await;
             let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
                 warn!("Failed to get RoomEventCache: {maybe_room_cache:?}");
                 idx = (idx + 1) % rooms.len();
@@ -745,7 +743,7 @@ impl App {
                                         if *is_global {
                                             let search =
                                                 self.client.search_messages(query).build_events();
-                                            pin_mut!(search);
+                                            let mut search = pin!(search);
 
                                             let mut all_results = HashMap::new();
                                             while let Some(result) = search.next().await {
@@ -772,7 +770,7 @@ impl App {
                                             view.get_text().zip(self.room_view.room())
                                         {
                                             let room_search = room.search_messages_events(query);
-                                            pin_mut!(room_search);
+                                            let mut room_search = pin!(room_search);
 
                                             let mut all_results = Vec::new();
                                             while let Some(result) = room_search.next().await {

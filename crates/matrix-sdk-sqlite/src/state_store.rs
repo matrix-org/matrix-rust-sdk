@@ -47,7 +47,10 @@ use tracing::{debug, instrument, warn};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -81,7 +84,7 @@ pub struct SqliteStateStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -158,10 +161,13 @@ impl SqliteStateStore {
         };
         let this = Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
+            connections: Arc::new(
+                SqliteConnections::new(SqliteConnectionsInner {
+                    pool,
+                    write_connection: Arc::new(Mutex::new(conn)),
+                })
+                .await,
+            ),
             db_path,
             pool_config,
             runtime_config,
@@ -1879,12 +1885,13 @@ impl StateStore for SqliteStateStore {
                 //
                 // This is for compatibility reasons since:
                 //
-                // 1. Previously "Alice" and "alice" were considered to be distinct display
-                //    names, while we now consider them to be the same so we need to merge the
-                //    previously distinct buckets of user IDs.
-                // 2. We can't do a migration to merge the previously distinct buckets of user
-                //    IDs since the display names itself are hashed before they are persisted in
-                //    the store.
+                // 1. Previously "Alice" and "alice" were considered to be
+                //    distinct display names, while we now consider them to be
+                //    the same so we need to merge the previously distinct
+                //    buckets of user IDs.
+                // 2. We can't do a migration to merge the previously distinct
+                //    buckets of user IDs since the display names itself are
+                //    hashed before they are persisted in the store.
                 let raw =
                     (self.encode_key(keys::DISPLAY_NAME, display_name.as_raw_str()), display_name);
                 let normalized = display_name.as_normalized_str().map(|normalized| {
@@ -2194,7 +2201,8 @@ impl StateStore for SqliteStateStore {
         // See comment in `save_send_queue_request`.
         let transaction_id = transaction_id.to_string();
 
-        // Serialize the error to json bytes (encrypted if option is enabled) if set.
+        // Serialize the error to json bytes (encrypted if option is enabled) if
+        // set.
         let error_value = error.map(|e| self.serialize_value(&e)).transpose()?;
 
         self.write()
@@ -2352,7 +2360,8 @@ impl StateStore for SqliteStateStore {
     ) -> Result<Vec<DependentQueuedRequest>> {
         let room_id = self.encode_key(keys::DEPENDENTS_SEND_QUEUE, room_id);
 
-        // Note: transaction_id is not encoded, see why in `save_send_queue_request`.
+        // Note: transaction_id is not encoded, see why in
+        // `save_send_queue_request`.
         let res: Vec<(String, String, Option<Vec<u8>>, Vec<u8>, Option<u64>)> = self
             .read()
             .await?
@@ -2703,7 +2712,8 @@ mod encrypted_tests {
         // ...which the next open uses.
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
-        // The `cipher` entry was replaced, so the old passphrase can't work anymore.
+        // The `cipher` entry was replaced, so the old passphrase can't work
+        // anymore.
         let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(&passphrase));
         drop(
             SqliteStateStore::open_with_config(&config)
@@ -2711,7 +2721,8 @@ mod encrypted_tests {
                 .expect_err("The old passphrase-only method shouldn't work anymore"),
         );
 
-        // The `cipher` entry was replaced, so now only high entropy or key work.
+        // The `cipher` entry was replaced, so now only high entropy or key
+        // work.
         let config = SqliteStoreConfig::new(&tmpdir_path)
             .high_entropy_passphrase(Some(KEY), Base64Variant::Padded);
         drop(
@@ -2796,7 +2807,8 @@ mod encrypted_tests {
 
             let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
 
-            // `PRAGMA synchronous` is per-connection, so every connection must carry it.
+            // `PRAGMA synchronous` is per-connection, so every connection must
+            // carry it.
             let write_conn = store.write().await.unwrap();
             let read_conn = store.read().await.unwrap();
 
@@ -2884,10 +2896,13 @@ mod migration_tests {
         ));
         let this = SqliteStateStore {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(connection::SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
+            connections: Arc::new(
+                connection::SqliteConnections::new(connection::SqliteConnectionsInner {
+                    pool,
+                    write_connection: Arc::new(Mutex::new(conn)),
+                })
+                .await,
+            ),
             db_path,
             pool_config: deadpool::managed::PoolConfig::default(),
             runtime_config: crate::RuntimeConfig::default(),

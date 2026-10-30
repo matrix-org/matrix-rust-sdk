@@ -140,6 +140,88 @@ async fn test_secret_store_create_default_key() {
 }
 
 #[async_test]
+async fn test_secret_store_create_pregenerated_key() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let user_id = client.user_id().expect("We should know our user ID by now");
+
+    let key_id: Arc<Mutex<Option<String>>> = Mutex::new(None).into();
+
+    let put_new_key_matcher = {
+        let key_id = key_id.to_owned();
+
+        move |request: &wiremock::Request| {
+            let mut path_segments =
+                request.url.path_segments().expect("The URL should be able to be a base");
+
+            let key_id_segment = path_segments
+                .next_back()
+                .expect("The path should have a key ID as the last segment")
+                .to_owned();
+
+            *key_id.lock().unwrap() = Some(key_id_segment);
+
+            true
+        }
+    };
+
+    let put_new_key_id_matcher = move |request: &wiremock::Request| {
+        let key_id = key_id.lock().unwrap().take().expect("We should know our new key ID by now");
+
+        let content: SecretStorageDefaultKeyEventContent =
+            request.body_json().expect("The content should be a default key event content");
+
+        assert_eq!(
+            key_id,
+            format!("m.secret_storage.key.{}", content.key_id),
+            "The key ID of the key we created should be the same as the key ID we're marking as the default one"
+        );
+
+        true
+    };
+
+    Mock::given(method("PUT"))
+        .and(path_regex(format!(
+            r"_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.key.[A-Za-z0-9]"
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .and(put_new_key_matcher)
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .named("m.direct account data GET")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .and(put_new_key_id_matcher)
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .named("default_key account data GET")
+        .mount(&server)
+        .await;
+
+    // Pre-generate a key for secret storage
+    let key = matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new();
+
+    let secret_store = client
+        .encryption()
+        .secret_storage()
+        .create_secret_store()
+        .with_key(&key)
+        .await
+        .expect("We should be able to create a new secret store");
+
+    // The secret storage key should be the key that we generated.
+    assert_eq!(key.to_base58(), secret_store.secret_storage_key());
+
+    server.verify().await;
+}
+
+#[async_test]
 async fn test_secret_store_missing_key_info() {
     let (client, server) = logged_in_client_with_server().await;
 

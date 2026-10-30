@@ -32,6 +32,42 @@ use crate::{
     task_handle::TaskHandle, timeline::ShieldState,
 };
 
+/// A secret storage key.
+#[derive(uniffi::Object)]
+pub struct SecretStorageKey {
+    inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey,
+}
+
+#[uniffi::export]
+impl SecretStorageKey {
+    /// Create a new random secret storage key.
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Self { inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new() }.into()
+    }
+
+    /// Create a new secret storage key from a passphrase.
+    #[uniffi::constructor]
+    pub fn new_from_passphrase(mut passphrase: String) -> Arc<Self> {
+        let key = Self {
+            inner: matrix_sdk_base::crypto::secret_storage::SecretStorageKey::new_from_passphrase(
+                &passphrase,
+            ),
+        };
+        passphrase.zeroize();
+        key.into()
+    }
+
+    /// The base-58 representation of the key to present to the user.
+    ///
+    /// _Note_: This returns a copy of the private key material of the
+    /// [`SecretStorageKey`] as a string. The caller needs to ensure that this
+    /// string is zeroized.
+    pub fn to_base58(&self) -> String {
+        self.inner.to_base58()
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Encryption {
     pub(crate) inner: matrix_sdk::encryption::Encryption,
@@ -703,11 +739,11 @@ impl Encryption {
         Ok(self.inner.recovery().is_last_device().await?)
     }
 
-    /// Does the user have other devices that the current device can verify
-    /// against?
+    /// Does the user have devices, other than the current one, that the
+    /// current device can verify against?
     ///
-    /// The device must be signed by the user's cross-signing key, must have an
-    /// identity, and must not be a dehydrated device.
+    /// The device must be signed by the user's cross-signing key, must support
+    /// Olm (have a Curve25519 key), and must not be a dehydrated device.
     pub async fn has_devices_to_verify_against(&self) -> Result<bool, ClientError> {
         Ok(self.inner.has_devices_to_verify_against().await?)
     }
@@ -741,10 +777,24 @@ impl Encryption {
         Ok(result?)
     }
 
+    /// Enable recovery on the account.
+    ///
+    /// # Arguments
+    ///
+    /// - `wait_for_backups_to_upload` - Should the enabling of the recovery
+    ///   also wait for _all_ room keys to be uploaded to the server-side key
+    ///   backup?
+    /// - `key` - The key to use to encrypt secret storage.  If `None`, a new
+    ///   key will be randomly generated.  A key can be generated from a
+    ///   passphrase by using [`SecretStorageKey::new_from_passphrase`].
+    /// - `progress_listener` - A listener to track the progress of enabling
+    ///   recovery.
+    ///
+    /// Returns the base58-representation of the secret storage key.
     pub async fn enable_recovery(
         &self,
         wait_for_backups_to_upload: bool,
-        mut passphrase: Option<String>,
+        key: Option<Arc<SecretStorageKey>>,
         progress_listener: Box<dyn EnableRecoveryProgressListener>,
     ) -> Result<String> {
         let recovery = self.inner.recovery();
@@ -755,11 +805,7 @@ impl Encryption {
             recovery.enable()
         };
 
-        let enable = if let Some(passphrase) = &passphrase {
-            enable.with_passphrase(passphrase)
-        } else {
-            enable
-        };
+        let enable = if let Some(key) = &key { enable.with_key(&key.inner) } else { enable };
 
         let mut progress_stream = enable.subscribe_to_progress();
 
@@ -773,7 +819,6 @@ impl Encryption {
         let ret = enable.await?;
 
         task.abort();
-        passphrase.zeroize();
 
         Ok(ret)
     }
@@ -1125,8 +1170,8 @@ impl IdentityResetHandle {
     /// 2. Disable recovery and delete secret storage
     /// 3. Go through the cross-signing key reset flow
     /// 4. Finally, re-enable key backups only if they were enabled before
-    pub async fn reset(&self, auth: Option<AuthData>) -> Result<(), ClientError> {
-        self.inner.reset(auth.map(Into::into)).await.map_err(ClientError::from_err)
+    pub async fn reset(&self, auth: AuthData) -> Result<(), ClientError> {
+        self.inner.reset(auth.into()).await.map_err(ClientError::from_err)
     }
 
     pub async fn cancel(&self) {
@@ -1137,7 +1182,7 @@ impl IdentityResetHandle {
 #[derive(uniffi::Enum)]
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
-    Uiaa,
+    Uiaa { info: UiaaCrossSigningResetInfo },
     /// OAuth is used for authentication and the user needs to open a URL to
     /// approve the upload of cross-signing keys.
     OAuth { info: OAuthCrossSigningResetInfo },
@@ -1146,9 +1191,21 @@ pub enum CrossSigningResetAuthType {
 impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningResetAuthType {
     fn from(value: &matrix_sdk::encryption::CrossSigningResetAuthType) -> Self {
         match value {
-            encryption::CrossSigningResetAuthType::Uiaa(_) => Self::Uiaa,
+            encryption::CrossSigningResetAuthType::Uiaa(info) => Self::Uiaa { info: info.into() },
             encryption::CrossSigningResetAuthType::OAuth(info) => Self::OAuth { info: info.into() },
         }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct UiaaCrossSigningResetInfo {
+    /// The UIAA session token.
+    pub session: String,
+}
+
+impl From<&matrix_sdk::encryption::UiaaCrossSigningResetInfo> for UiaaCrossSigningResetInfo {
+    fn from(value: &matrix_sdk::encryption::UiaaCrossSigningResetInfo) -> Self {
+        Self { session: value.session().to_owned() }
     }
 }
 
@@ -1156,10 +1213,20 @@ impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningRe
 pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: String,
+    /// The UIAA session token.
+    pub session: String,
 }
 
 impl From<&matrix_sdk::encryption::OAuthCrossSigningResetInfo> for OAuthCrossSigningResetInfo {
     fn from(value: &matrix_sdk::encryption::OAuthCrossSigningResetInfo) -> Self {
-        Self { approval_url: value.approval_url.to_string() }
+        Self { approval_url: value.approval_url.to_string(), session: value.session.clone() }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl OAuthCrossSigningResetInfo {
+    /// Create UIAA [`AuthData`] to continue this reset session.
+    pub fn as_auth_data(&self) -> AuthData {
+        AuthData::OAuth { session: self.session.clone() }
     }
 }

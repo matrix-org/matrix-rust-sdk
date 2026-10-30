@@ -108,11 +108,16 @@ impl ThreadEventCache {
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
+        // Computed while building the state: nothing may await once the state
+        // is inserted, or a cancellation or error would leave it
+        // inserted without its cache, making every later attempt fail.
+        let mut timeline_is_not_empty = false;
+
         let cache_state = state
             .try_insert_once_with(
                 ThreadStateSelector::new(room_id.clone(), thread_id.clone()),
-                |store_guard| {
-                    ThreadEventCacheState::new(
+                async |store_guard| {
+                    let cache_state = ThreadEventCacheState::new(
                         room_id.clone(),
                         thread_id.clone(),
                         weak_room.clone(),
@@ -122,12 +127,15 @@ impl ThreadEventCache {
                         update_sender.clone(),
                         linked_chunk_update_sender,
                     )
+                    .await?;
+
+                    timeline_is_not_empty =
+                        cache_state.thread_linked_chunk.revents().next().is_some();
+
+                    Ok(cache_state)
                 },
             )
             .await?;
-
-        let timeline_is_not_empty =
-            cache_state.read().await?.thread_linked_chunk().revents().next().is_some();
 
         let cache = Self {
             inner: Arc::new(ThreadEventCacheInner {
@@ -426,7 +434,7 @@ mod timed_tests {
         store::StoreConfig,
         sync::Timeline,
     };
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -463,8 +471,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -556,8 +563,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -629,8 +635,6 @@ mod timed_tests {
         let room_id = room_id!("!r0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@mnt_io:matrix.org"));
 
-        let event_cache_store = Arc::new(MemoryStore::new());
-
         let thread_root = event_id!("$t0_ev0");
         let thread_event_id_0 = event_id!("$t0_ev1");
         let thread_event_id_1 = event_id!("$t0_ev2");
@@ -647,6 +651,7 @@ mod timed_tests {
             .into_event();
 
         // Prefill the store with some data.
+        let event_cache_store = Arc::new(MemoryStore::new());
         event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Thread(room_id, thread_root),
@@ -702,8 +707,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -879,8 +883,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -964,8 +967,6 @@ mod timed_tests {
         let room_id = room_id!("!r0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@mnt_io:matrix.org"));
 
-        let event_cache_store = Arc::new(MemoryStore::new());
-
         let thread_root = event_id!("$t0");
         let thread_event_id_0 = event_id!("$t0_ev0");
 
@@ -976,6 +977,7 @@ mod timed_tests {
             .into_event();
 
         // Prefill the store with invalid data: two chunks that form a cycle.
+        let event_cache_store = Arc::new(MemoryStore::new());
         event_cache_store
             .handle_linked_chunk_updates(
                 LinkedChunkId::Thread(room_id, thread_root),
@@ -1011,8 +1013,7 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1038,8 +1039,51 @@ mod timed_tests {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
 
+        let event_factory = EventFactory::new().room(room_id).sender(user_id);
+
+        let thread_root = event_id!("$t0");
+        let thread_event_id_0 = event_id!("$t0_ev0");
+        let thread_event_id_1 = event_id!("$t0_ev1");
+
+        let thread_event_0 = event_factory
+            .text_msg("comté")
+            .event_id(thread_event_id_0)
+            .in_thread(thread_root, thread_root)
+            .into_event();
+        let thread_event_1 = event_factory
+            .text_msg("morbier")
+            .event_id(thread_event_id_1)
+            .in_thread(thread_root, thread_event_id_0)
+            .into_event();
+
         // The storage shared by the two clients.
         let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Thread(room_id, thread_root),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![thread_event_0],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![thread_event_1],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
         // Client for the process 0.
         let client_p0 = MockClientBuilder::new(None)
@@ -1067,64 +1111,10 @@ mod timed_tests {
             .build()
             .await;
 
-        let event_factory = EventFactory::new().room(room_id).sender(user_id);
-
-        let thread_root = event_id!("$t0");
-        let thread_event_id_0 = event_id!("$t0_ev0");
-        let thread_event_id_1 = event_id!("$t0_ev1");
-
-        let thread_event_0 = event_factory
-            .text_msg("comté")
-            .event_id(thread_event_id_0)
-            .in_thread(thread_root, thread_root)
-            .into_event();
-        let thread_event_1 = event_factory
-            .text_msg("morbier")
-            .event_id(thread_event_id_1)
-            .in_thread(thread_root, thread_event_id_0)
-            .into_event();
-
-        // Add events to the storage (shared by the two clients!).
-        client_p0
-            .event_cache_store()
-            .lock()
-            .await
-            .expect("[p0] Could not acquire the event cache lock")
-            .as_clean()
-            .expect("[p0] Could not acquire a clean event cache lock")
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Thread(room_id, thread_root),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![thread_event_0],
-                    },
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![thread_event_1],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
         // Subscribe the event caches, and create the room.
         let (thread_event_cache_p0, thread_event_cache_p1) = {
-            let event_cache_p0 = client_p0.event_cache();
-            event_cache_p0.subscribe().unwrap();
-
-            let event_cache_p1 = client_p1.event_cache();
-            event_cache_p1.subscribe().unwrap();
+            let event_cache_p0 = client_p0.event_cache().unwrap();
+            let event_cache_p1 = client_p1.event_cache().unwrap();
 
             client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
             client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -1331,9 +1321,7 @@ mod timed_tests {
         let room_id = room_id!("!r0");
         let thread_id = event_id!("$t0");
 
-        let client = MockClientBuilder::new(None).build().await;
-
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         let event_id_0 = event_id!("$ev0");
         let event_id_1 = event_id!("$ev1");
@@ -1347,43 +1335,47 @@ mod timed_tests {
 
         // Fill the event cache store with an initial linked chunk with 2 events
         // chunks.
-        {
-            client
-                .event_cache_store()
-                .lock()
-                .await
-                .expect("Could not acquire the event cache lock")
-                .as_clean()
-                .expect("Could not acquire a clean event cache lock")
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Thread(room_id, thread_id),
-                    vec![
-                        Update::NewItemsChunk {
-                            previous: None,
-                            new: ChunkIdentifier::new(0),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![thread_root, event_0],
-                        },
-                        Update::NewItemsChunk {
-                            previous: Some(ChunkIdentifier::new(0)),
-                            new: ChunkIdentifier::new(1),
-                            next: None,
-                        },
-                        Update::PushItems {
-                            at: Position::new(ChunkIdentifier::new(1), 0),
-                            items: vec![event_1],
-                        },
-                    ],
-                )
-                .await
-                .unwrap();
-        }
+        let event_cache_store = MemoryStore::new();
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Thread(room_id, thread_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![thread_root, event_0],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![event_1],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let client = MockClientBuilder::new(None)
+            .on_builder(move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 

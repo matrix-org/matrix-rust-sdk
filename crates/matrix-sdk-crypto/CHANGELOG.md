@@ -19,6 +19,14 @@ All notable changes to this project will be documented in this file.
 
 ## [0.19.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.0) - 2026-09-16
 
+### Security fixes
+
+- Fix a panic in when the `CollectStrategy::IdentityBasedStrategy` is used for
+  the `Device::encrypt_event_raw` or `OlmMachine::encrypt_content_for_devices`
+  methods. ([#6670](https://github.com/matrix-org/matrix-rust-sdk/pull/6670),
+  [GHSA-45pr-7vv7-f64m](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-45pr-7vv7-f64m))
+)
+
 ### Removed
 
 - [**breaking**] Removed `OwnUserIdentityData::is_identity_verified()`.
@@ -623,7 +631,7 @@ Breaking changes:
   `OlmMachine::share_room_key` to fail with an error if any verified users on
   the recipient list have unsigned devices, or are no longer verified.
 
-  When `CallectStrategy::IdentityBasedStrategy` is used,
+  When `CollectStrategy::IdentityBasedStrategy` is used,
   `OlmMachine::share_room_key` will fail with an error if any verified users on
   the recipient list are no longer verified, or if our own device is not
   properly cross-signed.

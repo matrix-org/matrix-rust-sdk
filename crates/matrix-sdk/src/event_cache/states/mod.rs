@@ -125,10 +125,11 @@ impl StateLock {
         // once the dirty is cleaned up. It can potentially create a deadlock in
         // the following situation:
         //
-        // - `read` is called once, it takes a write lock, then downgrades it to a read
-        //   lock: the guard is kept alive somewhere,
-        // - `read` is called again, and waits to obtain the write lock, which is
-        //   impossible as long as the guard from the previous call is not dropped.
+        // - `read` is called once, it takes a write lock, then downgrades it to
+        //   a read lock: the guard is kept alive somewhere,
+        // - `read` is called again, and waits to obtain the write lock, which
+        //   is impossible as long as the guard from the previous call is not
+        //   dropped.
         //
         // ## “Atomic” read and write
         //

@@ -61,6 +61,8 @@ use super::{
     },
     ThreadEventCacheUpdateSender,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor;
 use crate::room::WeakRoom;
 
 pub struct ThreadEventCacheState {
@@ -81,7 +83,7 @@ pub struct ThreadEventCacheState {
     room_version_rules: RoomVersionRules,
 
     /// The linked chunk for this thread.
-    thread_linked_chunk: EventLinkedChunk,
+    pub(super) thread_linked_chunk: EventLinkedChunk,
 
     /// The information related to this thread, [`ThreadInfo`].
     pub thread_info: SharedObservable<ThreadInfo, AsyncLock>,
@@ -146,7 +148,7 @@ impl ThreadEventCacheState {
         //
         // If loading the full linked chunk failed, we'll clear the event cache,
         // as it indicates that at some point, there's some malformed data.
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -173,6 +175,11 @@ impl ThreadEventCacheState {
             Ok(linked_chunk) => linked_chunk,
             Err(err) => {
                 error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // The metadata no longer reflects the storage, which is about
+                // to be cleared. Drop it, so that the order
+                // tracker doesn't start from a stale state.
+                full_linked_chunk_metadata = None;
 
                 // Try to clear storage for this thread.
                 store_guard
@@ -217,7 +224,7 @@ impl ThreadEventCacheState {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&self.room_id, &self.thread_id);
 
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(store, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -239,6 +246,11 @@ impl ThreadEventCacheState {
                     // If loading the last chunk failed, clear the entire linked
                     // chunk.
                     error!("error when reloading a linked chunk from memory: {err}");
+
+                    // The metadata no longer reflects the storage, which is
+                    // about to be cleared. Drop it, so that the order tracker
+                    // doesn't start from a stale state.
+                    full_linked_chunk_metadata = None;
 
                     // Clear storage for this thread.
                     store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
@@ -469,12 +481,21 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     where
         I: Iterator<Item = &'i Event>,
     {
+        #[cfg(feature = "e2e-encryption")]
+        let room = self.state.weak_room.get();
+
         for event in events {
             // Handle redaction.
             self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event() {
+            #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+            if let Some(mut bundled_thread) = event.bundled_latest_thread_event() {
+                // Attempt to decrypt the bundled thread event in place. No-op
+                // if unencrypted or we know concretely why it
+                // can't be decrypted.
+                #[cfg(feature = "e2e-encryption")]
+                redecryptor::try_decrypt_in_place(&mut bundled_thread, room.as_ref()).await;
                 self.save_events([bundled_thread]).await?;
             }
         }
@@ -664,9 +685,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         ) {
             // It's safe to cast `redacted_event` here:
             //
-            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-            //   when calling .raw(), so it's still one under the hood.
-            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            // - either the event was an `AnyTimelineEvent` cast to
+            //   `AnySyncTimelineEvent` when calling .raw(), so it's still one
+            //   under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this
+            //   case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event.clone()).await?;

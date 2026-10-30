@@ -41,7 +41,7 @@ async fn test_notification_client_with_context() {
     let client = server.client_builder().build().await;
 
     let sender = user_id!("@user:example.org");
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let f = EventFactory::new().room(room_id).sender(sender);
 
     let content = "Hello world!";
@@ -95,6 +95,17 @@ async fn test_notification_client_with_context() {
 #[async_test]
 async fn test_subscribed_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!r0");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
+    // First, mock an empty sync so the room is known.
+    server.mock_room_state_encryption().plain().mount().await;
+
     let client = server
         .client_builder()
         .no_server_versions()
@@ -103,16 +114,6 @@ async fn test_subscribed_threads_get_notifications() {
         })
         .build()
         .await;
-
-    let sender = user_id!("@user:example.org");
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let f = EventFactory::new().room(room_id).sender(sender);
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
-
-    // First, mock an empty sync so the room is known.
-    server.mock_room_state_encryption().plain().mount().await;
 
     // To have access to the push rules context, we must know the own's member
     // event.
@@ -200,6 +201,17 @@ async fn test_subscribed_threads_get_notifications() {
 #[async_test]
 async fn test_unsubscribed_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!r0");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
+    // First, mock an empty sync so the room is known.
+    server.mock_room_state_encryption().plain().mount().await;
+
     let client = server
         .client_builder()
         .no_server_versions()
@@ -208,16 +220,6 @@ async fn test_unsubscribed_threads_get_notifications() {
         })
         .build()
         .await;
-
-    let sender = user_id!("@user:example.org");
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let f = EventFactory::new().room(room_id).sender(sender);
-
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
-
-    // First, mock an empty sync so the room is known.
-    server.mock_room_state_encryption().plain().mount().await;
 
     // To have access to the push rules context, we must know the own's member
     // event.
@@ -335,7 +337,7 @@ async fn test_unsubscribed_threads_get_notifications() {
 
 #[async_test]
 async fn test_notification_client_sliding_sync() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -364,8 +366,7 @@ async fn test_notification_client_sliding_sync() {
         .membership(MembershipState::Join)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory.power_levels().sender(sender).into_raw_sync();
 
     let room_avatar_event =
         event_factory.room_avatar().sender(sender).url(room_avatar_url).into_raw_sync();
@@ -395,7 +396,7 @@ async fn test_notification_client_sliding_sync() {
                 "txn_id": partial_request.txn_id,
                 "pos": pos_as_str,
                 "rooms": {
-                    "!a98sd12bjh:example.org": {
+                    "!r0": {
                         "name": room_name,
                         "initial": true,
 
@@ -437,6 +438,7 @@ async fn test_notification_client_sliding_sync() {
     let process_setup =
         NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
     let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+
     let mut result = notification_client
         .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
             room_id: room_id.to_owned(),
@@ -474,7 +476,7 @@ async fn test_notification_client_sliding_sync() {
                 }
             },
             "room_subscriptions": {
-                "!a98sd12bjh:example.org": {
+                "!r0": {
                     "required_state": [
                         ["m.room.encryption", ""],
                         ["m.room.member", "$LAZY"],
@@ -526,8 +528,8 @@ async fn test_notification_client_sliding_sync() {
 
 #[async_test]
 async fn test_notification_client_sliding_sync_invites() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let room_id2 = room_id!("!a98sd12bjh2:example.org");
+    let room_id = room_id!("!r0");
+    let room_id2 = room_id!("!r1");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -567,8 +569,7 @@ async fn test_notification_client_sliding_sync_invites() {
         .event_id(invite_event_id)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory1.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory1.power_levels().sender(sender).into_raw_sync();
 
     let event_json =
         event_factory1.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -673,7 +674,7 @@ async fn test_notification_client_sliding_sync_invites() {
 
 #[async_test]
 async fn test_notification_client_sliding_sync_invites_with_event_id() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let room_id2 = room_id!("!a98sd12bjh2:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -714,8 +715,7 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
         .event_id(invite_event_id)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory1.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory1.power_levels().sender(sender).into_raw_sync();
 
     let event_json =
         event_factory1.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -819,7 +819,7 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
 
 #[async_test]
 async fn test_notification_client_mixed() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -845,8 +845,7 @@ async fn test_notification_client_mixed() {
         .membership(MembershipState::Join)
         .into_raw_sync_state();
 
-    let power_levels_event =
-        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+    let power_levels_event = event_factory.power_levels().sender(sender).into_raw_sync();
 
     let event_json =
         event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
@@ -1013,7 +1012,7 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
     let sender = user_id!("@user:example.org");
     let my_user_id = client.user_id().unwrap().to_owned();
 
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let room_name = "The Maltese Falcon";
     let sender_display_name = "John Mastodon";
     let event_id = event_id!("$example_event_id");
@@ -1039,8 +1038,7 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
         .membership(MembershipState::Join)
         .into_raw_sync();
 
-    let power_levels_event =
-        event_factory.sender(sender).power_levels(&mut BTreeMap::new()).into_raw_sync();
+    let power_levels_event = event_factory.sender(sender).power_levels().into_raw_sync();
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
@@ -1117,7 +1115,7 @@ async fn test_notification_client_context_filters_out_events_from_ignored_users(
     let client = server.client_builder().build().await;
 
     let sender = user_id!("@user:example.org");
-    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_id = room_id!("!r0");
     let event_id = event_id!("$example_event_id");
 
     server.sync_joined_room(&client, room_id).await;

@@ -15,6 +15,7 @@
 //! An SQLite-based backend for the [`MediaStore`].
 
 use std::{
+    collections::{BTreeMap, HashMap},
     fmt,
     path::{Path, PathBuf},
     sync::Arc,
@@ -34,7 +35,7 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, time::SystemTime};
 use rusqlite::{OptionalExtension, params_from_iter};
 use tokio::{
     fs,
@@ -44,7 +45,10 @@ use tracing::{debug, instrument};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -62,7 +66,7 @@ mod keys {
 }
 
 /// The database name.
-const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
+pub const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
 
 /// An SQLite-based media store.
 #[derive(Clone)]
@@ -70,7 +74,7 @@ pub struct SqliteMediaStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -167,7 +171,7 @@ impl SqliteMediaStore {
         let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
         media_service.restore(media_retention_policy, last_media_cleanup_time);
 
-        let connections = SqliteConnections {
+        let connections = SqliteConnectionsInner {
             pool,
             // Use `conn` as our selected write connection.
             write_connection: Arc::new(Mutex::new(conn)),
@@ -175,7 +179,7 @@ impl SqliteMediaStore {
 
         Ok(Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(connections))),
+            connections: Arc::new(SqliteConnections::new(connections).await),
             db_path,
             pool_config,
             runtime_config,
@@ -464,6 +468,50 @@ impl MediaStore for SqliteMediaStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.get_db_size().await
     }
+
+    #[instrument(skip_all)]
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<BTreeMap<OwnedMxcUri, u64>, Self::Error> {
+        let _timer = timer!("method");
+
+        if uris.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let mut lookup = HashMap::with_capacity(uris.len());
+        let mut keys = Vec::with_capacity(uris.len());
+        for uri in uris {
+            let key = self.encode_key(keys::MEDIA, uri.as_str());
+            lookup.insert(key.to_vec(), uri.clone());
+            keys.push(key);
+        }
+
+        let sizes = self
+            .read()
+            .await?
+            .chunk_large_query_over(keys, None, move |txn, chunk| {
+                let sql = format!(
+                    "SELECT uri, sum(length(data)) FROM media WHERE uri IN ({}) GROUP BY uri",
+                    chunk.host_parameters()
+                );
+                let mut stmt = txn.prepare(&sql)?;
+                let mut sizes = Vec::new();
+                let rows = stmt.query(params_from_iter(chunk.iter()))?;
+                for row in rows.mapped(|row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, u64>(1)?)))
+                {
+                    let (key, size) = row?;
+                    if let Some(uri) = lookup.get(&key) {
+                        sizes.push((uri.clone(), size));
+                    }
+                }
+                Ok(sizes)
+            })
+            .await?;
+
+        Ok(sizes.into_iter().collect())
+    }
 }
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
@@ -608,7 +656,8 @@ impl MediaStoreInner for SqliteMediaStore {
                     }
                 }
 
-                // Finally, if the cache size is too big, remove old items until it fits.
+                // Finally, if the cache size is too big, remove old items until
+                // it fits.
                 if let Some(max_cache_size) = policy.max_cache_size {
                     // i64 is the integer type used by SQLite, use it here to
                     // avoid usize overflow during the conversion of the result.
@@ -623,9 +672,11 @@ impl MediaStoreInner for SqliteMediaStore {
                         )?
                         .unwrap_or_default();
 
-                    // If the cache size is overflowing or bigger than max cache size, clean up.
+                    // If the cache size is overflowing or bigger than max cache
+                    // size, clean up.
                     if cache_size > max_cache_size {
-                        // Get the sizes of the media contents ordered by last access.
+                        // Get the sizes of the media contents ordered by last
+                        // access.
                         let mut cached_stmt = txn.prepare_cached(
                             "SELECT rowid, length(data) FROM media \
                              WHERE ignore_policy IS FALSE ORDER BY last_access DESC",

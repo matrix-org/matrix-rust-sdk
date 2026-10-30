@@ -15,11 +15,10 @@
 // Allow UniFFI to use methods marked as `#[deprecated]`.
 #![allow(deprecated)]
 
-use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
+use std::{collections::HashMap, fmt::Write as _, fs, panic, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
 use eyeball_im::VectorDiff;
-use futures_util::pin_mut;
 use matrix_sdk::{
     attachment::{
         AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
@@ -351,7 +350,7 @@ impl Timeline {
         listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(timeline_stream);
+            let mut timeline_stream = pin!(timeline_stream);
 
             // Then forward new items.
             while let Some(diffs) = timeline_stream.next().await {
@@ -1239,6 +1238,9 @@ pub struct EventTimelineItem {
     edit_send_state: Option<EventSendState>,
     /// Send state of our pending redaction of this event, if any.
     redaction_send_state: Option<EventSendState>,
+    /// The reason given with the redaction of this event, if any: from the
+    /// server, or from our own redaction while it is still pending.
+    redaction_reason: Option<String>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1282,6 +1284,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             local_send_state: item.send_state().map(|s| s.into()),
             edit_send_state: item.edit_send_state().map(|s| s.into()),
             redaction_send_state: item.redaction_send_state().map(|s| s.into()),
+            redaction_reason: item.redaction_reason().map(ToOwned::to_owned),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
             origin: item.origin(),
@@ -1732,6 +1735,41 @@ mod galleries {
         mentions: Option<Mentions>,
         /// Optional Event ID to reply to.
         in_reply_to: Option<String>,
+        /// Additional top-level fields for the gallery, as a JSON object.
+        /// The gallery's own fields take precedence on conflicts.
+        #[uniffi(default = None)]
+        extra_content_json: Option<String>,
+    }
+
+    impl TryFrom<GalleryUploadParameters> for GalleryConfig {
+        type Error = RoomError;
+
+        fn try_from(params: GalleryUploadParameters) -> Result<Self, Self::Error> {
+            let caption = params.caption.map(|caption| {
+                let formatted =
+                    formatted_body_from(Some(&caption), params.formatted_caption.map(Into::into));
+                assign!(TextMessageEventContent::plain(caption), { formatted })
+            });
+
+            let in_reply_to = params
+                .in_reply_to
+                .as_ref()
+                .map(EventId::parse)
+                .transpose()
+                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
+
+            let extra_content = params
+                .extra_content_json
+                .map(|json| serde_json::from_str(&json))
+                .transpose()
+                .map_err(|_| RoomError::InvalidAttachmentData)?;
+
+            Ok(GalleryConfig::new()
+                .caption(caption)
+                .mentions(params.mentions.map(Into::into))
+                .in_reply_to(in_reply_to)
+                .extra_content(extra_content))
+        }
     }
 
     #[derive(uniffi::Enum)]
@@ -1741,18 +1779,24 @@ mod galleries {
             source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
+            #[uniffi(default = None)]
+            extra_content_json: Option<String>,
         },
         File {
             file_info: FileInfo,
             source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
+            #[uniffi(default = None)]
+            extra_content_json: Option<String>,
         },
         Image {
             image_info: ImageInfo,
             source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
+            #[uniffi(default = None)]
+            extra_content_json: Option<String>,
             thumbnail_source: Option<UploadSource>,
         },
         Video {
@@ -1760,11 +1804,22 @@ mod galleries {
             source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
+            #[uniffi(default = None)]
+            extra_content_json: Option<String>,
             thumbnail_source: Option<UploadSource>,
         },
     }
 
     impl GalleryItemInfo {
+        fn extra_content_json(&self) -> &Option<String> {
+            match self {
+                GalleryItemInfo::Audio { extra_content_json, .. }
+                | GalleryItemInfo::File { extra_content_json, .. }
+                | GalleryItemInfo::Image { extra_content_json, .. }
+                | GalleryItemInfo::Video { extra_content_json, .. } => extra_content_json,
+            }
+        }
+
         fn mimetype(&self) -> &Option<String> {
             match self {
                 GalleryItemInfo::Audio { audio_info, .. } => &audio_info.mimetype,
@@ -1863,6 +1918,12 @@ mod galleries {
                 attachment_info: self.attachment_info()?,
                 caption,
                 thumbnail: self.thumbnail()?,
+                extra_content: self
+                    .extra_content_json()
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .transpose()
+                    .map_err(|_| RoomError::InvalidAttachmentData)?,
             })
         }
     }
@@ -1920,23 +1981,7 @@ mod galleries {
             params: GalleryUploadParameters,
             item_infos: Vec<GalleryItemInfo>,
         ) -> Result<Arc<SendGalleryJoinHandle>, RoomError> {
-            let caption = params.caption.map(|caption| {
-                let formatted =
-                    formatted_body_from(Some(&caption), params.formatted_caption.map(Into::into));
-                assign!(TextMessageEventContent::plain(caption), { formatted })
-            });
-
-            let in_reply_to = params
-                .in_reply_to
-                .as_ref()
-                .map(EventId::parse)
-                .transpose()
-                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
-
-            let mut gallery_config = GalleryConfig::new()
-                .caption(caption)
-                .mentions(params.mentions.map(Into::into))
-                .in_reply_to(in_reply_to);
+            let mut gallery_config: GalleryConfig = params.try_into()?;
 
             for item_info in item_infos {
                 gallery_config = gallery_config.add_item(item_info.try_into()?);
@@ -1949,6 +1994,69 @@ mod galleries {
             }));
 
             Ok(handle)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn gallery_params(extra_content_json: Option<&str>) -> GalleryUploadParameters {
+            GalleryUploadParameters {
+                caption: Some("gallery caption".to_owned()),
+                formatted_caption: None,
+                mentions: None,
+                in_reply_to: None,
+                extra_content_json: extra_content_json.map(str::to_owned),
+            }
+        }
+
+        fn image_item(extra_content_json: Option<&str>) -> GalleryItemInfo {
+            GalleryItemInfo::Image {
+                image_info: ImageInfo {
+                    height: None,
+                    width: None,
+                    mimetype: Some("image/jpeg".to_owned()),
+                    size: None,
+                    thumbnail_info: None,
+                    thumbnail_source: None,
+                    blurhash: None,
+                    is_animated: None,
+                },
+                source: UploadSource::Data {
+                    bytes: b"image".to_vec(),
+                    filename: "image.jpg".to_owned(),
+                },
+                caption: None,
+                formatted_caption: None,
+                thumbnail_source: None,
+                extra_content_json: extra_content_json.map(str::to_owned),
+            }
+        }
+
+        #[test]
+        fn test_gallery_extra_content_conversion() {
+            for json in [None, Some("{}"), Some(r#"{"com.example.gallery":true}"#)] {
+                assert!(GalleryConfig::try_from(gallery_params(json)).is_ok());
+            }
+
+            let item: matrix_sdk_ui::timeline::GalleryItemInfo =
+                image_item(Some(r#"{"org.matrix.msc2448.is_spoiler":true}"#)).try_into().unwrap();
+            let item: matrix_sdk::attachment::GalleryItemInfo = item.try_into().unwrap();
+            assert_eq!(item.extra_content.unwrap()["org.matrix.msc2448.is_spoiler"], true);
+        }
+
+        #[test]
+        fn test_gallery_extra_content_rejects_non_objects() {
+            for json in ["not JSON", "[]", "null", "true", "42", r#""text""#] {
+                assert!(matches!(
+                    GalleryConfig::try_from(gallery_params(Some(json))),
+                    Err(RoomError::InvalidAttachmentData)
+                ));
+                let item: Result<matrix_sdk_ui::timeline::GalleryItemInfo, _> =
+                    image_item(Some(json)).try_into();
+                assert!(matches!(item, Err(RoomError::InvalidAttachmentData)));
+            }
         }
     }
 }

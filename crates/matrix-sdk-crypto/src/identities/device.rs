@@ -233,11 +233,13 @@ impl Device {
             // `device_keys` and downloaded by us using a `/keys/query` request.
             //
             // A `Device` is considered to be the owner of a room key iff:
-            //     1. The `Curve25519` key that was used to establish the Olm `Session` that
-            //        was used to decrypt the to-device message is binding the `Ed25519` key
-            //        of this `Device` via the content of the to-device message, and:
-            //     2. The `Ed25519` key of this device has signed a `device_keys` object
-            //        that contains the `Curve25519` key from step 1.
+            //
+            // 1. The `Curve25519` key that was used to establish the Olm
+            //    `Session` that was used to decrypt the to-device message is
+            //    binding the `Ed25519` key of this `Device` via the content of
+            //    the to-device message, and:
+            // 2. The `Ed25519` key of this device has signed a `device_keys`
+            //    object that contains the `Curve25519` key from step 1.
             //
             // We don't need to check the signature of the `Device` here, since
             // we don't accept a `Device` unless it has a valid `Ed25519`
@@ -573,25 +575,52 @@ impl UserDevices {
         self.verification_machine.own_device_id()
     }
 
-    /// Returns true if there is at least one devices of this user that is
+    /// Iterator over the data of all the user's devices, excluding our own
+    /// device.
+    fn other_devices(&self) -> impl Iterator<Item = &DeviceData> {
+        self.inner.values().filter(|d| {
+            !(d.user_id() == self.own_user_id() && d.device_id() == self.own_device_id())
+        })
+    }
+
+    /// Returns true if there is at least one device of this user that is
     /// considered to be verified, false otherwise.
     ///
     /// This won't consider your own device as verified, as your own device is
     /// always implicitly verified.
     pub fn is_any_verified(&self) -> bool {
-        self.inner
-            .values()
-            .filter(|d| {
-                !(d.user_id() == self.own_user_id() && d.device_id() == self.own_device_id())
-            })
-            .any(|d| {
-                d.is_verified(
-                    &self.own_identity,
-                    &self.device_owner_identity,
-                    #[cfg(feature = "experimental-x509-identity-verification")]
-                    self.x509_verifier.as_ref(),
-                )
-            })
+        self.other_devices().any(|d| {
+            d.is_verified(
+                &self.own_identity,
+                &self.device_owner_identity,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                self.x509_verifier.as_ref(),
+            )
+        })
+    }
+
+    /// Returns true if the user has a device, other than our own, that we
+    /// could run an interactive verification against.
+    ///
+    /// To be a candidate for verification, the device must be cross-signed by
+    /// its owner, support Olm (have a Curve25519 key), and not be a
+    /// [dehydrated device].
+    ///
+    /// Unlike [`UserDevices::is_any_verified`], this does not require us to
+    /// trust the owner's identity, only that the owner has signed the device,
+    /// so it can be used from a device that has not itself been verified yet.
+    ///
+    /// [dehydrated device]: https://github.com/matrix-org/matrix-spec-proposals/pull/3814
+    pub fn has_other_devices_to_verify_against(&self) -> bool {
+        let Some(owner_identity) = &self.device_owner_identity else {
+            return false;
+        };
+
+        self.other_devices().any(|d| {
+            d.is_cross_signed_by_owner(owner_identity)
+                && d.curve25519_key().is_some()
+                && !d.is_dehydrated()
+        })
     }
 
     /// Iterator over all the device ids of the user devices.

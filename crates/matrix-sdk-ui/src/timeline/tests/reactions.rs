@@ -18,9 +18,9 @@ use eyeball_im::VectorDiff;
 use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
-use matrix_sdk::assert_next_matches_with_timeout;
+use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
     events::{AnyMessageLikeEventContent, reaction::ReactionEventContent, relation::Annotation},
@@ -71,7 +71,7 @@ macro_rules! assert_reaction_is_updated {
         let event = assert_item_update!($stream, $event_id, $index);
         let reactions = event.reactions().clone();
         let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
-        let reaction = reactions.get(*ALICE).unwrap();
+        let reaction = reactions.get(&User::Alice).unwrap();
         match &reaction.send_state {
             Some(EventSendState::NotSentYet { .. } | EventSendState::SendingFailed { .. }) => {
                 assert!(!$is_remote_echo)
@@ -117,7 +117,7 @@ async fn test_add_reaction_success() {
 
     // When the remote echo is received from sync,
     timeline
-        .handle_live_event(timeline.factory.reaction(&event_id, REACTION_KEY).sender(*ALICE))
+        .handle_live_event(timeline.factory.reaction(&event_id, REACTION_KEY).sender(User::Alice))
         .await;
 
     // The reaction is still present on the item, as a remote echo.
@@ -158,7 +158,9 @@ async fn test_redact_reaction_success() {
     // A reaction is added by sync.
     let reaction_id = event_id!("$reaction_id");
     timeline
-        .handle_live_event(f.reaction(&event_id, REACTION_KEY).sender(&ALICE).event_id(reaction_id))
+        .handle_live_event(
+            f.reaction(&event_id, REACTION_KEY).sender(User::Alice).event_id(reaction_id),
+        )
         .await;
     assert_reaction_is_updated!(stream, &event_id, item_pos, true);
 
@@ -178,7 +180,7 @@ async fn test_redact_reaction_success() {
 
     // When that redaction is confirmed by the server,
     timeline
-        .handle_live_event(f.redaction(reaction_id).sender(*ALICE).event_id(event_id!("$idb")))
+        .handle_live_event(f.redaction(reaction_id).sender(User::Alice).event_id(event_id!("$idb")))
         .await;
 
     // Nothing happens, because the reaction was already redacted.
@@ -220,11 +222,11 @@ async fn test_initial_reaction_timestamp_is_stored() {
                 values: vector![
                     // Reaction comes first.
                     f.reaction(&message_event_id, REACTION_KEY)
-                        .sender(*ALICE)
+                        .sender(User::Alice)
                         .server_ts(reaction_timestamp)
                         .into_event(),
                     // Event comes next.
-                    f.text_msg("A").sender(*ALICE).event_id(&message_event_id).into_event(),
+                    f.text_msg("A").sender(User::Alice).event_id(&message_event_id).into_event(),
                 ],
             }],
             RemoteEventOrigin::Sync,
@@ -246,9 +248,11 @@ async fn test_reaction_on_a_state_event() {
     let state_event_id = EventId::new_v1(server_name!("dummy.server"));
 
     timeline
-        .handle_live_event(f.room_name("Alice's room").sender(&ALICE).event_id(&state_event_id))
+        .handle_live_event(
+            f.room_name("Alice's room").sender(User::Alice).event_id(&state_event_id),
+        )
         .await;
-    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(&BOB)).await;
+    timeline.handle_live_event(f.reaction(&state_event_id, REACTION_KEY).sender(User::Bob)).await;
 
     let items = timeline.controller.items().await;
     let item = items.last().unwrap().as_event().unwrap();
@@ -256,7 +260,7 @@ async fn test_reaction_on_a_state_event() {
 
     let reactions = item.reactions().clone();
     let by_sender = reactions.get(&REACTION_KEY.to_owned()).unwrap();
-    assert!(by_sender.contains_key(*BOB));
+    assert!(by_sender.contains_key(&User::Bob));
 }
 
 /// Returns the unique item id, the event id, and position of the message.
@@ -264,7 +268,9 @@ async fn send_first_message(
     timeline: &TestTimeline,
     stream: &mut (impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + Unpin),
 ) -> (TimelineEventItemId, OwnedEventId, usize) {
-    timeline.handle_live_event(timeline.factory.text_msg("I want you to react").sender(&BOB)).await;
+    timeline
+        .handle_live_event(timeline.factory.text_msg("I want you to react").sender(User::Bob))
+        .await;
 
     let item = assert_next_matches!(*stream, VectorDiff::PushBack { value } => value);
     let event_item = item.as_event().unwrap();
@@ -287,10 +293,10 @@ async fn test_reinserted_item_keeps_reactions() {
 
     // We receive an initial update with one event and a reaction to this event.
     let reaction_target = event_id!("$1");
-    let target_event = f.text_msg("hey").sender(&BOB).event_id(reaction_target).into_event();
+    let target_event = f.text_msg("hey").sender(User::Bob).event_id(reaction_target).into_event();
     let reaction_event = f
         .reaction(reaction_target, REACTION_KEY)
-        .sender(&ALICE)
+        .sender(User::Alice)
         .event_id(event_id!("$2"))
         .into_event();
 
@@ -314,7 +320,7 @@ async fn test_reinserted_item_keeps_reactions() {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
         let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
-        reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
+        reactions.get(REACTION_KEY).unwrap().get(&User::Alice).unwrap();
     });
 
     // And that's it for now.
@@ -341,7 +347,7 @@ async fn test_reinserted_item_keeps_reactions() {
         // And it still includes the reaction from Alice.
         let reactions = item.reactions().clone();
         assert_eq!(reactions.len(), 1);
-        reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
+        reactions.get(REACTION_KEY).unwrap().get(&User::Alice).unwrap();
     });
 
     // No other updates.
@@ -355,7 +361,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
     let f = &timeline.factory;
 
     let event_id = owned_event_id!("$1");
-    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    timeline.handle_live_event(f.text_msg("hello").sender(User::Alice).event_id(&event_id)).await;
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
 
     let txn_id = timeline
@@ -364,7 +370,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(&User::Alice).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::NotSentYet { .. }));
 
     let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
@@ -378,7 +384,7 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(&User::Alice).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::SendingFailed { .. }));
 
     let reaction_id = owned_event_id!("$r");
@@ -387,15 +393,15 @@ async fn test_local_reaction_send_state_failed_then_sent() {
         .update_event_send_state(&txn_id, EventSendState::Sent { event_id: reaction_id.clone() })
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(&User::Alice).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::Sent { .. }));
 
     // Remote echo: nothing pending anymore.
     timeline
-        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(&reaction_id))
+        .handle_live_event(f.reaction(&event_id, "👍").sender(User::Alice).event_id(&reaction_id))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(&User::Alice).unwrap();
     assert!(info.send_state.is_none());
 
     assert_pending!(stream);
@@ -408,7 +414,7 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
     let f = &timeline.factory;
 
     let event_id = owned_event_id!("$1");
-    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    timeline.handle_live_event(f.text_msg("hello").sender(User::Alice).event_id(&event_id)).await;
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
 
     let txn_id = timeline
@@ -421,10 +427,10 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
     // The remote echo arrives before the send queue reports the send.
     let reaction_id = owned_event_id!("$r");
     timeline
-        .handle_live_event(f.reaction(&event_id, "👍").sender(*ALICE).event_id(&reaction_id))
+        .handle_live_event(f.reaction(&event_id, "👍").sender(User::Alice).event_id(&reaction_id))
         .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(&User::Alice).unwrap();
     assert!(info.send_state.is_none());
 
     // The late `Sent` must not bring a pending state back.
@@ -436,13 +442,94 @@ async fn test_reaction_remote_echo_before_sent_leaves_no_pending_state() {
 }
 
 #[async_test]
+async fn test_a_hidden_local_reaction_failing_leaves_the_same_remote_one_alone() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hello").sender(User::Alice).event_id(&event_id)).await;
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    let txn_id = timeline
+        .handle_local_event(
+            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    // The same reaction, sent from another of our devices, hides the local one.
+    timeline
+        .handle_live_event(
+            f.reaction(&event_id, "👍").sender(User::Alice).event_id(event_id!("$other")),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    // The hidden local one fails to be sent.
+    let error = Arc::new(matrix_sdk::Error::SendQueueWedgeError(Box::new(
+        QueueWedgeError::GenericApiError { msg: "nope".to_owned() },
+    )));
+    timeline
+        .controller
+        .update_event_send_state(
+            &txn_id,
+            EventSendState::SendingFailed { error, is_recoverable: true },
+        )
+        .await;
+
+    // The one from the other device isn't marked as failing.
+    let items = timeline.controller.items().await;
+    let item = items.iter().find_map(|item| item.as_event()).unwrap();
+    let info = item.reactions().get("👍").and_then(|by_user| by_user.get(&User::Alice)).cloned();
+    assert!(info.unwrap().send_state.is_none());
+}
+
+#[async_test]
+async fn test_dropping_a_local_reaction_brings_back_the_same_remote_one() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    let event_id = owned_event_id!("$1");
+    timeline.handle_live_event(f.text_msg("hello").sender(User::Alice).event_id(&event_id)).await;
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    // The reaction from another of our devices is already there (e.g. the
+    // timeline was rebuilt), then the queued local one is replayed on top.
+    timeline
+        .handle_live_event(
+            f.reaction(&event_id, "👍").sender(User::Alice).event_id(event_id!("$other")),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+    let txn_id = timeline
+        .handle_local_event(
+            ReactionEventContent::new(Annotation::new(event_id.clone(), "👍".to_owned())).into(),
+        )
+        .await;
+    assert_next_matches!(stream, VectorDiff::Set { index: 0, .. });
+
+    timeline
+        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
+            transaction_id: txn_id,
+        })
+        .await;
+
+    let items = timeline.controller.items().await;
+    let item = items.iter().find_map(|item| item.as_event()).unwrap();
+    let info = item.reactions().get("👍").and_then(|by_user| by_user.get(&User::Alice)).cloned();
+    assert!(info.unwrap().send_state.is_none());
+}
+
+#[async_test]
 async fn test_toggle_reaction_again_after_removing_a_sent_one() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let f = &timeline.factory;
 
     let event_id = owned_event_id!("$1");
-    timeline.handle_live_event(f.text_msg("hello").sender(*ALICE).event_id(&event_id)).await;
+    timeline.handle_live_event(f.text_msg("hello").sender(User::Alice).event_id(&event_id)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let item_id = item.identifier();
 
@@ -467,7 +554,7 @@ async fn test_toggle_reaction_again_after_removing_a_sent_one() {
     // Toggling again must add a new reaction, not try to remove the old one.
     timeline.toggle_reaction_local(&item_id, "👍").await.unwrap();
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    let info = item.reactions().get("👍").unwrap().get(*ALICE).unwrap();
+    let info = item.reactions().get("👍").unwrap().get(&User::Alice).unwrap();
     assert_matches!(&info.send_state, Some(EventSendState::NotSentYet { .. }));
 
     assert_pending!(stream);

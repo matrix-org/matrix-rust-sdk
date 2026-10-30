@@ -72,18 +72,24 @@ The profiles themselves are defined in the workspace
 [Cargo.toml](../Cargo.toml).
 
 Release builds don't use the builtin `release` profile, since optimising for
-size rather than speed shrinks the shipped binaries considerably:
+size rather than speed shrinks the shipped binaries considerably. Both
+platforms use `small-release-stripped`, which is `release` with
+`opt-level = "s"`, `lto = true` and `strip = "debuginfo"`. Backtraces still
+work but debuggers are affected.
 
-- iOS uses `small-release`, which is `release` with `opt-level = "s"`. That
-  measured ~33% smaller linked code for the distributed XCFramework, see
-  [#6714](https://github.com/matrix-org/matrix-rust-sdk/pull/6714).
-  `cargo xtask swift build-framework --release` selects it.
-- Android uses `small-release-stripped`, which adds `lto = true` and
-  `strip = "debuginfo"` on top of `small-release`, almost halving the size of
-  the resulting library. Backtraces still work but debuggers are affected. Pass
-  it explicitly with `--profile small-release-stripped`, as the `--release`
-  shorthand of `cargo xtask kotlin build-android-library` only selects the
-  builtin `release` profile.
+- On iOS, `cargo xtask swift build-framework --release` selects the profile.
+  `opt-level = "s"` measured ~33% smaller linked code for the distributed
+  XCFramework, see
+  [#6714](https://github.com/matrix-org/matrix-rust-sdk/pull/6714), and LTO
+  shrank the framework linked into Element X iOS from 174 MB to 62 MB. The
+  xtask builds only the static library through
+  `cargo rustc --crate-type staticlib`, as Cargo silently skips LTO when the
+  `lib` crate type is built alongside it. Cargo's `strip` doesn't reach a
+  static library either, since nothing links it, so the xtask strips the debug
+  info itself once the private symbols are merged.
+- On Android, pass it explicitly with `--profile small-release-stripped`, as
+  the `--release` shorthand of `cargo xtask kotlin build-android-library` only
+  selects the builtin `release` profile.
 
 Debug builds default to `reldbg` for Swift and `dev` for Kotlin. Note that the
 builtin `dev` profile puts its artefacts in `target/debug` while every other

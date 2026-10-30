@@ -11,7 +11,6 @@ use ruma::{
 };
 use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
-use wiremock::ResponseTemplate;
 
 use super::{
     AuthorizationCode, AuthorizationError, AuthorizationResponse, OAuth, OAuthAuthorizationData,
@@ -98,25 +97,21 @@ async fn check_authorization_url(
                 assert!(actual_scopes.len() >= 2, "Expected at least two scopes");
 
                 assert!(
-                    actual_scopes
-                        .contains(&"urn:matrix:org.matrix.msc2967.client:api:*".to_owned()),
+                    actual_scopes.contains(&"urn:matrix:client:api:*".to_owned()),
                     "Expected Matrix API scope not found in scopes"
                 );
 
                 // Only check the device ID if we know it. If it's generated
                 // randomly we don't know it.
                 if let Some(device_id) = device_id {
-                    let device_id_scope =
-                        format!("urn:matrix:org.matrix.msc2967.client:device:{device_id}");
+                    let device_id_scope = format!("urn:matrix:client:device:{device_id}");
                     assert!(
                         actual_scopes.contains(&device_id_scope),
                         "Expected device ID scope not found in scopes"
                     )
                 } else {
                     assert!(
-                        actual_scopes
-                            .iter()
-                            .any(|s| s.starts_with("urn:matrix:org.matrix.msc2967.client:device:")),
+                        actual_scopes.iter().any(|s| s.starts_with("urn:matrix:client:device:")),
                         "Expected device ID scope not found in scopes"
                     );
                 }
@@ -728,7 +723,8 @@ async fn test_server_metadata_cache_refresh_lock() {
     // Make the first request to the endpoint fail after a second.
     oauth_server
         .mock_server_metadata()
-        .respond_with(ResponseTemplate::new(500).set_delay(Duration::from_secs(1)))
+        .with_delay(Duration::from_secs(1))
+        .error500()
         .mock_once()
         .mount()
         .await;
@@ -834,4 +830,27 @@ async fn test_client_registration_data() {
 
     oauth.use_registration_data(&server_metadata, Some(&client_metadata.into())).await.unwrap();
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
+}
+
+#[test]
+fn test_oauth_session_serialization() {
+    let session = mock_session(mock_session_tokens_with_refresh());
+
+    // The user session is flattened, like in `MatrixSession`.
+    let json = serde_json::to_value(&session).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "client_id": "test_client_id",
+            "user_id": "@example:localhost",
+            "device_id": "DEVICEID",
+            "access_token": "1234",
+            "refresh_token": "ZYXWV",
+        })
+    );
+
+    let deserialized: super::OAuthSession = serde_json::from_value(json).unwrap();
+    assert_eq!(deserialized.client_id, session.client_id);
+    assert_eq!(deserialized.user.meta, session.user.meta);
+    assert_eq!(deserialized.user.tokens, session.user.tokens);
 }

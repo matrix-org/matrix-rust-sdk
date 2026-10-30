@@ -15,11 +15,12 @@
 use std::{
     collections::BTreeMap,
     ops::Deref,
+    pin::pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use itertools::Itertools;
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
@@ -385,7 +386,7 @@ impl NotificationClient {
 
         let deadline = Instant::now() + self.timeouts.decryption_deadline;
         let iterations = encryption_sync.run_iterations(sync_permit_guard);
-        pin_mut!(iterations);
+        let mut iterations = pin!(iterations);
 
         let mut num_iterations = 0;
 
@@ -470,7 +471,7 @@ impl NotificationClient {
                 DecryptionAttempt::MissingRoomKey | DecryptionAttempt::Unrecoverable => None,
             });
         };
-        pin_mut!(room_keys);
+        let mut room_keys = pin!(room_keys);
 
         let deadline = Instant::now() + self.timeouts.decryption_deadline;
 
@@ -706,7 +707,7 @@ impl NotificationClient {
         let mut remaining_attempts = MAX_SLIDING_SYNC_ATTEMPTS;
 
         let stream = sync.sync();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // Sum the expected event count for each room
         let expected_event_count = requests.iter().map(|req| req.event_ids.len()).sum::<usize>();
@@ -1027,7 +1028,7 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
 
     #[cfg(feature = "unstable-msc3956")]
     let is_still_encrypted =
-        is_still_encrypted || matches!(event_type, ruma::events::TimelineEventType::Encrypted);
+        is_still_encrypted || matches!(event_type, TimelineEventType::Encrypted);
 
     is_still_encrypted
 }
@@ -1322,7 +1323,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         api::client::sync::sync_events::v5,
         assign, event_id,
@@ -1438,7 +1439,7 @@ mod tests {
         let redacted_event = EventFactory::new()
             .room(room_id)
             .sender(user_id!("@sender:b.c"))
-            .redacted(&ALICE, RedactedRoomMessageEventContent::new())
+            .redacted(User::Alice, RedactedRoomMessageEventContent::new())
             .event_id(&event_id)
             .into_raw();
         let mut room = v5::response::Room::new();

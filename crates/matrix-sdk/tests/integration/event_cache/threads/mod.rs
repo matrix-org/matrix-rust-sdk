@@ -14,7 +14,7 @@ use matrix_sdk::{
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     },
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedEventId, OwnedRoomId, event_id,
     events::{
@@ -76,14 +76,13 @@ async fn test_thread_contains_its_root_event() {
 
     let room_id = room_id!("!galette:saucisse.bzh");
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = client.event_cache().unwrap();
 
     let thread_root_id = event_id!("$thread_root");
     let thread_resp_id = event_id!("$thread_resp");
 
     // Receive an in-thread event.
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let _room = server
         .sync_room(
             &client,
@@ -143,9 +142,7 @@ async fn test_ignored_user_empties_threads() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
 
-    // Immediately subscribe the event cache to sync updates.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
@@ -258,13 +255,11 @@ async fn test_deduplication() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
 
-    // Immediately subscribe the event cache to sync updates.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = client.event_cache().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let thread_root = event_id!("$thread_root");
     let first_reply_event_id = event_id!("$first_reply");
@@ -364,6 +359,9 @@ struct ThreadSubscriptionTestSetup {
 async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     let server = MatrixMockServer::new().await;
 
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
     let thread_root = event_id!("$thread_root");
 
     // Assuming a client that's interested in thread subscriptions,
@@ -376,17 +374,12 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         .build()
         .await;
 
-    // Make sure to advertise support for thread subscriptions.
-    server.mock_versions().with_thread_subscriptions().ok().mount().await;
-
-    // Immediately subscribe the event cache to sync updates.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
-    let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
@@ -395,7 +388,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     // Provide a dummy sync with the room's member profile of the current user,
     // so the push context can be created.
     let own_user_id = client.user_id().unwrap();
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let member = f.member(own_user_id).sender(own_user_id);
 
     // Override push rules so that only an intentional mention causes a
@@ -465,7 +458,7 @@ async fn test_auto_subscribe_thread_via_sync() {
         .await;
 
     let mut thread_subscriber_updates =
-        s.client.event_cache().subscribe_thread_subscriber_updates();
+        s.client.event_cache().unwrap().subscribe_thread_subscriber_updates();
 
     // When I receive 3 events (1 non mention, 1 mention, then 1 non mention
     // again), from sync, I'll get subscribed to the thread because of the
@@ -525,8 +518,7 @@ async fn test_auto_subscribe_on_thread_paginate() {
 
     let s = thread_subscription_test_setup().await;
 
-    let event_cache = s.client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = s.client.event_cache().unwrap();
 
     let mut thread_subscriber_updates = event_cache.subscribe_thread_subscriber_updates();
 
@@ -607,8 +599,7 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
 
     let s = thread_subscription_test_setup().await;
 
-    let event_cache = s.client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = s.client.event_cache().unwrap();
 
     let mut thread_subscriber_updates = event_cache.subscribe_thread_subscriber_updates();
 
@@ -695,8 +686,7 @@ async fn test_redact_touches_threads() {
     let s = thread_subscription_test_setup().await;
     let f = s.factory;
 
-    let event_cache = s.client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = s.client.event_cache().unwrap();
 
     let thread_root_id = s.thread_root;
     let thread_resp1 = s.events[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
@@ -958,8 +948,7 @@ async fn test_edits_touches_threads() {
     let s = thread_subscription_test_setup().await;
     let f = s.factory;
 
-    let event_cache = s.client.event_cache();
-    event_cache.subscribe().unwrap();
+    let event_cache = s.client.event_cache().unwrap();
 
     let thread_root_id = s.thread_root;
 

@@ -167,9 +167,12 @@ fn build_for_android_target(
     features: &str,
 ) -> Result<Utf8PathBuf> {
     let sh = sh();
+    // `cargo build` would also produce the `lib` crate type, which silently
+    // disables the profile's LTO. `cargo rustc` restricts the output to the
+    // dynamic library, which `--lib` keeps apart from the packages' binaries.
     cmd!(
         sh,
-        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} --package {package_name} --features {features}"
+        "cargo ndk --target {target} -o {dest_dir} rustc --lib --profile {profile} --package {package_name} --features {features} --crate-type cdylib"
     )
     .run()?;
 

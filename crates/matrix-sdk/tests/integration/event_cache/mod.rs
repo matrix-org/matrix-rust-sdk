@@ -8,10 +8,11 @@ use matrix_sdk::{
     assert_let_timeout, assert_next_matches_with_timeout,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        BackPaginationOutcome, EventCacheError, PaginationStatus, RoomEventCacheUpdate,
-        TimelineVectorDiffs,
+        BackPaginationOutcome, PaginationStatus, RoomEventCacheUpdate, TimelineVectorDiffs,
     },
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    linked_chunk::{
+        ChunkIdentifier, LinkedChunkId, Position, Update, lazy_loader::from_all_chunks,
+    },
     store::StoreConfig,
     test_utils::{
         assert_event_matches_msg,
@@ -23,15 +24,16 @@ use matrix_sdk_base::event_cache::{
     store::{EventCacheStore, MemoryStore},
 };
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     EventId, event_id,
     events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, TimelineEventType,
         room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     },
     room_id,
     room_version_rules::RedactionRules,
+    serde::Raw,
     user_id,
 };
 use strass::assert_let;
@@ -47,36 +49,18 @@ macro_rules! assert_event_id {
 }
 
 #[async_test]
-async fn test_must_explicitly_subscribe() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let room_id = room_id!("!omelette:fromage.fr");
-
-    // If I create a room event subscriber for a room before subscribing the
-    // event cache,
-    let room = server.sync_joined_room(&client, room_id).await;
-    let result = room.event_cache().await;
-
-    // Then it fails, because one must explicitly call `.subscribe()` on the
-    // event cache.
-    assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
-}
-
-#[async_test]
 async fn test_event_cache_receives_events() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    // Immediately subscribe the event cache to sync updates.
-    client.event_cache().subscribe().unwrap();
-
     // If I sync and get informed I've joined The Room, but with no events,
     let room_id = room_id!("!omelette:fromage.fr");
-    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.sync_joined_room(&client, room_id).await;
 
     // If I create a room event subscriber,
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it's empty, and the subscriber doesn't yield anything.
@@ -120,9 +104,6 @@ async fn test_ignored_unignored() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    // Immediately subscribe the event cache to sync updates.
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let other_room_id = room_id!("!galette:saucisse.bzh");
 
@@ -150,8 +131,8 @@ async fn test_ignored_unignored() {
         .await;
 
     // And subscribe to the room,
-    let room = client.get_room(room_id).unwrap();
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     // Then at first it contains the two initial events.
@@ -203,8 +184,8 @@ async fn test_ignored_unignored() {
 
     // The other room has been cleared too.
     {
-        let room = client.get_room(other_room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) =
+            client.event_cache().unwrap().room(other_room_id).await.unwrap();
         let events = room_event_cache.events().await.unwrap();
         assert!(events.is_empty());
     }
@@ -237,17 +218,12 @@ async fn test_backpaginate_once() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // If I sync and get informed I've joined The Room, and get a previous batch
     // token,
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -259,7 +235,8 @@ async fn test_backpaginate_once() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -327,18 +304,13 @@ async fn test_backpaginate_many_times_with_many_iterations() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     // If I sync and get informed I've joined The Room, and get a previous batch
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -350,7 +322,8 @@ async fn test_backpaginate_many_times_with_many_iterations() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -451,18 +424,13 @@ async fn test_backpaginate_many_times_with_one_iteration() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     // If I sync and get informed I've joined The Room, and get a previous batch
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -474,7 +442,8 @@ async fn test_backpaginate_many_times_with_one_iteration() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -572,11 +541,6 @@ async fn test_reset_while_backpaginating() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     // If I sync and get informed I've joined The Room, and get a previous batch
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
@@ -596,7 +560,7 @@ async fn test_reset_while_backpaginating() {
         .await;
 
     let (room_event_cache, _drop_handles) =
-        client.get_room(room_id).unwrap().event_cache().await.unwrap();
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -610,7 +574,8 @@ async fn test_reset_while_backpaginating() {
     // So events have to happen in this order:
     //
     // - the backpagination request is sent, with a prev-batch A
-    // - the sync endpoint returns _after_ the backpagination started, before the
+    // - the sync endpoint returns _after_ the backpagination started, before
+    //   the
     // backpagination ends
     // - the backpagination ends, with a prev-batch token that's now stale.
     //
@@ -620,9 +585,9 @@ async fn test_reset_while_backpaginating() {
     server
         .mock_room_messages()
         .match_from("first_backpagination")
+        .with_delay(Duration::from_millis(500))
         .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("lalala").into_raw_timeline()])
-            .with_delay(Duration::from_millis(500)))
+            .events(vec![f.text_msg("lalala").into_raw_timeline()]))
         .mock_once()
         .mount()
         .await;
@@ -703,18 +668,14 @@ async fn test_backpaginating_without_token() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     // If I sync and get informed I've joined The Room, without a previous batch
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -761,18 +722,14 @@ async fn test_limited_timeline_resets_pagination() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     // If I sync and get informed I've joined The Room, without a previous batch
     // token,
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -851,15 +808,11 @@ async fn test_limited_timeline_with_storage() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Don't forget to subscribe and like^W enable storage!
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -920,19 +873,15 @@ async fn test_backpaginate_with_no_initial_events() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    // Start with a room with an event, but no prev-batch token.
-    let room = server.sync_joined_room(&client, room_id).await;
+    // Start with an empty room.
+    server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     // The first back-pagination will return these two events.
     //
@@ -951,21 +900,20 @@ async fn test_backpaginate_with_no_initial_events() {
     // - We don't have a prev-batch token to start with, so the first
     //   back-pagination doesn't start before DEFAULT_WAIT_FOR_TOKEN_DURATION
     //   seconds.
-    // - While the back-pagination is actually running, we need a sync adding events
-    //   to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500 milliseconds).
+    // - While the back-pagination is actually running, we need a sync adding
+    //   events to happen (after DEFAULT_WAIT_FOR_TOKEN_DURATION + 500
+    //   milliseconds).
     // - The back-pagination finishes after this sync (after
     //   DEFAULT_WAIT_FOR_TOKEN_DURATION + 1 seconds).
 
     let wait_time = Duration::from_millis(500);
     server
         .mock_room_messages()
-        .ok(RoomMessagesResponseTemplate::default()
-            .end_token("prev_batch")
-            .events(vec![
-                f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
-                f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
-            ])
-            .with_delay(2 * wait_time))
+        .with_delay(2 * wait_time)
+        .ok(RoomMessagesResponseTemplate::default().end_token("prev_batch").events(vec![
+            f.text_msg("world").event_id(event_id!("$3")).into_raw_timeline(),
+            f.text_msg("hello").event_id(event_id!("$2")).into_raw_timeline(),
+        ]))
         .mock_once()
         .mount()
         .await;
@@ -1019,17 +967,12 @@ async fn test_backpaginate_replace_empty_gap() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with an event, limited timeline and prev-batch token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1039,7 +982,8 @@ async fn test_backpaginate_replace_empty_gap() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut stream).await;
@@ -1083,11 +1027,6 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
@@ -1100,7 +1039,7 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
 
     // Start with a room with a few events, limited timeline and prev-batch
     // token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1110,7 +1049,8 @@ async fn test_no_gap_stored_after_deduplicated_sync() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1190,18 +1130,13 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with a single event, limited timeline and prev-batch
     // token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1211,7 +1146,8 @@ async fn test_no_gap_stored_after_deduplicated_backpagination() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1319,18 +1255,13 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with a single event, limited timeline and prev-batch
     // token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -1340,7 +1271,8 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
     if events.is_empty() {
@@ -1397,17 +1329,12 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         .build()
         .await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Start with a room with one event.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -1416,7 +1343,8 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     // Wait for the event.
     let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
@@ -1477,9 +1405,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         .on_builder(|builder| builder.store_config(store_config))
         .build()
         .await;
-    client.event_cache().subscribe().unwrap();
-    let room = client.get_room(room_id).unwrap();
-    let (cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (cache, _drop_handles) = client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let events = cache.events().await.unwrap();
 
@@ -1500,63 +1426,63 @@ async fn test_apply_redaction_when_redaction_comes_later() {
 #[async_test]
 async fn test_apply_redaction_on_an_in_store_event() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
-
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Set up the event cache store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
 
-        // The event cache contains 2 chunks as such (from older to newewst):
-        //
-        // 1. a chunk of 1 item, the one we are going to redact!
-        // 2. a chunk of 1 item, the chunk that is going to be loaded.
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    // chunk #1
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    // … and its item
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![
-                            event_factory.text_msg("foo").event_id(event_id!("$ev0")).into_event(),
-                        ],
-                    },
-                    // chunk #2
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    // … and its item
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![
-                            event_factory.text_msg("foo").event_id(event_id!("$ev1")).into_event(),
-                        ],
-                    },
-                ],
+    // The event cache contains 2 chunks as such (from older to newewst):
+    //
+    // 1. a chunk of 1 item, the one we are going to redact!
+    // 2. a chunk of 1 item, the chunk that is going to be loaded.
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                // chunk #1
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                // … and its item
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![
+                        event_factory.text_msg("foo").event_id(event_id!("$ev0")).into_event(),
+                    ],
+                },
+                // chunk #2
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                // … and its item
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: vec![
+                        event_factory.text_msg("foo").event_id(event_id!("$ev1")).into_event(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .unwrap();
-    }
+        })
+        .build()
+        .await;
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
-    let room = mock_server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1572,7 +1498,7 @@ async fn test_apply_redaction_on_an_in_store_event() {
     }
 
     // Sync a redaction for `$ev0`.
-    mock_server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
@@ -1641,14 +1567,10 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-
-    // Immediately subscribe the event cache to sync updates.
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
@@ -1708,100 +1630,100 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
 #[async_test]
 async fn test_lazy_loading() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
-
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Set up the event cache store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
 
-        // The event cache contains 4 chunks as such (from newest to older):
-        // 4. a chunk of 7 items
-        // 3. a chunk of 5 items
-        // 2. a chunk of a gap
-        //
-        // 1. a chunk of 6 items
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    // chunk #1
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    // … and its 6 items
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: (0..6)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                    // chunk #2
-                    Update::NewGapChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                        gap: Gap { token: "raclette".to_owned() },
-                    },
-                    // chunk #3
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(1)),
-                        new: ChunkIdentifier::new(2),
-                        next: None,
-                    },
-                    // … and its 5 items
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(2), 0),
-                        items: (0..5)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev2_{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                    // chunk #4
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(2)),
-                        new: ChunkIdentifier::new(3),
-                        next: None,
-                    },
-                    // … and its 7 items
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(3), 0),
-                        items: (0..7)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev3_{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                ],
+    // The event cache contains 4 chunks as such (from newest to older):
+    // 4. a chunk of 7 items
+    // 3. a chunk of 5 items
+    // 2. a chunk of a gap
+    //
+    // 1. a chunk of 6 items
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                // chunk #1
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                // … and its 6 items
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: (0..6)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+                // chunk #2
+                Update::NewGapChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                    gap: Gap { token: "raclette".to_owned() },
+                },
+                // chunk #3
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(1)),
+                    new: ChunkIdentifier::new(2),
+                    next: None,
+                },
+                // … and its 5 items
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(2), 0),
+                    items: (0..5)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev2_{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+                // chunk #4
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(2)),
+                    new: ChunkIdentifier::new(3),
+                    next: None,
+                },
+                // … and its 7 items
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(3), 0),
+                    items: (0..7)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev3_{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .unwrap();
-    }
+        })
+        .build()
+        .await;
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
-    let room = mock_server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -1882,7 +1804,7 @@ async fn test_lazy_loading() {
     // gap. Network will be reached. 4 events will be received, and inserted in
     // the event cache store, forever 🫶.
     {
-        let _network_pagination = mock_server
+        let _network_pagination = server
             .mock_room_messages()
             .match_from("raclette")
             .ok(RoomMessagesResponseTemplate::default().end_token("numerobis").events(
@@ -1953,7 +1875,7 @@ async fn test_lazy_loading() {
     // known. The complex part is: how to detect if an event is known if not all
     // events are loaded in memory? This is what we mostly test here.
     {
-        let _network_pagination = mock_server
+        let _network_pagination = server
             .mock_room_messages()
             .match_from("numerobis")
             .ok(RoomMessagesResponseTemplate::default().end_token("trois").events(vec![
@@ -2013,7 +1935,7 @@ async fn test_lazy_loading() {
     // return zero event, the gap chunk will be removed, a second pagination
     // will then run. This time, the store will be hit.
     {
-        let _network_pagination = mock_server
+        let _network_pagination = server
             .mock_room_messages()
             .match_from("trois")
             .ok(RoomMessagesResponseTemplate::default().end_token("quattuor").events(
@@ -2081,73 +2003,72 @@ async fn test_lazy_loading() {
 #[async_test]
 async fn test_deduplication() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
-
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Set up the event cache store.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
 
-        // The event cache contains 2 chunks as such (from newest to older):
-        // 2. a chunk of 4 items
-        //
-        // 1. a chunk of 3 items
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    // chunk #0
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    // … and its 4 items
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: (0..4)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                    // chunk #1
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    // … and its 3 items
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: (0..3)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev1_{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                ],
+    // The event cache contains 2 chunks as such (from newest to older):
+    // 2. a chunk of 4 items
+    // 1. a chunk of 3 items
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                // chunk #0
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                // … and its 4 items
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: (0..4)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+                // chunk #1
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                // … and its 3 items
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: (0..3)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev1_{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .unwrap();
-    }
+        })
+        .build()
+        .await;
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
-    let room = mock_server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _room_event_cache_drop_handle) = room.event_cache().await.unwrap();
+    mock_server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_updates, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
 
@@ -2189,10 +2110,10 @@ async fn test_deduplication() {
 
     // What should we see?
     //
-    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed, and
-    //   6 events must be added inserted (!); indeed, 4 are removed and re-inserted
-    //   at the back, plus 2 events are newly inserted at the back, so 6 are
-    //   inserted,
+    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed,
+    //   and 6 events must be added inserted (!); indeed, 4 are removed and
+    //   re-inserted at the back, plus 2 events are newly inserted at the back,
+    //   so 6 are inserted,
     // - On the store, 2 events must be removed from chunk #0
     //
     // First off, let's check `updates_stream`.
@@ -2254,14 +2175,139 @@ async fn test_deduplication() {
 }
 
 #[async_test]
+async fn test_deduplication_after_event_without_event_type() {
+    let room_id = room_id!("!foo:bar.baz");
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
+
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server
+        .client_builder()
+        .on_builder({
+            let event_cache_store = event_cache_store.clone();
+            move |builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            }
+        })
+        .build()
+        .await;
+
+    mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(event_factory.text_msg("c").event_id(event_id!("$c")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _room_event_cache_drop_handle) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
+
+    // An event with an ID, but no event type. The stores never persist such an
+    // event, so it must not reach the in-memory linked chunk either, otherwise
+    // the in-memory positions and the in-store positions would diverge.
+    //
+    // Note: it's received via a back-pagination, since a sync containing it
+    // would fail in the event handlers.
+    let event_without_event_type = Raw::<AnyTimelineEvent>::from_json_string(
+        r#"{
+            "event_id": "$no_type",
+            "room_id": "!foo:bar.baz",
+            "sender": "@alice:example.org",
+            "origin_server_ts": 0,
+            "content": {}
+        }"#
+        .to_owned(),
+    )
+    .unwrap();
+
+    // Note: events must be presented in reversed order, since this is
+    // back-pagination.
+    mock_server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            event_factory.text_msg("b").event_id(event_id!("$b")).into_raw_timeline(),
+            event_without_event_type,
+            event_factory.text_msg("a").event_id(event_id!("$a")).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+
+    // The event without an event type has been dropped.
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(events.len(), 3);
+    assert_event_id!(events[0], "$a");
+    assert_event_id!(events[1], "$b");
+    assert_event_id!(events[2], "$c");
+
+    let (_, mut updates_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Receive `$b` again, along with a new event (otherwise the sync would be
+    // ignored, since all its events would be duplicates): `$b` must be
+    // deduplicated, i.e. the old `$b` is removed and the new one is pushed at
+    // the back.
+    mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(event_factory.text_msg("b").event_id(event_id!("$b")))
+                .add_timeline_event(event_factory.text_msg("d").event_id(event_id!("$d"))),
+        )
+        .await;
+
+    assert_matches!(
+        updates_stream.recv().await.unwrap(),
+        RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) => {
+            assert_eq!(diffs.len(), 2);
+            assert_matches!(&diffs[0], VectorDiff::Remove { index: 1 });
+            assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
+                assert_eq!(events.len(), 2);
+                assert_event_id!(&events[0], "$b");
+                assert_event_id!(&events[1], "$d");
+            });
+        }
+    );
+
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(events.len(), 4);
+    assert_event_id!(events[0], "$a");
+    assert_event_id!(events[1], "$c");
+    assert_event_id!(events[2], "$b");
+    assert_event_id!(events[3], "$d");
+
+    // The store must agree with the in-memory linked chunk.
+    let stored_linked_chunk = from_all_chunks::<10, _, _>(
+        event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let stored_events = stored_linked_chunk.items().map(|(_, event)| event).collect::<Vec<_>>();
+    assert_eq!(stored_events.len(), 4);
+    assert_event_id!(stored_events[0], "$a");
+    assert_event_id!(stored_events[1], "$c");
+    assert_event_id!(stored_events[2], "$b");
+    assert_event_id!(stored_events[3], "$d");
+}
+
+#[async_test]
 async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server.sync_joined_room(&client, room_id).await;
+    server.sync_joined_room(&client, room_id).await;
 
     let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -2280,7 +2326,8 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
         f.text_msg("latest1").event_id(event_id!("$latest1")).into_raw_timeline(),
     ];
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
 
@@ -2291,7 +2338,7 @@ async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
             JoinedRoomBuilder::new(room_id)
                 .set_timeline_limited()
                 .set_timeline_prev_batch("token-before-latest")
-                .add_timeline_bulk(latest_events.clone().into_iter().map(ruma::serde::Raw::cast)),
+                .add_timeline_bulk(latest_events.clone().into_iter().map(Raw::cast)),
         )
         .await;
 
@@ -2370,10 +2417,8 @@ async fn test_dont_remove_only_gap() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -2382,7 +2427,8 @@ async fn test_dont_remove_only_gap() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     server
         .mock_room_messages()
@@ -2403,7 +2449,7 @@ async fn test_clear_all_rooms() {
     let event_cache_store = Arc::new(MemoryStore::new());
 
     let f = EventFactory::new().room(sleeping_room_id);
-    let ev0 = f.text_msg("hi").sender(*ALICE).event_id(event_id!("$ev0")).into_event();
+    let ev0 = f.text_msg("hi").sender(User::Alice).event_id(event_id!("$ev0")).into_event();
 
     // Feed the cache with one room with one event, before the client is
     // created. This room will remain sleeping.
@@ -2433,21 +2479,20 @@ async fn test_clear_all_rooms() {
         .build()
         .await;
 
-    client.event_cache().subscribe().unwrap();
-
     // Another room gets a live event: it's loaded in the event cache now, while
     // sleeping_room_id is not.
     let room_id = room_id!("!galette:saucisse.bzh");
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("bonchourhan").sender(*BOB).event_id(event_id!("$ev1")),
+                f.text_msg("bonchourhan").sender(User::Bob).event_id(event_id!("$ev1")),
             ),
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial, mut room_updates) = room_event_cache.subscribe().await.unwrap();
 
     let mut initial = Vector::from(initial);
@@ -2466,7 +2511,7 @@ async fn test_clear_all_rooms() {
     assert_event_id!(initial[0], "$ev1");
 
     // Now, clear all the rooms.
-    client.event_cache().clear_all_rooms().await.unwrap();
+    client.event_cache().unwrap().clear_all_rooms().await.unwrap();
 
     // We should get an update for the live room.
     assert_let_timeout!(
@@ -2527,11 +2572,9 @@ async fn test_sync_while_back_paginate() {
         .on_builder(|builder| builder.store_config(store_config))
         .build()
         .await;
-    let room = client.get_room(room_id).unwrap();
 
-    client.event_cache().subscribe().unwrap();
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
     assert!(initial_events.is_empty());
 
@@ -2566,7 +2609,7 @@ async fn test_sync_while_back_paginate() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .set_timeline_prev_batch("token-before-sync-from-sync")
-                .add_timeline_bulk(sync_events.into_iter().map(ruma::serde::Raw::cast)),
+                .add_timeline_bulk(sync_events.into_iter().map(Raw::cast)),
         )
         .await;
 
@@ -2605,7 +2648,7 @@ async fn test_relations_ordering() {
     let server = MatrixMockServer::new().await;
 
     let room_id = room_id!("!galette:saucisse.bzh");
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let target_event_id = event_id!("$1");
 
@@ -2639,12 +2682,10 @@ async fn test_relations_ordering() {
         .build()
         .await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
+    server.sync_joined_room(&client, room_id).await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
-
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (initial_events, mut listener) = room_event_cache.subscribe().await.unwrap();
     assert_eq!(initial_events.len(), 1);
@@ -2744,14 +2785,11 @@ async fn test_concurrent_backpagination() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    // Immediately subscribe the event cache to sync updates.
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!concurrent:test.com");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     // Limited sync with a room that has a prev_batch token.
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -2761,7 +2799,8 @@ async fn test_concurrent_backpagination() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut room_stream).await;
@@ -2771,12 +2810,11 @@ async fn test_concurrent_backpagination() {
     server
         .mock_room_messages()
         .match_from("prev_batch")
-        .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![
-                f.text_msg("older2").event_id(event_id!("$2")),
-                f.text_msg("older1").event_id(event_id!("$3")),
-            ])
-            .with_delay(Duration::from_millis(200)))
+        .with_delay(Duration::from_millis(200))
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("older2").event_id(event_id!("$2")),
+            f.text_msg("older1").event_id(event_id!("$3")),
+        ]))
         .mock_once() // Important: only mock once to ensure both calls share the same request
         .mount()
         .await;
@@ -2836,13 +2874,10 @@ async fn test_sequential_backpagination_after_concurrent() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!sequential:test.com");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
@@ -2852,7 +2887,8 @@ async fn test_sequential_backpagination_after_concurrent() {
         )
         .await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
 
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut room_stream).await;
@@ -2861,10 +2897,10 @@ async fn test_sequential_backpagination_after_concurrent() {
     server
         .mock_room_messages()
         .match_from("first_batch")
+        .with_delay(Duration::from_millis(100))
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![f.text_msg("batch1").event_id(event_id!("$2"))])
-            .end_token("second_batch")
-            .with_delay(Duration::from_millis(100)))
+            .end_token("second_batch"))
         .mock_once()
         .mount()
         .await;
@@ -2914,9 +2950,6 @@ async fn test_send_queue_does_insert_event_in_the_event_cache() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
@@ -2933,7 +2966,8 @@ async fn test_send_queue_does_insert_event_in_the_event_cache() {
     // Give time to the Event Cache to handle the sync.
     sleep(Duration::from_secs(1)).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert_eq!(events.len(), 1);
@@ -2968,14 +3002,12 @@ async fn test_send_queue_does_not_insert_event_in_the_event_cache_if_room_is_emp
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
@@ -3000,15 +3032,13 @@ async fn test_backpaginate_on_a_single_event_inserted_via_send_queue_from_an_emp
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
 
     assert!(events.is_empty());
@@ -3056,7 +3086,7 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     let server = MatrixMockServer::new().await;
 
     let room_id = room_id!("!r0");
-    let event_factory = EventFactory::new().room(room_id).sender(*ALICE);
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     let event_id_4 = event_id!("$ev4");
     let event_0 = event_factory.text_msg("foo").event_id(event_id!("$ev0")).into_raw_sync();
@@ -3089,26 +3119,24 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
         .build()
         .await;
 
-    client_a.event_cache().subscribe().unwrap();
-    client_b.event_cache().subscribe().unwrap();
-
     // Little dance to force `process_a` to be dirty:
     //
     // - process A syncs 2 events,
     // - process B syncs a gap + 1 event (to ensure process A won't be able to
-    //   retrieve an event if something went wrong): it is dirty, it will reload, no
-    //   problem,
+    //   retrieve an event if something went wrong): it is dirty, it will
+    //   reload, no problem,
     // - process B syncs a gap + 1 event again: it is not dirty, no problem.
     // - process A is syncs 3 events: it is dirty, it will reload, but if the
     //   `OrderTracker` is not reset correctly, it will panic.
-    let room_a = server
+    server
         .sync_room(
             &client_a,
             JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_0, event_1]),
         )
         .await;
 
-    let (room_event_cache_a, _drop_handles_a) = room_a.event_cache().await.unwrap();
+    let (room_event_cache_a, _drop_handles_a) =
+        client_a.event_cache().unwrap().room(room_id).await.unwrap();
 
     server
         .sync_room(

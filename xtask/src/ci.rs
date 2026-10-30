@@ -493,6 +493,7 @@ fn run_coverage(output_format: CoverageOutputFormat) -> Result<()> {
     let cmd = cmd!(sh, "rustup run stable cargo llvm-cov nextest");
     let cmd = cmd.args([
         "--workspace",
+        "--all-features",
         "--exclude",
         "matrix-sdk-indexeddb",
         "--ignore-filename-regex",

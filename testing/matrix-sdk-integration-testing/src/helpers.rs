@@ -206,7 +206,8 @@ impl TestClientBuilder {
             }
         };
 
-        // safe to assume we have not registered this user yet, but ignore if we did
+        // safe to assume we have not registered this user yet, but ignore if we
+        // did
 
         let auth = client.matrix_auth();
         let mut try_login = true;

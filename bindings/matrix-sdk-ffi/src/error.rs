@@ -283,6 +283,10 @@ pub enum QueueWedgeError {
     /// session before sending.
     CrossVerificationRequired,
 
+    /// The access token was rejected, and the request is waiting for the
+    /// session to have a working one again.
+    ExpiredAccessToken,
+
     /// Some media content to be sent has disappeared from the cache.
     MissingMediaContent,
 
@@ -307,6 +311,7 @@ impl Display for QueueWedgeError {
             QueueWedgeError::CrossVerificationRequired => {
                 f.write_str("Own verification is required")
             }
+            QueueWedgeError::ExpiredAccessToken => f.write_str("The access token was rejected"),
             QueueWedgeError::MissingMediaContent => {
                 f.write_str("Media to be sent disappeared from local storage")
             }
@@ -336,6 +341,7 @@ impl From<SdkQueueWedgeError> for QueueWedgeError {
                 users: users.iter().map(ruma::OwnedUserId::to_string).collect(),
             },
             SdkQueueWedgeError::CrossVerificationRequired => Self::CrossVerificationRequired,
+            SdkQueueWedgeError::ExpiredAccessToken => Self::ExpiredAccessToken,
             SdkQueueWedgeError::MissingMediaContent => Self::MissingMediaContent,
             SdkQueueWedgeError::InvalidMimeType { mime_type } => {
                 Self::InvalidMimeType { mime_type }

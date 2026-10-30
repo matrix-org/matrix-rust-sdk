@@ -5,7 +5,7 @@ use std::ops::Add;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::CallIntentConsensus;
-use matrix_sdk_test::{ALICE, BOB, CAROL};
+use matrix_sdk_test::User;
 use ruma::{
     event_id,
     events::rtc::notification::{CallIntent, NotificationType},
@@ -25,11 +25,11 @@ async fn test_rtc_members_update() {
 
     let f = &timeline.factory;
 
-    set_active_call_members(&timeline, &[BOB.to_owned()]).await;
+    set_active_call_members(&timeline, &[User::Bob]).await;
 
     let notification_event = f
         .rtc_notification(NotificationType::Ring)
-        .sender(*ALICE)
+        .sender(User::Alice)
         .call_intent(CallIntent::Audio)
         .event_id(event_id!("$notification_event"));
 
@@ -40,22 +40,19 @@ async fn test_rtc_members_update() {
     assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let notification_item =
         assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-    assert_rtc_notification_active_members(notification_item, vec![BOB.to_owned()]);
+    assert_rtc_notification_active_members(notification_item, &[User::Bob]);
 
     // Simulate two members joined the call
-    set_active_call_members(&timeline, &[BOB.to_owned(), CAROL.to_owned()]).await;
+    set_active_call_members(&timeline, &[User::Bob, User::Carol]).await;
 
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
-    assert_rtc_notification_active_members(
-        notification_item,
-        vec![BOB.to_owned(), CAROL.to_owned()],
-    );
+    assert_rtc_notification_active_members(notification_item, &[User::Bob, User::Carol]);
 
-    // Simulate CAROL left
-    set_active_call_members(&timeline, &[BOB.to_owned()]).await;
+    // Simulate Carol left
+    set_active_call_members(&timeline, &[User::Bob]).await;
 
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
-    assert_rtc_notification_active_members(notification_item, vec![BOB.to_owned()]);
+    assert_rtc_notification_active_members(notification_item, &[User::Bob]);
 }
 
 /// Test that `handle_rtc_members_update` correctly updates the active_members
@@ -72,7 +69,7 @@ async fn test_rtc_members_update_last_only() {
     // ===========
     //
     // # ACT: simulate active members in the call
-    set_active_call_members(&timeline, &[BOB.to_owned()]).await;
+    set_active_call_members(&timeline, &[User::Bob]).await;
 
     // ===========
     //
@@ -80,7 +77,7 @@ async fn test_rtc_members_update_last_only() {
     timeline
         .handle_live_event(
             f.rtc_notification(NotificationType::Ring)
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .call_intent(CallIntent::Audio)
                 .event_id(event_id!("$notification_event_old"))
                 .server_ts(MilliSecondsSinceUnixEpoch::from_system_time(some_timestamp).unwrap()),
@@ -94,7 +91,7 @@ async fn test_rtc_members_update_last_only() {
     // # ASSERT: the notification item should be updated with the active members
 
     let notification_item = assert_next_matches!(stream, VectorDiff::Set { value, .. } => value);
-    let info = assert_rtc_notification_active_members(notification_item, vec![BOB.to_owned()]);
+    let info = assert_rtc_notification_active_members(notification_item, &[User::Bob]);
     assert_eq!(
         info.call_started_ts_millis,
         Some(MilliSecondsSinceUnixEpoch::from_system_time(some_timestamp).unwrap())
@@ -108,7 +105,7 @@ async fn test_rtc_members_update_last_only() {
     timeline
         .handle_live_event(
             f.rtc_notification(NotificationType::Ring)
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .call_intent(CallIntent::Audio)
                 .event_id(event_id!("$notification_event_new"))
                 .server_ts(
@@ -118,9 +115,12 @@ async fn test_rtc_members_update_last_only() {
         .await;
 
     // ===========
-    // ASSERT: As per requirement only the latest notification item in the timeline
-    // should have the active call info. So ensure the oldest notification item
-    // is cleared and that the new one has the previously known info
+    //
+    // ASSERT: As per requirement only the latest notification item in the
+    // timeline should have the active call info. So ensure the oldest
+    // notification item is cleared and that the new one has the previously
+    // known info
+    //
     // ===========
 
     // The notification is first added
@@ -145,7 +145,7 @@ async fn test_rtc_members_update_last_only() {
         stream,
         VectorDiff::Set { index: 1, value } => value
     );
-    let info = assert_rtc_notification_active_members(item, vec![BOB.to_owned()]);
+    let info = assert_rtc_notification_active_members(item, &[User::Bob]);
     assert_eq!(
         info.call_started_ts_millis,
         Some(MilliSecondsSinceUnixEpoch::from_system_time(new_notification_ts).unwrap())
@@ -155,7 +155,7 @@ async fn test_rtc_members_update_last_only() {
     //
     // # ACT: simulate new active members in the call
 
-    set_active_call_members(&timeline, &[BOB.to_owned(), CAROL.to_owned()]).await;
+    set_active_call_members(&timeline, &[User::Bob, User::Carol]).await;
 
     // ===========
     //
@@ -166,10 +166,7 @@ async fn test_rtc_members_update_last_only() {
         notification_item.event_id().expect("eventId should be set"),
         event_id!("$notification_event_new")
     );
-    assert_rtc_notification_active_members(
-        notification_item,
-        vec![BOB.to_owned(), CAROL.to_owned()],
-    );
+    assert_rtc_notification_active_members(notification_item, &[User::Bob, User::Carol]);
 
     // Simulate back paginated rtc notification
 
@@ -181,7 +178,7 @@ async fn test_rtc_members_update_last_only() {
             vec![VectorDiff::PushFront {
                 value: f
                     .rtc_notification(NotificationType::Ring)
-                    .sender(*ALICE)
+                    .sender(User::Alice)
                     .call_intent(CallIntent::Audio)
                     .event_id(event_id!("$notification_event_old"))
                     .server_ts(
@@ -207,21 +204,21 @@ async fn test_rtc_members_update_last_only() {
 #[track_caller]
 fn assert_rtc_notification_active_members(
     item: EventTimelineItem,
-    members: Vec<OwnedUserId>,
+    members: &[User],
 ) -> ActiveCallInfo {
     assert_matches!(item.content, TimelineItemContent::RtcNotification { active_call_info: Some(active_call_info), .. } => {
         let active_members = &active_call_info.active_members;
         assert_eq!(active_members.len(), members.len());
         for member in members {
-            assert!(active_members.contains(&member));
+            assert!(active_members.contains(member));
         }
         active_call_info
     })
 }
 
-async fn set_active_call_members(timeline: &TestTimeline, members: &[OwnedUserId]) {
+async fn set_active_call_members(timeline: &TestTimeline, members: &[User]) {
     let active_call = ActiveCallInfo {
-        active_members: members.to_owned().into(),
+        active_members: members.iter().copied().collect(),
         call_intent: CallIntentConsensus::None,
         is_joined: false,
         call_started_ts_millis: MilliSecondsSinceUnixEpoch::now().into(),

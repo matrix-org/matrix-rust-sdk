@@ -28,7 +28,6 @@ use tracing::{debug, instrument, trace, warn};
 use super::{
     super::{
         TimelineItem,
-        controller::ObservableItemsTransactionEntry,
         date_dividers::DateDividerAdjuster,
         event_handler::{Flow, TimelineEventContext, TimelineEventHandler, TimelineItemPosition},
         event_item::{RemoteEventOrigin, TimelineItemContent},
@@ -39,7 +38,7 @@ use super::{
     metadata::EventMeta,
 };
 use crate::timeline::{
-    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, TimelineUniqueId, VirtualTimelineItem,
+    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, TimelineUniqueId,
     controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
 };
@@ -381,7 +380,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         // FIXME: This branch is a complete hackjob.
                         //
                         // The reason being is that this branch is here to
-                        // handle UTD -> Decrypted event remplacements for
+                        // handle UTD -> Decrypted event replacements for
                         // focused timelines. But this transition should
                         // naturally happen the same way it happens for
                         // unfocused timelines.
@@ -400,12 +399,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         // items.
                         //
                         // This hackjob continues in the
-                        // `handle_remote_aggregation()` method as we can't just
-                        // handle any `TimelineAction::AddItem` due to:
-                        // https://github.com/matrix-org/matrix-rust-sdk/pull/4645
-                        //
-                        // Doing so breaks the
-                        // `test_new_pinned_events_are_not_added_on_sync` test.
+                        // `handle_remote_aggregation()`.
                         //
                         // Relevant issue:
                         // https://github.com/matrix-org/matrix-rust-sdk/issues/5954.
@@ -799,20 +793,22 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         // Try to fetch the `SdkThreadSummary`.
         //
-        // Why are we doing that for all events? Using `TimelineEvent::is_thread_root`
-        // will not work in all cases. Imagine an event `$ev0`, a regular event, not a
-        // thread, then a thread is created later targeting `$ev0`: in this case `$ev0`
-        // has no thread summary when it's received first. It will have one if we get
-        // the event via a back-pagination and if the thread already exists though. It
-        // proves that using `TimelineEvent::is_thread_root` is not reliable in all
-        // cases.
+        // Why are we doing that for all events? Using
+        // `TimelineEvent::is_thread_root` will not work in all cases.
+        // Imagine an event `$ev0`, a regular event, not a thread, then
+        // a thread is created later targeting `$ev0`: in this case `$ev0`
+        // has no thread summary when it's received first. It will have one if
+        // we get the event via a back-pagination and if the thread
+        // already exists though. It proves that using
+        // `TimelineEvent::is_thread_root` is not reliable in all cases.
         //
-        // We have no choice here: we must fetch the `ThreadInfo` for each new event.
-        // Receiving a new event doesn't happen in a hot loop, so it should not impact
-        // performance too much.
+        // We have no choice here: we must fetch the `ThreadInfo` for each new
+        // event. Receiving a new event doesn't happen in a hot loop, so
+        // it should not impact performance too much.
         let sdk_thread_summary = if let Some(event_id) = event.event_id() {
-            // Read the thread summary data from the `ThreadInfo` if it exists in the Event
-            // Cache, because they are the most up-to-date.
+            // Read the thread summary data from the `ThreadInfo` if it exists
+            // in the Event Cache, because they are the most
+            // up-to-date.
             if let Ok(Some(thread_info)) =
                 self.meta.event_cache.thread_info(self.focus.room_id(), event_id).await
             {
@@ -1055,39 +1051,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     }
 
     pub(super) fn clear(&mut self) {
-        // By first checking if there are any local echoes first, we do a bit
-        // more work in case some are found, but it should be worth it because
-        // there will often not be any, and only emitting a single
-        // `VectorDiff::Clear` should be much more efficient to process for
-        // subscribers.
         if self.items.has_local() {
-            // Remove all remote events and virtual items that aren't date
-            // dividers.
-            self.items.for_each(|entry| {
-                if entry.is_remote_event()
-                    || entry.as_virtual().is_some_and(|vitem| match vitem {
-                        VirtualTimelineItem::DateDivider(_) => false,
-                        VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => {
-                            true
-                        }
-                    })
-                {
-                    ObservableItemsTransactionEntry::remove_timeline_index_and_remote_event(entry);
-                }
-            });
-
-            // Remove adjacent date dividers.
-            let mut idx = 0;
-            while idx < self.items.len() {
-                if self.items[idx].is_date_divider()
-                    && self.items.get(idx + 1).is_none_or(|item| item.is_date_divider())
-                {
-                    self.items.remove(idx);
-                    // don't increment idx because all elements have shifted
-                } else {
-                    idx += 1;
-                }
-            }
+            self.items.clear_remotes_only();
         } else {
             self.items.clear();
         }
@@ -1278,8 +1243,7 @@ mod tests {
 
         let _ = server.sync_joined_room(&client, room_id).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         // Given a timeline with clashing receipts
         let mut items = create_items_with_receipts(vec![
@@ -1318,8 +1282,7 @@ mod tests {
 
         let _ = server.sync_joined_room(&client, room_id).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![
@@ -1358,8 +1321,7 @@ mod tests {
 
         let _ = server.sync_joined_room(&client, room_id).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
+        let event_cache = client.event_cache().unwrap();
 
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![

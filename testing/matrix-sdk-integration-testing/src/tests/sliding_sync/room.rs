@@ -3,6 +3,7 @@
 
 use std::{
     collections::BTreeMap,
+    pin::pin,
     sync::{Arc, LazyLock, Mutex as StdMutex},
     time::Duration,
 };
@@ -10,7 +11,7 @@ use std::{
 use anyhow::Result;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use futures_util::{StreamExt as _, pin_mut};
+use futures_util::StreamExt as _;
 use matrix_sdk::{
     Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
     assert_let_timeout,
@@ -18,25 +19,31 @@ use matrix_sdk::{
     config::SyncSettings,
     room_preview::RoomPreview,
     ruma::{
-        RoomId,
+        OwnedUserId, RoomId,
         api::client::{
             receipt::create_receipt::v3::ReceiptType,
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+            to_device::send_event_to_device::v3::Request as ToDeviceRequest,
         },
         assign,
         directory::PublicRoomsChunkInit,
         events::{
-            AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
+            AnySyncMessageLikeEvent, AnyToDeviceEventContent, InitialStateEvent, Mentions,
+            StateEventType, ToDeviceEventType,
             receipt::ReceiptThread,
             room::{
                 history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
                 join_rules::{JoinRule, RoomJoinRulesEventContent},
                 message::RoomMessageEventContent,
             },
+            secret::send::{ToDeviceSecretSendEvent, ToDeviceSecretSendEventContent},
         },
         mxc_uri, owned_server_name,
         room::JoinRuleSummary,
-        room_id, uint,
+        room_id,
+        serde::Raw,
+        to_device::DeviceIdOrAllDevices,
+        uint,
     },
     sliding_sync::VersionBuilder,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
@@ -86,7 +93,7 @@ async fn test_left_room() -> Result<()> {
 
         async move {
             let stream = peter_sliding.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(up) = stream.next().await {
                 let up = up.expect("sync should not fail");
@@ -179,7 +186,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 
         async move {
             let stream = alice_sliding.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(up) = stream.next().await {
                 let up = up.expect("update must not fail");
@@ -202,8 +209,8 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
     let alice_room = alice.get_room(alice_room.room_id()).unwrap();
     assert_eq!(alice_room.state(), RoomState::Joined);
 
-    // Here, there should be no avatar (group conversation and no avatar has been
-    // set in the room).
+    // Here, there should be no avatar (group conversation and no avatar has
+    // been set in the room).
     for _ in 0..3 {
         sleep(Duration::from_secs(1)).await;
         assert_eq!(alice_room.avatar_url(), None);
@@ -240,9 +247,9 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
 
 #[tokio::test]
 async fn test_joined_user_can_create_push_context_with_room_list_service() -> Result<()> {
-    // This regression test for #3031 checks that we properly get the logged-in room
-    // member information, when connecting on the first time using the room
-    // list service.
+    // This regression test for #3031 checks that we properly get the logged-in
+    // room member information, when connecting on the first time using the
+    // room list service.
     //
     // Now the conditions to trigger this bug were quite precise:
     // - obviously we shouldn't have had any previous info about the logged-in
@@ -255,9 +262,9 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     // One way to trigger this is to have a room we've joined, but in which we
     // haven't sent the last event.
     //
-    // Set this up, by creating a room, inviting another user, have the other user
-    // send a message, and fake a new "device" by creating another client for
-    // the same user.
+    // Set this up, by creating a room, inviting another user, have the other
+    // user send a message, and fake a new "device" by creating another
+    // client for the same user.
 
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
@@ -324,7 +331,7 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
     let rls = room_list_service.clone();
     let alice_handle = spawn(async move {
         let sync = rls.sync();
-        pin_mut!(sync);
+        let mut sync = pin!(sync);
         while let Some(update) = sync.next().await {
             warn!("Update from the room list service: {update:?}");
         }
@@ -400,8 +407,6 @@ async fn test_room_notification_count() -> Result<()> {
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
-    alice.event_cache().subscribe().unwrap();
-
     // Spawn sync for Bob.
     spawn({
         let bob = bob.clone();
@@ -439,7 +444,7 @@ async fn test_room_notification_count() -> Result<()> {
 
         async move {
             let stream = alice_sync.sync();
-            pin_mut!(stream);
+            let mut stream = pin!(stream);
 
             while let Some(update) = stream.next().await {
                 warn!(?update, "Alice sliding sync received an update");
@@ -479,7 +484,8 @@ async fn test_room_notification_count() -> Result<()> {
     let mut update_observer = UpdateObserver::new(alice_room.subscribe_info());
 
     {
-        // At first, nothing has happened, so we shouldn't have any notifications.
+        // At first, nothing has happened, so we shouldn't have any
+        // notifications.
         assert_eq!(alice_room.num_unread_messages(), 0);
         assert_eq!(alice_room.num_unread_mentions(), 0);
         assert_eq!(alice_room.num_unread_notifications(), 0);
@@ -560,8 +566,9 @@ async fn test_room_notification_count() -> Result<()> {
         assert_eq!(alice_room.num_unread_notifications(), 0);
         assert_eq!(alice_room.num_unread_mentions(), 0);
 
-        // Sometimes the server is slow at realizing that the room has been marked as
-        // read, and zeroing the server-side notification_count.
+        // Sometimes the server is slow at realizing that the room has been
+        // marked as read, and zeroing the server-side
+        // notification_count.
         if alice_room.unread_notification_counts().notification_count == 2 {
             update_observer
                 .next()
@@ -685,9 +692,10 @@ impl wiremock::Respond for &CustomResponder {
             .headers(request.headers.clone())
             .body(request.body.clone());
 
-        // Run await inside of non-async fn by spawning a new thread and creating a new
-        // runtime. We need to do this because the current runtime can't run blocking
-        // tasks (hence can't run `Handle::block_on`).
+        // Run await inside of non-async fn by spawning a new thread and
+        // creating a new runtime. We need to do this because the
+        // current runtime can't run blocking tasks (hence can't run
+        // `Handle::block_on`).
         let drop_todevice = self.drop_todevice.clone();
 
         std::thread::spawn(move || {
@@ -765,8 +773,8 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
         .unwrap();
     alice_room.enable_encryption().await.unwrap();
 
-    // Initial message to make sure any lazy /members call is performed before the
-    // test actually starts
+    // Initial message to make sure any lazy /members call is performed before
+    // the test actually starts
     alice_room
         .send(RoomMessageEventContent::text_plain("dummy message to make members call"))
         .await
@@ -784,7 +792,7 @@ async fn test_delayed_invite_response_and_sent_message_decryption() {
     // Join the room from Bob's client.
     let bob_timeline = bob_room.timeline().await.unwrap();
     let (_, timeline_stream) = bob_timeline.subscribe().await;
-    pin_mut!(timeline_stream);
+    let mut timeline_stream = pin!(timeline_stream);
 
     info!("Bob joins the room.");
     bob_room.join().await.unwrap();
@@ -859,7 +867,7 @@ async fn test_room_info_notable_update_deduplication() -> Result<()> {
 
     alice_room_controller.set_filter(Box::new(new_filter_all(vec![])));
 
-    pin_mut!(alice_rooms);
+    let mut alice_rooms = pin!(alice_rooms);
 
     // First, we observe the initial reset.
     assert_let_timeout!(Duration::from_secs(3), Some(diffs) = alice_rooms.next());
@@ -979,13 +987,13 @@ async fn test_room_preview() -> Result<()> {
     let room_id = room.room_id();
     let private_room_id = private_room.room_id();
 
-    // Wait for Alice's stream to stabilize (stop updating when we haven't received
-    // successful updates for more than 2 seconds).
+    // Wait for Alice's stream to stabilize (stop updating when we haven't
+    // received successful updates for more than 2 seconds).
     let stream = sliding_alice.sync();
-    pin_mut!(stream);
+    let mut stream = pin!(stream);
 
-    // Wait for updates coming in under than 15 seconds. After that, we consider the
-    // sync as stable.
+    // Wait for updates coming in under than 15 seconds. After that, we consider
+    // the sync as stable.
     loop {
         match timeout(Duration::from_secs(15), stream.next()).await {
             Ok(None) | Err(_) => break,
@@ -999,8 +1007,8 @@ async fn test_room_preview() -> Result<()> {
     get_room_preview_with_room_summary(&alice, &bob, &room_alias, room_id, private_room_id).await;
 
     {
-        // Dummy test for `Client::get_room_preview` which may call one or the other
-        // methods.
+        // Dummy test for `Client::get_room_preview` which may call one or the
+        // other methods.
         info!("Alice gets a preview of the public room using any method");
         let preview = alice.get_room_preview(room_id.into(), Vec::new()).await?;
         assert_room_preview(&preview, &room_alias);
@@ -1138,16 +1146,16 @@ async fn get_room_preview_with_room_state(
     assert_eq!(preview.state, Some(RoomState::Joined));
     assert!(preview.heroes.is_some());
 
-    // Bob definitely doesn't know about the room, but they can get a preview of the
-    // room too.
+    // Bob definitely doesn't know about the room, but they can get a preview of
+    // the room too.
     info!("Bob gets a preview of the public room from state events");
     let preview = RoomPreview::from_state_events(bob, room_id).await.unwrap();
     assert_room_preview(&preview, room_alias);
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_some());
 
-    // Bob can't preview the second room, because its history visibility is neither
-    // world-readable, nor have they joined the room before.
+    // Bob can't preview the second room, because its history visibility is
+    // neither world-readable, nor have they joined the room before.
     info!("Bob gets a preview of the private room from state events");
     let preview_result = RoomPreview::from_state_events(bob, public_no_history_room_id).await;
     assert_eq!(preview_result.unwrap_err().as_client_api_error().unwrap().status_code, 403);
@@ -1187,8 +1195,8 @@ async fn get_room_preview_with_room_summary(
     assert_eq!(preview.state, Some(RoomState::Joined));
     assert!(preview.heroes.is_some());
 
-    // Bob definitely doesn't know about the room, but they can get a preview of the
-    // room too.
+    // Bob definitely doesn't know about the room, but they can get a preview of
+    // the room too.
     info!("Bob gets a preview of the public room from msc3266 using the room id");
     let preview =
         RoomPreview::from_room_summary(bob, room_id.to_owned(), room_id.into(), Vec::new())
@@ -1198,8 +1206,8 @@ async fn get_room_preview_with_room_summary(
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_none());
 
-    // Bob can preview the second room with the room summary (because its join rule
-    // is set to public, or because Alice is a member of that room).
+    // Bob can preview the second room with the room summary (because its join
+    // rule is set to public, or because Alice is a member of that room).
     info!("Bob gets a preview of the private room from msc3266 using the room id");
     let preview = RoomPreview::from_room_summary(
         bob,
@@ -1212,4 +1220,106 @@ async fn get_room_preview_with_room_summary(
     assert_eq!(preview.name.unwrap(), "Alice's Room 2");
     assert!(preview.state.is_none());
     assert!(preview.heroes.is_none());
+}
+
+async fn send_todevice_send_event(
+    client: &Client,
+    target: OwnedUserId,
+    request_id: &str,
+) -> Result<()> {
+    let message = ToDeviceSecretSendEventContent::new(request_id.into(), "".into());
+    let messages = BTreeMap::from_iter([(
+        target,
+        BTreeMap::from_iter([(
+            DeviceIdOrAllDevices::AllDevices,
+            Raw::new(&AnyToDeviceEventContent::from(message)).unwrap(),
+        )]),
+    )]);
+    client
+        .send(ToDeviceRequest::new_raw(
+            ToDeviceEventType::SecretSend,
+            format!("{request_id}-txn").into(),
+            messages,
+        ))
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_todevice_when_switching_sync() -> Result<()> {
+    // We use the `SendSecret` event here because it lets us embed arbitrary
+    // strings to tell messages apart.
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let alice_user_id = alice.user_id().unwrap().to_owned();
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+    let bob_user_id = bob.user_id().unwrap().to_owned();
+
+    let received_events = Arc::new(Mutex::new(vec![]));
+    {
+        let received_events = Arc::clone(&received_events);
+        alice.add_event_handler(move |ev: ToDeviceSecretSendEvent| async move {
+            received_events.lock().await.push(ev.content.request_id);
+        });
+    }
+
+    // Send one ToDevice message using sync v3 to get a cached `next_batch`
+    // token
+    let request_id_1 = "message-1";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_1).await?;
+
+    alice.sync_once(Default::default()).await?;
+    assert!(received_events.lock().await.contains(&request_id_1.into()));
+
+    // Queue another message for alice
+    let request_id_2 = "message-2";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_2).await?;
+
+    // Set up sliding sync for alice
+    let sliding_alice = alice
+        .sliding_sync("main")?
+        .with_all_extensions()
+        .poll_timeout(Duration::from_secs(3))
+        .network_timeout(Duration::from_secs(3))
+        .build()
+        .await?;
+
+    spawn({
+        let alice_sliding = sliding_alice.clone();
+        async move {
+            let stream = alice_sliding.sync();
+            let mut stream = pin!(stream);
+
+            while let Some(up) = stream.next().await {
+                let up = up.expect("sync should not fail");
+
+                info!("received update: {up:?}");
+            }
+        }
+    });
+
+    // Wait for the second message to arrive
+    let mut received = false;
+    for _ in 0..10 {
+        sleep(Duration::from_secs(1)).await;
+
+        if received_events.lock().await.contains(&request_id_2.into()) {
+            received = true;
+            break;
+        }
+    }
+    assert!(received, "ToDevice message was not delivered in 10 seconds");
+
+    // Switch back to sync v3
+    sliding_alice.stop_sync()?;
+    sleep(Duration::from_secs(1)).await;
+
+    let request_id_3 = "message-3";
+    send_todevice_send_event(&bob, alice_user_id.clone(), request_id_3).await?;
+
+    alice.sync_once(Default::default()).await?;
+    assert!(received_events.lock().await.contains(&request_id_3.into()));
+
+    Ok(())
 }

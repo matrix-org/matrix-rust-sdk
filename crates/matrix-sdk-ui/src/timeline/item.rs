@@ -97,6 +97,7 @@ impl TimelineItem {
         matches!(&self.kind, TimelineItemKind::Event(ev) if ev.is_local_echo())
     }
 
+    #[cfg(test)]
     pub(crate) fn is_remote_event(&self) -> bool {
         matches!(&self.kind, TimelineItemKind::Event(ev) if ev.is_remote_event())
     }

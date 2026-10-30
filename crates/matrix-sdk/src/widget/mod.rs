@@ -15,9 +15,9 @@
 #![allow(rustdoc::private_intra_doc_links)]
 #![doc = include_str!("README.md")]
 
-use std::{fmt, time::Duration};
+use std::{fmt, pin::pin, time::Duration};
 
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk_common::executor::spawn;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
@@ -289,6 +289,16 @@ impl WidgetDriver {
                         .get_rtc_transports()
                         .await
                         .map(MatrixDriverResponse::RtcTransportsReceived),
+
+                    MatrixDriverRequestData::RtcLivekitGetToken(req) => matrix_driver
+                        .get_rtc_livekit_token(req)
+                        .await
+                        .map(MatrixDriverResponse::RtcLivekitTokenReceived),
+
+                    MatrixDriverRequestData::RtcLivekitDelegateDelayedLeave(req) => matrix_driver
+                        .delegate_rtc_livekit_delayed_leave(req)
+                        .await
+                        .map(MatrixDriverResponse::RtcLivekitDelayedLeaveDelegated),
                 };
 
                 // Forward the Matrix driver response to the incoming message
@@ -317,7 +327,7 @@ impl WidgetDriver {
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
                 spawn(async move {
-                    pin_mut!(to_device_events);
+                    let mut to_device_events = pin!(to_device_events);
 
                     loop {
                         tokio::select! {

@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, BOB, async_test};
+use matrix_sdk_test::{User, async_test};
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id,
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
@@ -117,7 +117,7 @@ async fn test_remote_echo_full_trip() {
             timeline
                 .factory
                 .text_msg("echo")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .event_id(event_id)
                 .server_ts(timestamp),
         )
@@ -159,7 +159,7 @@ async fn test_remote_echo_new_position() {
     assert!(date_divider.is_date_divider());
 
     // … and another event that comes back before the remote echo
-    timeline.handle_live_event(f.text_msg("test").sender(&BOB)).await;
+    timeline.handle_live_event(f.text_msg("test").sender(User::Bob)).await;
 
     // … and is inserted before the local echo item
     let bob_message = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
@@ -172,7 +172,7 @@ async fn test_remote_echo_new_position() {
     timeline
         .handle_live_event(
             f.text_msg("echo")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .event_id(event_id!("$eeG0HA0FAZ37wP8kXlNkxx3I"))
                 .server_ts(6)
                 .unsigned_transaction_id(&txn_id),
@@ -330,7 +330,7 @@ async fn test_no_reuse_of_counters() {
             timeline
                 .factory
                 .text_msg("hey")
-                .sender(&ALICE)
+                .sender(User::Alice)
                 .event_id(event_id!("$1"))
                 .server_ts(now),
         )
@@ -351,15 +351,26 @@ async fn test_no_reuse_of_counters() {
     // Timeline = [date-divider remote local]
     assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
 
-    // When clearing the timeline, the local echo remains.
+    // When clearing the timeline, the date divider and the local echo remain.
     timeline.controller.clear().await;
 
-    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 1 });
+    assert_next_matches_with_timeout!(stream, VectorDiff::Clear);
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => {
+        assert!(value.is_date_divider());
+    });
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => {
+        assert!(value.is_local_echo());
+    });
 
     // The next timeline item comes with a different unique id.
     timeline
         .handle_live_event(
-            timeline.factory.text_msg("yo").sender(&ALICE).event_id(event_id!("$2")).server_ts(now),
+            timeline
+                .factory
+                .text_msg("yo")
+                .sender(User::Alice)
+                .event_id(event_id!("$2"))
+                .server_ts(now),
         )
         .await;
 
@@ -393,8 +404,14 @@ async fn test_clear_does_not_break_mapping_between_timeline_items_and_remote_eve
             vec![
                 VectorDiff::Append {
                     values: [
-                        f.text_msg("foo").sender(&ALICE).event_id(event_id!("$0")).into_event(),
-                        f.text_msg("bar").sender(&ALICE).event_id(event_id!("$1")).into_event(),
+                        f.text_msg("foo")
+                            .sender(User::Alice)
+                            .event_id(event_id!("$0"))
+                            .into_event(),
+                        f.text_msg("bar")
+                            .sender(User::Alice)
+                            .event_id(event_id!("$1"))
+                            .into_event(),
                     ]
                     .into(),
                 },
@@ -402,7 +419,7 @@ async fn test_clear_does_not_break_mapping_between_timeline_items_and_remote_eve
                 VectorDiff::Append {
                     values: [f
                         .text_msg("baz")
-                        .sender(&ALICE)
+                        .sender(User::Alice)
                         .event_id(event_id!("$2"))
                         .into_event()]
                     .into(),

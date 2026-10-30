@@ -954,7 +954,7 @@ impl OtherState {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_base::crypto::types::events::UtdCause;
-    use matrix_sdk_test::ALICE;
+    use matrix_sdk_test::User;
     use ruma::{
         assign,
         events::{
@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn redact_membership_change() {
         let content = TimelineItemContent::MembershipChange(RoomMembershipChange {
-            user_id: ALICE.to_owned(),
+            user_id: User::Alice.into(),
             content: StateEventContentChange::Original {
                 content: assign!(RoomMemberEventContent::new(MembershipState::Ban), {
                     reason: Some("🤬".to_owned()),

@@ -651,8 +651,9 @@ mod tests {
         room.timeline.push(encrypted.clone());
         let mut response = response_with_room(room_id, room);
 
-        // Once in the timeline, once in the extension: neither may end up in the
-        // map as an `m.room.encrypted` entry, its real type and key are unknown.
+        // Once in the timeline, once in the extension: neither may end up in
+        // the map as an `m.room.encrypted` entry, its real type and key
+        // are unknown.
         let mut sticky_room = http::response::StickyEventsRoom::default();
         sticky_room.events = vec![encrypted];
         response.extensions.sticky_events.rooms.insert(room_id.to_owned(), sticky_room);
@@ -2927,8 +2928,8 @@ mod tests {
         //
         // - two of them receive a `m.room.encryption` event
         // - the last one does not receive a `m.room.encryption`.
-        // - the first one is configured with a `required_state` for this event, the
-        //   others have nothing.
+        // - the first one is configured with a `required_state` for this event,
+        //   the others have nothing.
         //
         // The trick is that, since sliding sync makes an union of all the
         // `required_state`s, then all rooms are technically requesting a

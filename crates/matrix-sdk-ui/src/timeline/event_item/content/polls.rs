@@ -134,10 +134,13 @@ impl PollState {
         }
     }
 
+    /// Get the text representation of the poll, for clients that don't support
+    /// them.
     pub fn fallback_text(&self) -> Option<String> {
         self.fallback_text.clone()
     }
 
+    /// Compute the current results of the poll.
     pub fn results(&self) -> PollResult {
         let results = compile_unstable_poll_results(
             &self.poll_start,
@@ -160,8 +163,10 @@ impl PollState {
                 .map(|i| PollResultAnswer { id: i.id.clone(), text: i.text.clone() })
                 .collect(),
             votes: results
-                .iter()
-                .map(|i| ((*i.0).to_owned(), i.1.iter().map(|i| i.to_string()).collect()))
+                .into_iter()
+                .map(|(id, users)| {
+                    (id.to_owned(), users.into_iter().map(ToOwned::to_owned).collect())
+                })
                 .collect(),
             end_time: self.end_event_timestamp,
             has_been_edited: self.has_been_edited,
@@ -188,19 +193,39 @@ impl From<PollState> for NewUnstablePollStartEventContent {
     }
 }
 
+/// The results of a poll.
 #[derive(Debug)]
 pub struct PollResult {
+    /// The question of the poll.
     pub question: String,
+    /// The kind of the poll.
     pub kind: PollKind,
+    /// The maximum number of responses a user is able to select.
     pub max_selections: u64,
+    /// The possible answers to the poll.
     pub answers: Vec<PollResultAnswer>,
-    pub votes: HashMap<String, Vec<String>>,
+    /// The current votes of the poll.
+    ///
+    /// This is a map from answer ID to the list of user IDs that voted for that
+    /// answer.
+    pub votes: HashMap<String, Vec<OwnedUserId>>,
+    /// The time when the poll ended.
+    ///
+    /// If this is set the poll has ended, otherwise the poll is still ongoing.
     pub end_time: Option<MilliSecondsSinceUnixEpoch>,
+    /// Whether the poll was edited.
     pub has_been_edited: bool,
 }
 
+/// A possible answer of a poll.
 #[derive(Debug)]
 pub struct PollResultAnswer {
+    /// The ID of the answer.
+    ///
+    /// This is the string used to identify an answer when voting.
     pub id: String,
+    /// The text representation of the answer.
+    ///
+    /// This is the string to present to the user in the UI.
     pub text: String,
 }

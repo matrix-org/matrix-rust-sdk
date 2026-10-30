@@ -144,7 +144,10 @@ pub(super) enum HandleAggregationKind {
     Reaction { key: String },
 
     /// Redacting (removing) the related event.
-    Redaction,
+    Redaction {
+        /// The reason given with the redaction, if any.
+        reason: Option<String>,
+    },
 
     /// Editing (replacing) the related event with another one.
     Edit { replacement: Replacement<RoomMessageEventContentWithoutRelation> },
@@ -177,7 +180,7 @@ impl HandleAggregationKind {
     pub fn debug_string(&self) -> &'static str {
         match self {
             HandleAggregationKind::Reaction { .. } => "a reaction",
-            HandleAggregationKind::Redaction => "a redaction",
+            HandleAggregationKind::Redaction { .. } => "a redaction",
             HandleAggregationKind::Edit { .. } => "an edit",
             HandleAggregationKind::PollResponse { .. } => "a poll response",
             HandleAggregationKind::PollEdit { .. } => "a poll edit",
@@ -249,9 +252,10 @@ impl TimelineAction {
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&redaction_rules).map(ToOwned::to_owned) {
+                    let reason = ev.as_original().and_then(|ev| ev.content.reason.clone());
                     vec![Self::HandleAggregation {
                         related_event: redacts,
-                        kind: HandleAggregationKind::Redaction,
+                        kind: HandleAggregationKind::Redaction { reason },
                     }]
                 } else {
                     redacted_message_or_none(ev.event_type())
@@ -687,8 +691,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             HandleAggregationKind::Reaction { key } => {
                 self.handle_reaction(related_event, key);
             }
-            HandleAggregationKind::Redaction => {
-                self.handle_redaction(related_event);
+            HandleAggregationKind::Redaction { reason } => {
+                self.handle_redaction(related_event, reason);
             }
             HandleAggregationKind::Edit { replacement } => {
                 self.handle_edit(
@@ -889,7 +893,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// This assumes the redacted event was present in the timeline in the first
     /// place; it will warn if the redacted event has not been found.
     #[instrument(skip_all, fields(redacts_event_id = ?redacted))]
-    fn handle_redaction(&mut self, redacted: OwnedEventId) {
+    fn handle_redaction(&mut self, redacted: OwnedEventId, reason: Option<String>) {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
@@ -901,7 +905,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation = self.new_aggregation(AggregationKind::Redaction);
+        let aggregation = self.new_aggregation(AggregationKind::Redaction { reason });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(
@@ -912,17 +916,61 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             &self.meta.room_version_rules,
         );
 
-        // Even if the redacted event wasn't in the timeline, we can always
-        // update responses with a placeholder "redacted" embedded item.
+        // Update responses with a placeholder "redacted" embedded item. The
+        // placeholder must keep the redacted event's own sender and timestamp
+        // (not the redaction's, `self.ctx`): take them from the redacted item
+        // if it's in the timeline, else from a response's already-loaded
+        // details. With neither, leave the responses alone: their details get
+        // fetched from the (redacted) event itself.
+        let Some((sender, sender_profile, timestamp)) = self.redacted_event_identity(&redacted)
+        else {
+            trace!("redacted event unknown to the timeline, not updating responses");
+            return;
+        };
+
         let embedded_event = EmbeddedEvent {
             content: TimelineItemContent::MsgLike(MsgLikeContent::redacted()),
-            sender: self.ctx.sender.clone(),
-            sender_profile: TimelineDetails::from_initial_value(self.ctx.sender_profile.clone()),
-            timestamp: self.ctx.timestamp,
+            sender,
+            sender_profile,
+            timestamp,
             identifier: TimelineEventItemId::EventId(redacted.clone()),
         };
 
         Self::maybe_update_responses(self.meta, self.items, &redacted, embedded_event);
+    }
+
+    /// The sender, sender profile and timestamp of an event being redacted,
+    /// from its timeline item, or failing that from the loaded details of a
+    /// response to it.
+    fn redacted_event_identity(
+        &self,
+        redacted: &EventId,
+    ) -> Option<(OwnedUserId, TimelineDetails<Profile>, MilliSecondsSinceUnixEpoch)> {
+        let item_of = |event_id: &EventId| {
+            self.items
+                .get_remote_event_by_event_id(event_id)
+                .and_then(|meta| meta.timeline_item_index)
+                .and_then(|index| self.items.get(index))
+                .and_then(|item| item.as_event())
+        };
+
+        if let Some(item) = item_of(redacted) {
+            return Some((
+                item.sender().to_owned(),
+                item.sender_profile().clone(),
+                item.timestamp(),
+            ));
+        }
+
+        self.meta.replies.get(redacted)?.iter().find_map(|reply_id| {
+            let item = item_of(reply_id)?;
+            let TimelineDetails::Ready(embedded) =
+                &item.content.as_msglike()?.in_reply_to.as_ref()?.event
+            else {
+                return None;
+            };
+            Some((embedded.sender.clone(), embedded.sender_profile.clone(), embedded.timestamp))
+        })
     }
 
     /// Attempts to redact an aggregation (e.g. a reaction, a poll response,
@@ -1031,7 +1079,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let is_room_encrypted = self.meta.is_room_encrypted;
 
-        let item = EventTimelineItem::new(
+        let mut item = EventTimelineItem::new(
             sender,
             sender_profile,
             forwarder,
@@ -1041,6 +1089,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             kind,
             is_room_encrypted,
         );
+
+        // An event the server already redacted carries the redaction in its
+        // `unsigned.redacted_because`; keep its reason like a pending one's.
+        if item.content().is_redacted()
+            && let Flow::Remote { raw_event, .. } = &self.ctx.flow
+        {
+            item.redaction_reason = redaction_reason(raw_event);
+        }
 
         // Apply any pending or stashed aggregations.
         let mut cowed = Cow::Owned(item);
@@ -1185,7 +1241,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // Try to keep precise insertion semantics here, in this exact
                 // order:
                 //
-                // - _push back_ when the new item is inserted after all items (the assumption
+                // - _push back_ when the new item is inserted after all items
+                //   (the assumption
                 // being that this is the hot path, because most of the time new
                 // events come from the sync),
                 // - _push front_ when the new item is inserted at index 0,
@@ -1215,11 +1272,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 // aggregations system, which reaches us here as an `UpdateAt`.
                 // If the item is already redacted (via the aggregations system,
                 // applied earlier in the diff batch), skip it to avoid a
-                // spurious duplicate update.
+                // spurious duplicate update; unless it has no raw JSON yet,
+                // since the redacted event (with its `redacted_because`) is
+                // only to be found in this update.
                 let already_redacted = item.content().is_redacted()
-                    && self.items[*idx]
-                        .as_event()
-                        .is_some_and(|existing| existing.content().is_redacted());
+                    && self.items[*idx].as_event().is_some_and(|existing| {
+                        existing.content().is_redacted() && existing.original_json().is_some()
+                    });
 
                 if already_redacted {
                     trace!("Item at position {idx} is already redacted, skipping the update");
@@ -1450,4 +1509,22 @@ fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineIt
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();
     }
+}
+
+/// The reason found in a redacted event's `unsigned.redacted_because`, if any.
+fn redaction_reason(raw_event: &Raw<AnySyncTimelineEvent>) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Unsigned {
+        redacted_because: Option<RedactedBecause>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RedactedBecause {
+        content: Option<Content>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Content {
+        reason: Option<String>,
+    }
+
+    raw_event.get_field::<Unsigned>("unsigned").ok().flatten()?.redacted_because?.content?.reason
 }

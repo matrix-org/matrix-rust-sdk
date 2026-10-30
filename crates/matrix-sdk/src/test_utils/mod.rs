@@ -14,6 +14,11 @@ pub mod client;
 #[cfg(not(target_family = "wasm"))]
 pub mod mocks;
 
+// Expose `wiremock` to users who make use of this testing-only submodule, so as
+// to make sure they're using a semver-compatible version of `wiremock`.
+#[cfg(not(target_family = "wasm"))]
+pub use wiremock;
+
 use self::client::mock_matrix_session;
 use crate::{Client, ClientBuilder, config::RequestConfig};
 

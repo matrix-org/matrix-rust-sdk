@@ -443,8 +443,8 @@ where
         // Cancel the previous task, if any. That's safe to do, because:
         //
         // - either the task was done,
-        // - or it was still running, but taking a lock in the database has to be an
-        //   atomic operation running in a transaction.
+        // - or it was still running, but taking a lock in the database has to
+        //   be an atomic operation running in a transaction.
         drop(renew_task.take());
 
         // Restart a new one.
@@ -471,8 +471,9 @@ where
                             //
                             // This is not racy, because:
                             //
-                            // - the `locking_attempt` mutex makes sure we don't have unexpected
-                            //   interactions with the non-atomic sequence above in `try_lock_once`,
+                            // - the `locking_attempt` mutex makes sure we don't
+                            //   have unexpected interactions with the
+                            //   non-atomic sequence above in `try_lock_once`,
                             // - other holders will only decrease over time.
 
                             let _guard = locking_attempt.lock().await;

@@ -404,8 +404,8 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // Consider the following scenario:
         //
         // - sync returns [D, E, F]
-        // - then sync returns [] with a previous batch token PB1, so the internal
-        //   linked chunk state is [D, E, F, PB1].
+        // - then sync returns [] with a previous batch token PB1, so the
+        //   internal linked chunk state is [D, E, F, PB1].
         // - back-paginating with PB1 may return [A, B, C, D, E, F].
         //
         // Only inserting the new events when replacing PB1 would result in a

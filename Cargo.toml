@@ -31,7 +31,6 @@ async-trait = { version = "0.1.92", default-features = false }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 bitflags = { version = "2.13.2", default-features = false }
 byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
-cfg-if = { version = "1.0.4", default-features = false }
 clap = { version = "4.6.7", default-features = false, features = ["std", "help", "usage"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
 ctor = "1.0.13"
@@ -69,7 +68,7 @@ rcgen = { version = "0.14.10", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 reqwest = { version = "0.13.5", default-features = false }
 rmp-serde = { version = "1.3.1", default-features = false }
-ruma = { version = "0.17.0", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "0ed7fba34213f18a628a56f527c6cc795cd7eef5", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
@@ -96,7 +95,7 @@ ruma = { version = "0.17.0", features = [
     "unstable-msc4310",
     "unstable-msc4388",
 ] }
-rustls = { version = "0.23.45", default-features = false }
+rustls = { version = "0.23.46", default-features = false }
 sentry = { version = "0.49.2", default-features = false }
 sentry-tracing = { version = "0.49.2", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = ["std", "rc", "derive"] }
@@ -110,8 +109,9 @@ stream_assert = { version = "0.1.1", default-features = false }
 syn = { version = "3.0.5", default-features = false, features = ["derive", "parsing", "printing", "clone-impls"] }
 tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.20", default-features = false }
-tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
+tokio = { version = "1.54.1", default-features = false, features = ["sync"] }
 tokio-stream = { version = "0.1.19", default-features = false }
+tokio-util = "0.7.19"
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-appender = { version = "0.2.5", default-features = false }
 tracing-core = { version = "0.1.36", default-features = false }
@@ -123,7 +123,7 @@ uniffi_bindgen = { version = "0.32.1", default-features = false, features = ["ca
 url = { version = "2.5.8", default-features = false }
 uuid = { version = "1.26.1", default-features = false }
 vergen-gitcl = { version = "10.0.3", default-features = false }
-vodozemac = { version = "0.11.0", features = ["insecure-pk-encryption", "experimental-session-config"] }
+vodozemac = { version = "0.11.1", features = ["insecure-pk-encryption", "experimental-session-config"] }
 wasm-bindgen = { version = "0.2.128", default-features = false }
 wasm-bindgen-test = { version = "0.3.78", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.105", default-features = false }
@@ -225,20 +225,20 @@ debug = "line-tables-only"
 [profile.reldbg.package."*"]
 opt-level = 3
 
-# Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
-# smaller linked code than `release`.
-[profile.small-release]
+# Profile for the distributed Apple and Android libraries. For the Apple
+# framework, `opt-level = "s"` measured ~33% smaller linked code than `release`.
+[profile.small-release-stripped]
 inherits = "release"
 opt-level = "s"
-
-# This is the same as `small-release`, but it also strips debug symbols.
-[profile.small-release-stripped]
-# Use release profile as a base
-inherits = "small-release"
 # Strip the minimal debug info, while still allowing us to have proper backtraces, but it will affect debuggers
 strip = "debuginfo"
 # Use link time optimizations
 lto = true
+
+# Stripping host proc-macro dylibs built with `MACOSX_DEPLOYMENT_TARGET` >= 12.0
+# makes them fail to load on macOS 27 ("mis-aligned LINKEDIT string pool").
+[profile.small-release-stripped.build-override]
+strip = "none"
 
 [profile.profiling]
 inherits = "release"

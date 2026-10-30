@@ -85,7 +85,7 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
-    use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+    use matrix_sdk_test::{User, event_factory::EventFactory};
     use ruma::{
         EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, event_id,
         events::{AnySyncStateEvent, room::encryption::RoomEncryptionEventContent},
@@ -143,7 +143,7 @@ mod tests {
         let encryption_content =
             RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
         let encryption_event = EventFactory::new()
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event(encryption_content)
             .state_key("")
             .event_id(event_id!("$1234_1"))

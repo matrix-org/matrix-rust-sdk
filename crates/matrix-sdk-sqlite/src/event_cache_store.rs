@@ -54,7 +54,10 @@ use tracing::{debug, error, instrument, trace};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -69,7 +72,7 @@ mod keys {
 }
 
 /// The database name.
-const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
+pub const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -163,7 +166,7 @@ pub struct SqliteEventCacheStore {
     encryption: Arc<Encryption>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -248,7 +251,7 @@ impl SqliteEventCacheStore {
             None => None,
         };
 
-        let connections = SqliteConnections {
+        let connections = SqliteConnectionsInner {
             pool,
             // Use `conn` as our selected write connection.
             write_connection: Arc::new(Mutex::new(conn)),
@@ -256,7 +259,7 @@ impl SqliteEventCacheStore {
 
         Ok(Self {
             encryption: Arc::new(Encryption { cipher }),
-            connections: Arc::new(Mutex::new(Some(connections))),
+            connections: Arc::new(SqliteConnections::new(connections).await),
             db_path,
             pool_config,
             runtime_config,
@@ -1189,13 +1192,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                 //
                 // The current solution is to run two queries:
                 //
-                // - one to get each chunk and its number of events, by doing a single `SELECT`
-                //   query over the `event_chunks` table, grouping by chunk ids. This gives us a
-                //   list of `(chunk_id, num_events)` pairs, which can be transformed into a
+                // - one to get each chunk and its number of events, by doing a
+                //   single `SELECT` query over the `event_chunks` table,
+                //   grouping by chunk ids. This gives us a list of `(chunk_id,
+                //   num_events)` pairs, which can be transformed into a
                 //   hashmap.
-                // - one to get each chunk's metadata (id, previous, next, type) from the
-                //   database with a `SELECT`, and then use the hashmap to get the number of
-                //   events.
+                // - one to get each chunk's metadata (id, previous, next, type)
+                //   from the database with a `SELECT`, and then use the hashmap
+                //   to get the number of events.
                 //
                 // This strategy minimizes the number of queries to the
                 // database, and keeps them super simple, while doing a bit more
@@ -1510,7 +1514,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Remove all the chunks, and let cascading do its job.
                         txn.execute("DELETE FROM linked_chunks", ())?;
 
-                        // Also clear all the events' contents, and let cascading do its job.
+                        // Also clear all the events' contents, and let
+                        // cascading do its job.
                         txn.execute("DELETE FROM events", ())?;
 
                         Ok(())
@@ -2328,7 +2333,8 @@ mod encrypted_tests {
             .await
             .expect("We should be able to attempt to find event relations");
 
-        // Ensure that we only got the single related event the first room contains.
+        // Ensure that we only got the single related event the first room
+        // contains.
         similar_asserts::assert_eq!(
             results.len(),
             1,

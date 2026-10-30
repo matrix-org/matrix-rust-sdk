@@ -35,7 +35,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{RoomInfo, RoomState, crypto::types::events::CryptoContextInfo};
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
+use matrix_sdk_test::{TestRoom, User, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UInt, UserId,
@@ -122,13 +122,10 @@ impl TestTimelineBuilder {
         let client = server.client_builder().build().await;
         let _room = server.sync_joined_room(&client, room_data_provider.room_id()).await;
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let controller = TimelineController::new(
             room_data_provider,
             &self.focus.unwrap_or(TimelineFocus::Live { hide_threaded_events: false }),
-            event_cache,
+            client.event_cache().expect("The `EventCache` must be enabled to use the `Timeline`"),
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,
@@ -192,9 +189,15 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_local_redaction(&self, redacts: OwnedEventId) -> OwnedTransactionId {
+    async fn handle_local_redaction(
+        &self,
+        redacts: OwnedEventId,
+        reason: Option<&str>,
+    ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.controller.handle_local_redaction(txn_id.clone(), redacts, None).await;
+        self.controller
+            .handle_local_redaction(txn_id.clone(), redacts, reason.map(ToOwned::to_owned), None)
+            .await;
         txn_id
     }
 
@@ -210,11 +213,11 @@ impl TestTimeline {
 
     async fn handle_read_receipts(
         &self,
-        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, OwnedUserId, ReceiptThread)>,
+        receipts: impl IntoIterator<Item = (OwnedEventId, ReceiptType, User, ReceiptThread)>,
     ) {
         let mut read_receipt = self.factory.read_receipts();
-        for (event_id, tyype, user_id, thread) in receipts {
-            read_receipt = read_receipt.add(&event_id, &user_id, tyype, thread);
+        for (event_id, tyype, user, thread) in receipts {
+            read_receipt = read_receipt.add(&event_id, user, tyype, thread);
         }
         let ev_content = read_receipt.into_content();
         self.controller.handle_read_receipts(ev_content).await;
@@ -345,7 +348,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     fn own_user_id(&self) -> &UserId {
-        self.own_user_id.as_deref().unwrap_or(&ALICE)
+        self.own_user_id.as_deref().unwrap_or_else(|| User::Alice.into())
     }
 
     fn room_version_rules(&self) -> RoomVersionRules {
@@ -424,7 +427,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     fn room_info(&self) -> Subscriber<RoomInfo> {
-        let info = RoomInfo::new(*DEFAULT_TEST_ROOM_ID, RoomState::Joined);
+        let info = RoomInfo::new(TestRoom::Default.into(), RoomState::Joined);
         SharedObservable::new(info).subscribe()
     }
 

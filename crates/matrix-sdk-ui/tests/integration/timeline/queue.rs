@@ -19,7 +19,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{Error, assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id, events::room::message::RoomMessageEventContent, room_id,
@@ -45,7 +45,8 @@ async fn test_message_order() {
     server
         .mock_room_send()
         .body_matches_partial_json(json!({ "body": "First!" }))
-        .ok_with_delay(event_id!("$ev0"), Duration::from_millis(200))
+        .with_delay(Duration::from_millis(200))
+        .ok(event_id!("$ev0"))
         .mount()
         .await;
 
@@ -54,7 +55,8 @@ async fn test_message_order() {
     server
         .mock_room_send()
         .body_matches_partial_json(json!({ "body": "Second." }))
-        .ok_with_delay(event_id!("$ev1"), Duration::from_millis(100))
+        .with_delay(Duration::from_millis(100))
+        .ok(event_id!("$ev1"))
         .mount()
         .await;
 
@@ -141,7 +143,8 @@ async fn test_retry_order() {
     server
         .mock_room_send()
         .body_matches_partial_json(json!({ "body": "First!" }))
-        .ok_with_delay(event_id!("$ev0"), Duration::from_millis(100))
+        .with_delay(Duration::from_millis(100))
+        .ok(event_id!("$ev0"))
         .mount()
         .await;
 
@@ -150,7 +153,8 @@ async fn test_retry_order() {
     server
         .mock_room_send()
         .body_matches_partial_json(json!({ "body": "Second." }))
-        .ok_with_delay(event_id!("$ev1"), Duration::from_millis(200))
+        .with_delay(Duration::from_millis(200))
+        .ok(event_id!("$ev1"))
         .mount()
         .await;
 
@@ -277,7 +281,8 @@ async fn test_clear_with_echoes() {
     // Next message will take "forever" to send.
     server
         .mock_room_send()
-        .ok_with_delay(event_id!("$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP"), Duration::from_secs(3600))
+        .with_delay(Duration::from_secs(3600))
+        .ok(event_id!("$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP"))
         .mount()
         .await;
 
@@ -289,7 +294,7 @@ async fn test_clear_with_echoes() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("another message").sender(&ALICE)),
+                .add_timeline_event(f.text_msg("another message").sender(User::Alice)),
         )
         .await;
 
@@ -338,7 +343,8 @@ async fn test_no_duplicate_date_divider() {
     server
         .mock_room_send()
         .body_matches_partial_json(json!({ "body": "First!" }))
-        .ok_with_delay(event_id!("$ev0"), Duration::from_millis(200))
+        .with_delay(Duration::from_millis(200))
+        .ok(event_id!("$ev0"))
         .mount()
         .await;
 
@@ -347,7 +353,8 @@ async fn test_no_duplicate_date_divider() {
     server
         .mock_room_send()
         .body_matches_partial_json(json!({ "body": "Second." }))
-        .ok_with_delay(event_id!("$ev1"), Duration::from_millis(100))
+        .with_delay(Duration::from_millis(100))
+        .ok(event_id!("$ev1"))
         .mount()
         .await;
 

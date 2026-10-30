@@ -35,14 +35,13 @@ async fn test_search_backfill_makes_history_searchable() {
         .build()
         .await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!omelette:fromage.fr");
     let sender = user_id!("@bob:example.org");
     let f = EventFactory::new().room(room_id).sender(sender);
 
-    let room = server.sync_joined_room(&client, room_id).await;
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
     let (_room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
 
     // Add a gappy sync i.e. an empty in-memory timeline, but a previous-batch
@@ -67,8 +66,9 @@ async fn test_search_backfill_makes_history_searchable() {
         .mount()
         .await;
 
-    let mut generic_updates = client.event_cache().subscribe_to_room_generic_updates();
-    client.event_cache().run_search_backfill(SearchBackfillStrategy::Foreground).await;
+    let event_cache = client.event_cache().unwrap();
+    let mut generic_updates = event_cache.subscribe_to_room_generic_updates();
+    event_cache.run_search_backfill(SearchBackfillStrategy::Foreground).await;
 
     // The backfilled event is in the room cache.
     assert_eq!(generic_updates.recv().await.unwrap().room_id, room_id);

@@ -358,8 +358,9 @@ mod tests {
         assert!(extract_bundled_thread(&event).is_none());
         assert!(extract_is_thread_root(&event).not());
 
-        // When the bundled thread summary is malformed, we return `None` for the
-        // `extract_bundled_thread` and `false` for `extract_is_thread_root`.
+        // When the bundled thread summary is malformed, we return `None` for
+        // the `extract_bundled_thread` and `false` for
+        // `extract_is_thread_root`.
         let event = Raw::new(&json!({
             "event_id": "$eid:example.com",
             "type": "m.room.message",

@@ -225,8 +225,8 @@ impl UtdCause {
             // should have, because either:
             //
             // - backup is working (so why didn't we get it?), or
-            // - backup is not working for an unknown reason (because the device is
-            //   verified, and that is the only reason we check).
+            // - backup is not working for an unknown reason (because the device
+            //   is verified, and that is the only reason we check).
             //
             // In either case, we shrug and give an `Unknown` cause.
             UtdCause::Unknown

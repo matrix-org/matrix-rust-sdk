@@ -11,7 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
@@ -32,83 +32,6 @@ use ruma::{
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
-use wiremock::ResponseTemplate;
-
-#[async_test]
-async fn test_new_pinned_events_are_not_added_on_sync() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-    let room_id = room_id!("!test:localhost");
-
-    let f = EventFactory::new().room(room_id).sender(*BOB);
-    let event_id = event_id!("$1");
-    let event_1 = f
-        .text_msg("in the end")
-        .event_id(event_id)
-        .server_ts(MilliSecondsSinceUnixEpoch::now())
-        .into_raw_sync();
-
-    // Mock /event endpoint for event $1.
-    mock_events_endpoint(&server, room_id, vec![event_1]).await;
-
-    // Mock /relations for event $1.
-    server
-        .mock_room_relations()
-        .match_target_event(event_id.to_owned())
-        .match_limit(256)
-        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
-        .mock_once()
-        .mount()
-        .await;
-
-    // Load initial timeline items: a `m.room.pinned_events` with events
-    // $1 and $2 pinned
-    let room = PinnedEventsSync::new(room_id)
-        .with_pinned_event_ids(vec!["$1", "$2"])
-        .mock_and_sync(&client, &server)
-        .await
-        .expect("Room should be synced");
-    let timeline =
-        TimelineBuilder::new(&room).with_focus(TimelineFocus::PinnedEvents).build().await.unwrap();
-
-    assert!(
-        timeline.live_back_pagination_status().await.is_none(),
-        "there should be no live back-pagination status for a pinned events timeline"
-    );
-
-    // Load timeline items
-    let (mut items, mut timeline_stream) = timeline.subscribe().await;
-
-    if items.is_empty() {
-        assert_let_timeout!(Some(updates) = timeline_stream.next());
-        for up in updates {
-            up.apply(&mut items);
-        }
-    }
-
-    assert_eq!(items.len(), 1 + 1); // event item + a date divider
-    assert!(items[0].is_date_divider());
-    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "in the end");
-    assert_pending!(timeline_stream);
-
-    // Load new pinned event contents from sync, $2 was pinned but wasn't
-    // available before
-    let event_2 = f
-        .text_msg("pinned message!")
-        .event_id(event_id!("$2"))
-        .server_ts(MilliSecondsSinceUnixEpoch::now())
-        .into_raw_sync();
-
-    let _ = PinnedEventsSync::new(room_id)
-        .with_timeline_events(vec![event_2])
-        .mock_and_sync(&client, &server)
-        .await
-        .expect("Room should be synced");
-
-    // Event $2 was received through sync, but it wasn't added to the pinned
-    // event timeline.
-    assert_pending!(timeline_stream);
-}
 
 #[async_test]
 async fn test_pinned_event_with_reaction() {
@@ -116,7 +39,7 @@ async fn test_pinned_event_with_reaction() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
@@ -180,7 +103,7 @@ async fn test_pinned_event_with_paginated_reactions() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
@@ -256,7 +179,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id_1 = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
@@ -372,9 +295,9 @@ async fn test_max_events_to_load_is_honored() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    client.event_cache().config_mut().max_pinned_events_to_load = 1;
+    client.event_cache().unwrap().config_mut().max_pinned_events_to_load = 1;
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let pinned_event = f
         .text_msg("in the end")
         .event_id(event_id!("$1"))
@@ -408,11 +331,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    // Subscribe to the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
@@ -441,7 +360,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
         .await
         .expect("Sync failed");
 
-    let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (room_cache, _drop_handles) = client.event_cache().unwrap().room(room_id).await.unwrap();
     let timeline =
         TimelineBuilder::new(&room).with_focus(TimelineFocus::PinnedEvents).build().await.unwrap();
 
@@ -605,7 +524,12 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
         .mount()
         .await;
 
-    let (event_cache, _) = room.event_cache().await.expect("Event cache should be accessible");
+    let (event_cache, _) = client
+        .event_cache()
+        .unwrap()
+        .room(room_id)
+        .await
+        .expect("Event cache should be accessible");
 
     // Paginate backwards once using the event cache to load the event
     event_cache
@@ -673,7 +597,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
@@ -763,7 +687,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let pinned_event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
@@ -855,7 +779,7 @@ async fn test_ensure_max_concurrency_is_observed() {
     let max_concurrent_requests = 10;
 
     // Define the max concurrent requests allowed for the event cache.
-    client.event_cache().config_mut().max_pinned_events_concurrent_requests =
+    client.event_cache().unwrap().config_mut().max_pinned_events_concurrent_requests =
         max_concurrent_requests;
 
     let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
@@ -866,14 +790,11 @@ async fn test_ensure_max_concurrency_is_observed() {
         .add_state_bulk(vec![f.room_pinned_events(pinned_event_ids).into()]);
 
     let pinned_event =
-        EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_raw_timeline();
+        EventFactory::new().room(&room_id).sender(User::Bob).text_msg("A message").into_event();
     server
         .mock_room_event()
-        .ok_with_template(
-            ResponseTemplate::new(200)
-                .set_delay(Duration::from_secs(60))
-                .set_body_json(pinned_event.json()),
-        )
+        .with_delay(Duration::from_secs(60))
+        .ok(pinned_event)
         // Verify this endpoint is only called the max concurrent amount of times.
         .expect(max_concurrent_requests as u64)
         .mount()
@@ -937,8 +858,7 @@ async fn test_pinned_events_listener_task_reloads_events_when_ids_change() {
         .mount()
         .await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().expect("Subscribed to event cache");
+    let event_cache = client.event_cache().unwrap();
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
@@ -1054,8 +974,7 @@ async fn test_pinned_events_listener_task_does_not_reload_events_when_ids_are_un
         .mount()
         .await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().expect("Subscribed to event cache");
+    let event_cache = client.event_cache().unwrap();
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");
@@ -1120,8 +1039,7 @@ async fn test_pinned_events_listener_task_does_not_reload_events_after_a_redacti
         .mount()
         .await;
 
-    let event_cache = client.event_cache();
-    event_cache.subscribe().expect("Subscribed to event cache");
+    let event_cache = client.event_cache().unwrap();
 
     let (pinned_events_cache, _handle) =
         event_cache.pinned_events(&room_id).await.expect("Got pinned events cache");

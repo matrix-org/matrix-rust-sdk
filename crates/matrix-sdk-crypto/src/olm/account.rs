@@ -1650,13 +1650,14 @@ impl Account {
         // to-device events with unverified senders from being allowed through
         // here, but there are some exceptions:
         //
-        // - m.room_key - we hold on to these until later, so if the sender becomes
-        //   verified later we can still use the key.
+        // - m.room_key - we hold on to these until later, so if the sender
+        //   becomes verified later we can still use the key.
         //
         // - m.room_key_request, m.room_key.withheld, m.key.verification.*,
-        //   m.secret.request - these are allowed as plaintext events, so we also allow
-        //   them encrypted from insecure devices. Note: the list of allowed types here
-        //   should match with what is allowed in handle_to_device_event.
+        //   m.secret.request - these are allowed as plaintext events, so we
+        //   also allow them encrypted from insecure devices. Note: the list of
+        //   allowed types here should match with what is allowed in
+        //   handle_to_device_event.
         match event_type {
             "m.room_key"
             | "m.room_key.withheld"

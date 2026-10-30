@@ -30,7 +30,7 @@ use matrix_sdk_common::{
     },
 };
 use matrix_sdk_test::{
-    ALICE, DEFAULT_TEST_ROOM_ID,
+    DEFAULT_TEST_ROOM_ID, User,
     event_factory::{EventBuilder, EventFactory},
 };
 use ruma::{
@@ -68,7 +68,7 @@ pub fn make_encrypted_test_event(room_id: &RoomId, session_id: &str) -> Timeline
     let builder = EventFactory::new()
         .encrypted("", "curve_key", device_id, session_id)
         .room(room_id)
-        .sender(*ALICE);
+        .sender(User::Alice);
 
     let event = builder.into_raw();
     let utd_info = UnableToDecryptInfo {
@@ -136,7 +136,7 @@ pub fn make_test_event_builder_with_event_id(
     content: &str,
     event_id: Option<&EventId>,
 ) -> EventBuilder<RoomMessageEventContent> {
-    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
+    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(User::Alice);
     if let Some(event_id) = event_id {
         builder = builder.event_id(event_id);
     }
@@ -149,7 +149,7 @@ pub fn make_test_event_builder_with_event_id(
 /// Keep in sync with [`check_test_event`].
 pub fn make_encryption_info() -> EncryptionInfo {
     EncryptionInfo {
-        sender: (*ALICE).into(),
+        sender: User::Alice.into(),
         sender_device: None,
         forwarder: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -175,7 +175,7 @@ pub fn check_test_event(event: &TimelineEvent, text: &str) {
     // Check content.
     assert_matches!(&event.kind, TimelineEventKind::Decrypted(d) => {
         // Check encryption fields.
-        assert_eq!(d.encryption_info.sender, *ALICE);
+        assert_eq!(d.encryption_info.sender, User::Alice);
         assert_matches!(&d.encryption_info.algorithm_info, AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => {
             assert_eq!(curve25519_key, "1337");
         });
@@ -1650,7 +1650,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Load for the second time.
         //
-        // We must get an empty `ThreadInfo` because we want to create if if missing.
+        // We must get an empty `ThreadInfo` because we want to create if if
+        // missing.
         let ThreadInfo { number_of_replies: _, latest_event: _, read_receipts } =
             self.load_thread_info(room_id, thread_id, true).await.unwrap().unwrap();
         let ReadReceipts { num_unread, num_notifications, num_mentions, latest_active, pending } =
@@ -1663,8 +1664,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Load for the third time.
         //
-        // We must get the same empty `ThreadInfo`, even if we don't want to create it
-        // if missing.
+        // We must get the same empty `ThreadInfo`, even if we don't want to
+        // create it if missing.
         let mut thread_info =
             self.load_thread_info(room_id, thread_id, false).await.unwrap().unwrap();
         let ThreadInfo { number_of_replies: _, latest_event: _, read_receipts } = &thread_info;
@@ -2100,7 +2101,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
 
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         // Create event and related events for the first room.
         let eid1 = event_id!("$event1:matrix.org");
@@ -2225,7 +2226,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_reaction_id = event_id!("$room_reaction");
         let room_reaction = EventFactory::new()
             .room(room_id)
-            .sender(*ALICE)
+            .sender(User::Alice)
             .reaction(event_id, "room")
             .event_id(room_reaction_id)
             .into_event();
@@ -2234,7 +2235,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let thread_reaction_id = event_id!("$thread_reaction");
         let thread_reaction = EventFactory::new()
             .room(room_id)
-            .sender(*ALICE)
+            .sender(User::Alice)
             .reaction(event_id, "thread")
             .event_id(thread_reaction_id)
             .into_event();
@@ -2244,7 +2245,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_and_thread_reaction_id = event_id!("$room_and_thread_reaction");
         let room_and_thread_reaction = EventFactory::new()
             .room(room_id)
-            .sender(*ALICE)
+            .sender(User::Alice)
             .reaction(event_id, "room and thread")
             .event_id(room_and_thread_reaction_id)
             .into_event();

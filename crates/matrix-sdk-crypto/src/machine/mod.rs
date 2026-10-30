@@ -2344,12 +2344,12 @@ impl OlmMachine {
 
                 // In the CrossSignedOrLegacy case the following rules apply:
                 //
-                // 1. Identities we have not yet verified can be decrypted regardless of the
-                //    legacy state of the session.
-                // 2. Devices that aren't signed by the owning identity of the device can only
-                //    be decrypted if it's a legacy session.
-                // 3. If we have no information about the device, we should only decrypt if it's
-                //    a legacy session.
+                // 1. Identities we have not yet verified can be decrypted
+                //    regardless of the legacy state of the session.
+                // 2. Devices that aren't signed by the owning identity of the
+                //    device can only be decrypted if it's a legacy session.
+                // 3. If we have no information about the device, we should only
+                //    decrypt if it's a legacy session.
                 // 4. Anything else, should throw an error.
                 match (verification_level, legacy_session) {
                     // Case 1
@@ -3094,9 +3094,10 @@ impl OlmMachine {
 
         // The database value must be there:
         //
-        // - either we could initialize beforehand, thus write into the database,
-        // - or we couldn't, and then another process was holding onto the database's
-        //   lock, thus
+        // - either we could initialize beforehand, thus write into the
+        //   database,
+        // - or we couldn't, and then another process was holding onto the
+        //   database's lock, thus
         // has written a generation counter in there.
         let actual_gen = self
             .inner

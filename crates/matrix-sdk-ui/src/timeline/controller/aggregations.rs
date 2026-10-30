@@ -130,7 +130,10 @@ pub(crate) enum AggregationKind {
     ///
     /// Our own pending redactions are applied reversibly, sent or remote ones
     /// irreversibly; see [`Aggregation::is_local`].
-    Redaction,
+    Redaction {
+        /// The reason given with the redaction, if any.
+        reason: Option<String>,
+    },
 
     /// An event has been edited.
     ///
@@ -287,7 +290,7 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Redaction => {
+            AggregationKind::Redaction { reason } => {
                 let is_local = self.is_local();
                 let is_local_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_some();
@@ -305,6 +308,7 @@ impl Aggregation {
                 } else {
                     let mut new_item = event.redact(&rules.redaction, is_local);
                     new_item.redaction_send_state = self.send_state.clone();
+                    new_item.redaction_reason = reason.clone();
                     *event = Cow::Owned(new_item);
                     ApplyAggregationResult::UpdatedItem
                 }
@@ -405,7 +409,7 @@ impl Aggregation {
                 ApplyAggregationResult::Error(AggregationError::CantUndoPollEnd)
             }
 
-            AggregationKind::Redaction => {
+            AggregationKind::Redaction { .. } => {
                 if self.is_local() {
                     if event.unredacted_item.is_some() {
                         // Unapply local redaction.
@@ -482,18 +486,18 @@ impl Aggregation {
     ) -> bool {
         match &self.kind {
             AggregationKind::Reaction { key, sender, .. } => {
-                let has_entry =
-                    event.reactions().get(key).and_then(|by_user| by_user.get(sender)).is_some();
-                if !has_entry {
-                    return false;
-                }
-                let reactions = event.to_mut().reactions_mut();
-                if let Some(info) =
-                    reactions.get_mut(key).and_then(|by_user| by_user.get_mut(sender))
+                if let Some(info) = event
+                    .to_mut()
+                    .reactions_mut()
+                    .get_mut(key)
+                    .and_then(|by_user| by_user.get_mut(sender))
+                    && info.send_state.is_some()
                 {
                     info.send_state = self.send_state.clone();
+                    true
+                } else {
+                    false
                 }
-                true
             }
 
             AggregationKind::Edit(_) => {
@@ -501,7 +505,7 @@ impl Aggregation {
                 true
             }
 
-            AggregationKind::Redaction => {
+            AggregationKind::Redaction { .. } => {
                 event.to_mut().redaction_send_state = self.send_state.clone();
                 true
             }
@@ -592,7 +596,7 @@ impl Aggregations {
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
         // If the aggregation is a redaction, it invalidates all the other
         // aggregations; remove them.
-        if matches!(aggregation.kind, AggregationKind::Redaction) {
+        if matches!(aggregation.kind, AggregationKind::Redaction { .. }) {
             for agg in self.related_events.remove(&related_to).unwrap_or_default() {
                 self.inverted_map.remove(&agg.own_id);
             }
@@ -603,7 +607,7 @@ impl Aggregations {
         if let Some(previous_aggregations) = self.related_events.get(&related_to)
             && previous_aggregations
                 .iter()
-                .any(|agg| matches!(agg.kind, AggregationKind::Redaction))
+                .any(|agg| matches!(agg.kind, AggregationKind::Redaction { .. }))
         {
             return;
         }
@@ -614,8 +618,8 @@ impl Aggregations {
         // related_events, in chronological order:
         //
         // 1. The local echo with a transaction ID.
-        // 2. The local echo with the event ID returned by the server after sending the
-        //    event.
+        // 2. The local echo with the event ID returned by the server after
+        //    sending the event.
         // 3. The remote echo received via sync.
         //
         // The transition from states 1 to 2 is handled in
@@ -649,10 +653,18 @@ impl Aggregations {
 
         // Find and remove the aggregation in the other mapping.
         let aggregation = if let Some(aggregations) = self.related_events.get_mut(found) {
-            let removed = aggregations
-                .iter()
-                .position(|agg| agg.own_id == *aggregation_id)
-                .map(|idx| aggregations.remove(idx));
+            let removed =
+                aggregations.iter().position(|agg| agg.own_id == *aggregation_id).map(|idx| {
+                    let removed = aggregations.remove(idx);
+                    // The same reaction from the same sender applied after this
+                    // one replaced it on the item.
+                    let hidden = matches!(
+                        &removed.kind,
+                        AggregationKind::Reaction { key, sender, .. }
+                            if latest_reaction(&aggregations[idx..], key, sender).is_some()
+                    );
+                    (removed, hidden)
+                });
 
             // If this was the last aggregation, remove the entry in the
             // `related_events` mapping.
@@ -665,7 +677,7 @@ impl Aggregations {
             None
         };
 
-        let Some(aggregation) = aggregation else {
+        let Some((aggregation, hidden)) = aggregation else {
             warn!(
                 "incorrect internal state: {aggregation_id:?} was present in the inverted map, \
                  not in related-to map."
@@ -673,11 +685,31 @@ impl Aggregations {
             return Ok(false);
         };
 
+        if hidden {
+            return Ok(true);
+        }
+
         if let Some((item_pos, item)) = rfind_event_by_item_id(items, found) {
             let mut cowed = Cow::Borrowed(&*item);
             match aggregation.unapply(&mut cowed) {
                 ApplyAggregationResult::UpdatedItem => {
                     trace!("removed aggregation");
+
+                    // The same reaction from the same sender may still be
+                    // there, hidden by the one just removed: show it again.
+                    if let AggregationKind::Reaction { key, sender, .. } = &aggregation.kind
+                        && let Some(previous) = self
+                            .related_events
+                            .get(found)
+                            .and_then(|aggregations| latest_reaction(aggregations, key, sender))
+                        && let AggregationKind::Reaction { timestamp, .. } = previous.kind
+                    {
+                        cowed.to_mut().reactions_mut().entry(key.clone()).or_default().insert(
+                            sender.clone(),
+                            ReactionInfo { timestamp, send_state: previous.send_state.clone() },
+                        );
+                    }
+
                     items.replace(
                         item_pos,
                         TimelineItem::new(cowed.into_owned(), item.internal_id.to_owned()),
@@ -871,7 +903,7 @@ impl Aggregations {
             self.inverted_map.insert(TimelineEventItemId::EventId(event_id), target.clone());
         }
 
-        let sent_redaction = matches!(updated.kind, AggregationKind::Redaction)
+        let sent_redaction = matches!(updated.kind, AggregationKind::Redaction { .. })
             && matches!(updated.send_state, Some(EventSendState::Sent { .. }));
 
         if sent_redaction {
@@ -944,9 +976,7 @@ impl Aggregations {
         key: &str,
         sender: &UserId,
     ) -> Option<&Aggregation> {
-        self.related_events.get(target)?.iter().rev().find(|agg| {
-            matches!(&agg.kind, AggregationKind::Reaction { key: k, sender: s, .. } if k == key && s == sender)
-        })
+        latest_reaction(self.related_events.get(target)?, key, sender)
     }
 
     /// The send handle of our earliest pending aggregation of some kind on
@@ -964,6 +994,18 @@ impl Aggregations {
             .send_handle
             .clone()
     }
+}
+
+/// The latest reaction with the given key sent by `sender` among
+/// `aggregations`, i.e. the one shown on the item: the last one applied wins.
+fn latest_reaction<'a>(
+    aggregations: &'a [Aggregation],
+    key: &str,
+    sender: &UserId,
+) -> Option<&'a Aggregation> {
+    aggregations.iter().rev().find(|agg| {
+        matches!(&agg.kind, AggregationKind::Reaction { key: k, sender: s, .. } if k == key && s == sender)
+    })
 }
 
 /// Look at all the edits of a given event, and apply the most recent one, if

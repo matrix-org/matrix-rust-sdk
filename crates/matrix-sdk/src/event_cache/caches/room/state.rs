@@ -20,7 +20,8 @@ use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, apply_redaction,
     event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
     linked_chunk::{
-        ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
+        ChunkContent, ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position,
+        Update, lazy_loader,
     },
     serde_helpers::extract_redaction_target,
     sync::Timeline,
@@ -59,8 +60,11 @@ use super::{
         },
         subscriber::SubscribersHandle,
     },
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
+    RFindMapOutcome, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender,
+    sort_positions_descending,
 };
+#[cfg(feature = "e2e-encryption")]
+use crate::event_cache::redecryptor;
 use crate::room::WeakRoom;
 
 pub struct RoomEventCacheState {
@@ -139,7 +143,7 @@ impl RoomEventCacheState {
         //
         // If loading the full linked chunk failed, we'll clear the event cache,
         // as it indicates that at some point, there's some malformed data.
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -166,6 +170,11 @@ impl RoomEventCacheState {
             Ok(linked_chunk) => linked_chunk,
             Err(err) => {
                 error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // The metadata no longer reflects the storage, which is about
+                // to be cleared. Drop it, so that the order
+                // tracker doesn't start from a stale state.
+                full_linked_chunk_metadata = None;
 
                 // Try to clear storage for this room.
                 store_guard
@@ -254,6 +263,61 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
         self.state.room_linked_chunk.revents().find_map(|(_, event)| predicate(event))
     }
 
+    /// Find a single event in this room, starting from the most recent event,
+    /// and carrying on through the stored chunks preceding the in-memory ones,
+    /// until a gap or the start of the room.
+    ///
+    /// The `predicate` receives the current event as its single argument.
+    ///
+    /// The `max_stored_chunks` dictates up to how many paginations we can do in
+    /// the store if no suitable latest event is found in memory.
+    pub async fn rfind_map_event_until_gap_by<O, P>(
+        &self,
+        max_stored_chunks: usize,
+        mut predicate: P,
+    ) -> Result<RFindMapOutcome<O>, EventCacheError>
+    where
+        P: FnMut(&Event) -> Option<O>,
+    {
+        if let Some(found) = self.rfind_map_event_in_memory_by(&mut predicate) {
+            return Ok(RFindMapOutcome::Found(found));
+        }
+
+        if max_stored_chunks == 0 {
+            return Ok(RFindMapOutcome::ReachedLimit);
+        }
+
+        // Events behind an in-memory gap are unknown, so they may be newer than
+        // anything stored before it.
+        if self.state.room_linked_chunk.rgap().is_some() {
+            return Ok(RFindMapOutcome::ReachedGap);
+        }
+
+        let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
+        let first_chunk_id = self.state.room_linked_chunk.first_chunk().identifier();
+        let mut prev_chunk_id = first_chunk_id;
+
+        for _ in 0..max_stored_chunks {
+            let Some(chunk) =
+                self.store.load_previous_chunk(linked_chunk_id, prev_chunk_id).await?
+            else {
+                return Ok(RFindMapOutcome::ReachedStart);
+            };
+            match chunk.content {
+                ChunkContent::Gap(_) => return Ok(RFindMapOutcome::ReachedGap),
+                ChunkContent::Items(events) => {
+                    if let Some(found) = events.iter().rev().find_map(&mut predicate) {
+                        return Ok(RFindMapOutcome::Found(found));
+                    }
+                }
+            }
+
+            prev_chunk_id = chunk.identifier;
+        }
+
+        Ok(RFindMapOutcome::ReachedLimit)
+    }
+
     #[cfg(test)]
     pub fn is_dirty(&self) -> bool {
         EventCacheStoreLockGuard::is_dirty(&self.store)
@@ -334,7 +398,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
 
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&self.store, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -358,6 +422,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                     // If loading the last chunk failed, clear the entire linked
                     // chunk.
                     error!("error when reloading a linked chunk from memory: {err}");
+
+                    // The metadata no longer reflects the storage, which is
+                    // about to be cleared. Drop it, so that the order tracker
+                    // doesn't start from a stale state.
+                    full_linked_chunk_metadata = None;
 
                     // Clear storage for this room.
                     self.store
@@ -622,11 +691,20 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     where
         I: Iterator<Item = &'i Event>,
     {
+        #[cfg(feature = "e2e-encryption")]
+        let room: Option<crate::Room> = self.state.weak_room.get();
+
         for event in events {
+            // Handle redaction.
             self.maybe_apply_new_redaction(event).await?;
 
-            // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event() {
+            #[cfg_attr(not(feature = "e2e-encryption"), allow(unused_mut))]
+            if let Some(mut bundled_thread) = event.bundled_latest_thread_event() {
+                // Attempt to decrypt the bundled thread event in place. No-op
+                // if unencrypted or we know concretely why it
+                // can't be decrypted.
+                #[cfg(feature = "e2e-encryption")]
+                redecryptor::try_decrypt_in_place(&mut bundled_thread, room.as_ref()).await;
                 self.save_events([bundled_thread]).await?;
             }
         }
@@ -744,9 +822,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         ) {
             // It's safe to cast `redacted_event` here:
             //
-            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-            //   when calling .raw(), so it's still one under the hood.
-            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            // - either the event was an `AnyTimelineEvent` cast to
+            //   `AnySyncTimelineEvent` when calling .raw(), so it's still one
+            //   under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this
+            //   case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event.clone()).await?;
@@ -830,16 +910,13 @@ mod tests {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
         let event_id = event_id!("$1");
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
+        let event_cache = client.event_cache().unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         room_event_cache
             .inner
             .state

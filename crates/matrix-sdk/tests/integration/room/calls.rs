@@ -95,11 +95,6 @@ async fn test_decline_call() {
     let unknown_event_id = owned_event_id!("$00002:localhost");
     let own_notification_event_id = owned_event_id!("$00003:localhost");
 
-    // Subscribe to the event cache (to avoid having to remotely fetch the
-    // related event)
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
-
     let f = EventFactory::new().sender(user_id!("@alice:matrix.org"));
     server
         .sync_room(

@@ -64,12 +64,12 @@
 //! [spawn_blocking]: https://github.com/deadpool-rs/deadpool/blob/d6f7d58756f0cc7bdd1f3d54d820c1332d67e4d5/crates/deadpool-sync/src/lib.rs#L113-L131
 //! [WAL]: https://www.sqlite.org/wal.html
 
-use std::{convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
+use std::{convert::Infallible, ops::Deref, path::PathBuf, sync::Arc, time::Duration};
 
 pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics, PoolConfig, RecycleError};
 use deadpool_sync::SyncWrapper;
-use tokio::sync::Mutex;
+use tokio::{runtime::Handle, sync::Mutex};
 use tracing::{info, warn};
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
@@ -136,8 +136,8 @@ impl managed::Manager for Manager {
 
 /// Gracefully close the store-owned write connection.
 ///
-/// Callers are expected to remove the enclosing [`SqliteConnections`] from the
-/// store before calling this helper so no new write acquisitions can happen
+/// Callers are expected to remove the enclosing [`SqliteConnectionsInner`] from
+/// the store before calling this helper so no new write acquisitions can happen
 /// through the store API.
 ///
 /// 1. Waits for any in-flight write to complete by acquiring the lock.
@@ -170,7 +170,7 @@ pub async fn close_connection(write_connection: Arc<Mutex<Connection>>) {
 ///
 /// Wrapped in `Option<SqliteConnections>` guarded by a `Mutex` inside each
 /// store; `Some` means the store is active, `None` means it is closed.
-pub(crate) struct SqliteConnections {
+pub(crate) struct SqliteConnectionsInner {
     /// The pool of read connections.
     pub pool: Pool,
     /// The dedicated write connection.
@@ -181,6 +181,59 @@ pub(crate) struct SqliteConnections {
     pub write_connection: Arc<Mutex<Connection>>,
 }
 
+/// The wrapper holding the [`SqliteConnectionsInner`] of a store.
+///
+/// It derefs to `Mutex<Option<SqliteConnectionsInner>>`, where `Some` means the
+/// store is active and `None` means it is closed.
+///
+/// On top of that, it makes sure the connections are dropped within the context
+/// of a Tokio runtime. Dropping a [`deadpool_sync::SyncWrapper`] (i.e. a
+/// [`Connection`], or a [`Pool`] holding idle ones) calls
+/// `tokio::task::spawn_blocking`, which panics when called from a thread that
+/// isn't running inside a Tokio runtime. This can happen when the last owner of
+/// the store is dropped from a foreign thread, e.g. by the FFI bindings.
+///
+/// To avoid this, the handle of the runtime that was current when the slot was
+/// created is captured, and entered when the connections are dropped.
+pub(crate) struct SqliteConnections {
+    inner: Mutex<Option<SqliteConnectionsInner>>,
+    runtime: Handle,
+}
+
+impl SqliteConnections {
+    /// Create a new wrapper for an active store.
+    ///
+    /// This must be called from within a Tokio runtime for the connections to
+    /// be safely dropped from any thread later on.
+    #[allow(clippy::unused_async)]
+    pub async fn new(connections: SqliteConnectionsInner) -> Self {
+        Self { inner: Mutex::new(Some(connections)), runtime: Handle::current() }
+    }
+}
+
+impl Deref for SqliteConnections {
+    type Target = Mutex<Option<SqliteConnectionsInner>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl Drop for SqliteConnections {
+    fn drop(&mut self) {
+        let Some(connections) = self.inner.get_mut().take() else {
+            // The store was closed, there's nothing to drop.
+            return;
+        };
+
+        // Enter the runtime, so the `SyncWrapper`s can be dropped on a blocking
+        // task of this runtime, whatever the current thread is.
+        let _guard = self.runtime.enter();
+
+        drop(connections);
+    }
+}
+
 /// Close a store by taking its connections out.
 ///
 /// After this returns, any new call to `read()` or `write()` through the store
@@ -188,14 +241,14 @@ pub(crate) struct SqliteConnections {
 /// [`reopen_connections`] is called.
 ///
 /// Idempotent: if the store is already closed this is a no-op.
-pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnections>>, label: &str) {
+pub(crate) async fn close_connections(connections: &SqliteConnections, label: &str) {
     let mut guard = connections.lock().await;
     let Some(conns) = guard.take() else {
         // Already closed — idempotent.
         return;
     };
 
-    let SqliteConnections { pool, write_connection } = conns;
+    let SqliteConnectionsInner { pool, write_connection } = conns;
 
     // Close the pool. Idle read connections are dropped immediately; in-flight
     // reads complete and their connections are discarded (not recycled) on
@@ -245,7 +298,7 @@ pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnectio
 ///
 /// Idempotent: if the store is already active this is a no-op.
 pub(crate) async fn reopen_connections(
-    connections: &Mutex<Option<SqliteConnections>>,
+    connections: &SqliteConnections,
     db_path: PathBuf,
     pool_config: PoolConfig,
     runtime_config: crate::RuntimeConfig,
@@ -270,7 +323,38 @@ pub(crate) async fn reopen_connections(
     let write_conn = pool.get().await?;
     write_conn.apply_runtime_config(runtime_config).await?;
 
-    *guard = Some(SqliteConnections { pool, write_connection: Arc::new(Mutex::new(write_conn)) });
+    *guard =
+        Some(SqliteConnectionsInner { pool, write_connection: Arc::new(Mutex::new(write_conn)) });
 
     Ok(())
+}
+
+#[cfg(all(test, feature = "state-store"))]
+mod tests {
+    use std::thread;
+
+    use matrix_sdk_base::StateStore as _;
+    use tempfile::tempdir;
+
+    use crate::SqliteStateStore;
+
+    /// Dropping a store from a thread that isn't running in a Tokio runtime
+    /// must not panic.
+    #[test]
+    fn test_store_can_be_dropped_outside_of_a_runtime() {
+        let tmpdir = tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+
+        let store = runtime.block_on(async {
+            let store = SqliteStateStore::open(tmpdir.path(), None).await.unwrap();
+
+            // Use a read connection, so the pool holds an idle one too.
+            store.get_kv_data(matrix_sdk_base::store::StateStoreDataKey::SyncToken).await.unwrap();
+
+            store
+        });
+
+        // The runtime is still alive, but this thread isn't running within it.
+        thread::spawn(move || drop(store)).join().expect("dropping the store must not panic");
+    }
 }

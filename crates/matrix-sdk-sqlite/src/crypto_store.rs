@@ -54,11 +54,14 @@ use zeroize::Zeroizing;
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        SqliteKeyValueStoreConnExt, map_interact_err,
     },
 };
 
@@ -72,7 +75,7 @@ pub struct SqliteCryptoStore {
 
     /// `Some` when active, `None` when closed. The outer `Mutex` serialises
     /// close/reopen with connection access.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -127,10 +130,13 @@ impl SqliteCryptoStore {
 
         Ok(Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
+            connections: Arc::new(
+                SqliteConnections::new(SqliteConnectionsInner {
+                    pool,
+                    write_connection: Arc::new(Mutex::new(conn)),
+                })
+                .await,
+            ),
             db_path,
             pool_config,
             runtime_config,
@@ -1359,7 +1365,8 @@ impl CryptoStore for SqliteCryptoStore {
         sessions: Vec<InboundGroupSession>,
         backed_up_to_version: Option<&str>,
     ) -> matrix_sdk_crypto::store::Result<(), Self::Error> {
-        // Sanity-check that the data in the sessions corresponds to backed_up_version
+        // Sanity-check that the data in the sessions corresponds to
+        // backed_up_version
         sessions.iter().for_each(|s| {
             let backed_up = s.backed_up();
             if backed_up != backed_up_to_version.is_some() {
@@ -1835,7 +1842,8 @@ impl CryptoStore for SqliteCryptoStore {
             .await?
             .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
             .await
-            .unwrap()?;
+            .map_err(map_interact_err)
+            .flatten()?;
         Ok(())
     }
 
@@ -1895,6 +1903,10 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
+    async fn delete_next_batch_token(&self) -> Result<(), Self::Error> {
+        self.remove_custom_value("next_batch_token").await
+    }
+
     async fn close(&self) -> Result<()> {
         connection::close_connections(&self.connections, "Crypto store").await;
         Ok(())
@@ -1952,7 +1964,8 @@ mod tests {
         let tmpdir = tempdir().unwrap();
         let destination = tmpdir.path().join(db_name);
 
-        // Copy the test database to the tempdir so our test runs are idempotent.
+        // Copy the test database to the tempdir so our test runs are
+        // idempotent.
         std::fs::copy(&database_path, destination).unwrap();
 
         tmpdir

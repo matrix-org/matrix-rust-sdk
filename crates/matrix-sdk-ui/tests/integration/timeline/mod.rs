@@ -19,10 +19,13 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     assert_let_timeout,
+    cross_process_lock::CrossProcessLockConfig,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    store::StoreConfig,
     test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
-use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     AnyOtherStateEventContentChange, Error, EventSendState, MsgLikeKind, OtherMessageLike,
     RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
@@ -96,8 +99,12 @@ async fn test_timeline_is_threaded() {
         // threaded when no context is requested.
         let f = EventFactory::new();
         let event_id = event_id!("$target1");
-        let event =
-            f.text_msg("hello world").event_id(event_id).room(room_id).sender(&ALICE).into_event();
+        let event = f
+            .text_msg("hello world")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(User::Alice)
+            .into_event();
         server
             .mock_room_event_context()
             .match_event_id()
@@ -129,7 +136,7 @@ async fn test_timeline_is_threaded() {
             .event_id(event_id)
             .in_thread(thread_root, thread_root)
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -161,7 +168,7 @@ async fn test_timeline_is_threaded() {
             .text_msg("hey to you too")
             .event_id(event_id)
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -192,7 +199,7 @@ async fn test_timeline_is_threaded() {
             .text_msg("hello world")
             .event_id(event_id!("$target4"))
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
         server
             .mock_room_event_context()
@@ -223,7 +230,7 @@ async fn test_timeline_is_threaded() {
             .event_id(event_id!("$target5"))
             .in_thread(thread_root, thread_root)
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -253,7 +260,7 @@ async fn test_timeline_is_threaded() {
             .text_msg("hey to you too")
             .event_id(event_id!("$target6"))
             .room(room_id)
-            .sender(&ALICE)
+            .sender(User::Alice)
             .into_event();
 
         server
@@ -307,9 +314,9 @@ async fn test_reaction() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(&ALICE).event_id(msg_event_id))
+                .add_timeline_event(f.text_msg("hello").sender(User::Alice).event_id(msg_event_id))
                 .add_timeline_event(
-                    f.reaction(msg_event_id, "👍").sender(&BOB).event_id(reaction_event_id),
+                    f.reaction(msg_event_id, "👍").sender(User::Bob).event_id(reaction_event_id),
                 ),
         )
         .await;
@@ -343,7 +350,7 @@ async fn test_reaction() {
     let group = &reactions["👍"];
     assert_eq!(group.len(), 1);
     let senders: Vec<_> = group.keys().collect();
-    assert_eq!(senders.as_slice(), [*BOB]);
+    assert_eq!(senders, &[User::Bob]);
 
     // The date divider.
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
@@ -355,7 +362,7 @@ async fn test_reaction() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.redaction(reaction_event_id).sender(&BOB)),
+                .add_timeline_event(f.redaction(reaction_event_id).sender(User::Bob)),
         )
         .await;
 
@@ -391,9 +398,10 @@ async fn test_redacted_message() {
             &client,
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
-                    f.redacted(*ALICE, RedactedRoomMessageEventContent::new()).event_id(event_id),
+                    f.redacted(User::Alice, RedactedRoomMessageEventContent::new())
+                        .event_id(event_id),
                 )
-                .add_timeline_event(f.redaction(event_id).sender(&ALICE)),
+                .add_timeline_event(f.redaction(event_id).sender(User::Alice)),
         )
         .await;
 
@@ -455,21 +463,39 @@ async fn test_redact_message() {
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
-    assert!(item.as_event().unwrap().content().is_redacted());
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    // Our own reason is known before the server says anything.
+    assert_eq!(item.redaction_reason(), Some("inapprops"));
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 2);
+    assert_eq!(timeline_updates.len(), 3);
 
     // The redaction was sent, then its remote echo arrived.
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), Some(EventSendState::Sent { .. }));
+    assert_eq!(item.redaction_reason(), Some("inapprops"));
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), None);
+    // The redaction dropped the item's JSON, and nothing has replaced it yet.
+    assert!(item.latest_json().is_none());
+    assert_eq!(item.redaction_reason(), Some("inapprops"));
+
+    // Then the event cache handed over the redacted event, which carries the
+    // redaction and its reason.
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[2]);
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert_matches!(item.redaction_send_state(), None);
+    let json = item.latest_json().unwrap().json().get();
+    assert!(json.contains("redacted_because"), "{json}");
+    assert!(json.contains("inapprops"), "{json}");
+    assert_eq!(item.redaction_reason(), Some("inapprops"));
 
     // Redacting a local event works.
     timeline
@@ -624,7 +650,9 @@ async fn test_read_marker() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("hello").sender(&ALICE).event_id(event_id!("$someplace:example.org")),
+                f.text_msg("hello")
+                    .sender(User::Alice)
+                    .event_id(event_id!("$someplace:example.org")),
             ),
         )
         .await;
@@ -655,7 +683,7 @@ async fn test_read_marker() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.text_msg("hello to you!")
-                    .sender(&BOB)
+                    .sender(User::Bob)
                     .event_id(event_id!("$someotherplace:example.org")),
             ),
         )
@@ -688,7 +716,7 @@ async fn test_sync_highlighted() {
             // We need the member event and power levels locally so the push rules processor works.
             JoinedRoomBuilder::new(room_id)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
-                .add_state_event(f.default_power_levels()),
+                .add_state_event(f.power_levels()),
         )
         .await;
 
@@ -700,7 +728,7 @@ async fn test_sync_highlighted() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("hello").sender(&ALICE).event_id(event_id!("$msda7m0df9E9op3")),
+                f.text_msg("hello").sender(User::Alice).event_id(event_id!("$msda7m0df9E9op3")),
             ),
         )
         .await;
@@ -721,7 +749,7 @@ async fn test_sync_highlighted() {
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
                 f.room_tombstone("This room has been replaced", room_id!("!newroom:localhost"))
-                    .sender(&BOB),
+                    .sender(User::Bob),
             ),
         )
         .await;
@@ -801,8 +829,6 @@ async fn test_timeline_without_encryption_info() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!a98sd12bjh:example.org");
 
     let f = EventFactory::new();
@@ -810,7 +836,7 @@ async fn test_timeline_without_encryption_info() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("A message").sender(*BOB)),
+                .add_timeline_event(f.text_msg("A message").sender(User::Bob)),
         )
         .await;
 
@@ -830,11 +856,9 @@ async fn test_timeline_without_encryption_can_update() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    client.event_cache().subscribe().unwrap();
-
     let room_id = room_id!("!jEsUZKDJdhlrceRyVU:example.org");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let room = server
         .sync_room(
             &client,
@@ -886,49 +910,48 @@ async fn test_timeline_without_encryption_can_update() {
 #[async_test]
 async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
     let room_id = room_id!("!foo:bar.baz");
-    let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
-
-    let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
-
-    mock_server.sync_joined_room(&client, room_id).await;
+    let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Let's store events in the event cache _before_ the timeline is created.
-    {
-        let event_cache_store = client.event_cache_store().lock().await.unwrap();
+    let event_cache_store = MemoryStore::new();
 
-        // The event cache contains 30 events.
-        event_cache_store
-            .as_clean()
-            .unwrap()
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(42),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(42), 0),
-                        items: (0..30)
-                            .map(|nth| {
-                                event_factory
-                                    .text_msg("foo")
-                                    .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
-                                    .into_event()
-                            })
-                            .collect::<Vec<_>>(),
-                    },
-                ],
+    // The event cache contains 30 events.
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(42), 0),
+                    items: (0..30)
+                        .map(|nth| {
+                            event_factory
+                                .text_msg("foo")
+                                .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                                .into_event()
+                        })
+                        .collect::<Vec<_>>(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server
+        .client_builder()
+        .on_builder(move |builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
             )
-            .await
-            .unwrap();
-    }
+        })
+        .build()
+        .await;
 
-    // Set up the event cache.
-    let event_cache = client.event_cache();
-    event_cache.subscribe().unwrap();
+    mock_server.sync_joined_room(&client, room_id).await;
 
     let room = client.get_room(room_id).unwrap();
 

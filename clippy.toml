@@ -1,0 +1,4 @@
+disallowed-methods = [
+    # See https://github.com/element-hq/element-x-android/issues/7848.
+    { path = "tempfile::NamedTempFile::reopen", reason = "it calls the `statx` syscall on 32-bit platforms, which kills the app on Android 8 to 10; use `as_file().try_clone()` instead" },
+]

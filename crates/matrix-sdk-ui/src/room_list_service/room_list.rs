@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{future::ready, ops::Deref, sync::Arc};
+use std::{future::ready, ops::Deref, pin::pin, sync::Arc};
 
 use async_cell::sync::AsyncCell;
 use async_rx::StreamExt as _;
@@ -20,12 +20,12 @@ use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
-use futures_util::{Stream, StreamExt as _, pin_mut, stream};
+use futures_util::{Stream, StreamExt as _, stream};
 use matrix_sdk::{
     Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     task_monitor::BackgroundTaskHandle,
 };
-use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
+use matrix_sdk_base::RoomInfoNotableUpdate;
 use ruma::MilliSecondsSinceUnixEpoch;
 use tokio::{
     select,
@@ -78,7 +78,7 @@ impl RoomList {
             _loading_state_task: client
                 .task_monitor()
                 .spawn_infinite_task("room_list::loading_state_task", async move {
-                    pin_mut!(room_list_service_state);
+                    let mut room_list_service_state = pin!(room_list_service_state);
 
                     // As soon as `RoomListService` changes its state, if it
                     // isn't `Terminated` nor `Error`, we know we have fetched
@@ -203,7 +203,7 @@ fn merge_stream_and_receiver(
     mut room_info_notable_update_receiver: broadcast::Receiver<RoomInfoNotableUpdate>,
 ) -> impl Stream<Item = Vec<VectorDiff<RoomListItem>>> {
     stream! {
-        pin_mut!(raw_stream);
+        let mut raw_stream = pin!(raw_stream);
 
         loop {
             select! {
@@ -231,28 +231,48 @@ fn merge_stream_and_receiver(
                 update = room_info_notable_update_receiver.recv() => {
                     match update {
                         Ok(update) => {
-                            // Filter which _reason_ can trigger an update of
-                            // the room list.
-                            //
-                            // If the update is strictly about the
-                            // `RECENCY_STAMP`, let's ignore it, because the
-                            // Latest Event type is used to sort the room list
-                            // by recency already. We don't want to trigger an
-                            // update because of `RECENCY_STAMP`.
-                            //
-                            // If the update contains more reasons than
-                            // `RECENCY_STAMP`, then it's fine. That's why we
-                            // are using `==` instead of `contains`.
-                            if update.reasons == RoomInfoNotableUpdateReasons::RECENCY_STAMP {
-                                continue;
+                            // Drain every update already sitting in the
+                            // channel, so that a burst of updates (e.g. a
+                            // batch of freshly computed latest events, or the
+                            // per-room updates of one sync response) is
+                            // processed as a single batch of `VectorDiff`s.
+                            // Each room is kept once, in arrival order.
+                            let mut room_ids = Vec::new();
+                            let mut seen = std::collections::HashSet::new();
+                            let mut add = |update: RoomInfoNotableUpdate| {
+                                if seen.insert(update.room_id.clone()) {
+                                    room_ids.push(update.room_id);
+                                }
+                            };
+
+                            add(update);
+
+                            loop {
+                                use broadcast::error::TryRecvError;
+
+                                match room_info_notable_update_receiver.try_recv() {
+                                    Ok(update) => add(update),
+                                    Err(TryRecvError::Lagged(n)) => {
+                                        error!(number_of_missed_updates = n, "Lag when receiving room info notable update");
+                                    }
+                                    Err(TryRecvError::Empty | TryRecvError::Closed) => break,
+                                }
                             }
 
-                            // Emit a `VectorDiff::Set` for the specific rooms.
-                            if let Some(index) = current_values.iter().position(|room| room.room_id() == update.room_id) {
-                                let mut room = current_values[index].clone();
-                                room.refresh_cached_data();
+                            // Emit a `VectorDiff::Set` for each updated room.
+                            let mut diffs = Vec::with_capacity(room_ids.len());
 
-                                yield vec![VectorDiff::Set { index, value: room }];
+                            for room_id in room_ids {
+                                if let Some(index) = current_values.iter().position(|room| room.room_id() == room_id) {
+                                    let room = &mut current_values[index];
+                                    room.refresh_cached_data();
+
+                                    diffs.push(VectorDiff::Set { index, value: room.clone() });
+                                }
+                            }
+
+                            if !diffs.is_empty() {
+                                yield diffs;
                             }
                         }
 

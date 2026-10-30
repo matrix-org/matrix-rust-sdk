@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::{env, fs, process::exit};
 
 use matrix_sdk::{

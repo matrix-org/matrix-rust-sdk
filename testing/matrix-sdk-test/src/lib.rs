@@ -3,11 +3,10 @@ use std::{fmt, sync::LazyLock};
 use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use ruma::{
-    RoomId, UserId,
+    RoomId,
     api::{IncomingResponse, IncomingResponseExt as _, OutgoingResponse, OutgoingResponseExt as _},
     room_id,
     serde::{Base64, base64::UrlSafe},
-    user_id,
 };
 use sha2::{Digest, Sha256};
 
@@ -71,22 +70,19 @@ macro_rules! stripped_state_event {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
-pub mod mocks;
-
 pub mod event_factory;
+mod identifiers;
 pub mod notification_settings;
 mod sync_builder;
 pub mod test_json;
 
-pub use self::sync_builder::{
-    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, bulk_room_members,
+pub use self::{
+    identifiers::*,
+    sync_builder::{
+        InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
+        SyncResponseBuilder, bulk_room_members,
+    },
 };
-
-pub static ALICE: LazyLock<&UserId> = LazyLock::new(|| user_id!("@alice:server.name"));
-pub static BOB: LazyLock<&UserId> = LazyLock::new(|| user_id!("@bob:other.server"));
-pub static CAROL: LazyLock<&UserId> = LazyLock::new(|| user_id!("@carol:other.server"));
 
 /// The default room ID for tests.
 pub static DEFAULT_TEST_ROOM_ID: LazyLock<&RoomId> =

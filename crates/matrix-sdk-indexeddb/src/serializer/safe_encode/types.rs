@@ -233,34 +233,39 @@ impl SafeEncodeSerializer {
         // If we can convert the JsValue into a `MaybeEncrypted`, then it's
         // probably one of those.
         //
-        // - `MaybeEncrypted::Encrypted` becomes a JS object with properties {`version`,
-        //   `nonce`, `ciphertext`}.
+        // - `MaybeEncrypted::Encrypted` becomes a JS object with properties
+        //   {`version`, `nonce`, `ciphertext`}.
         //
-        // - `MaybeEncrypted::Unencrypted` becomes a JS string containing base64 text.
+        // - `MaybeEncrypted::Unencrypted` becomes a JS string containing base64
+        //   text.
         //
         // Otherwise, it probably uses our old serialization format:
         //
-        // - Encrypted values were: serialized to an array of JSON bytes; encrypted to
-        //   an array of u8 bytes; stored in a Rust object; serialized (again) into an
-        //   array of JSON bytes. Net result is a JS array.
+        // - Encrypted values were: serialized to an array of JSON bytes;
+        //   encrypted to an array of u8 bytes; stored in a Rust object;
+        //   serialized (again) into an array of JSON bytes. Net result is a JS
+        //   array.
         //
-        // - Unencrypted values were serialized to JSON, then deserialized into a
-        //   javascript object/string/array/bool.
+        // - Unencrypted values were serialized to JSON, then deserialized into
+        //   a javascript object/string/array/bool.
         //
         // Note that there are several potential ambiguities here:
         //
         // - A JS string could either be a legacy unencrypted value, or a
-        //   `MaybeEncrypted::Unencrypted`. However, the only thing that actually got
-        //   stored as a string under the legacy system was `backup_key_v1`, and that is
-        //   special-cased not to use this path — so if we can convert it into a
-        //   `MaybeEncrypted::Unencrypted`, then we assume it is one.
+        //   `MaybeEncrypted::Unencrypted`. However, the only thing that
+        //   actually got stored as a string under the legacy system was
+        //   `backup_key_v1`, and that is special-cased not to use this path —
+        //   so if we can convert it into a `MaybeEncrypted::Unencrypted`, then
+        //   we assume it is one.
         //
-        // - A JS array could be either a legacy encrypted value or a legacy unencrypted
-        //   value. We can tell the difference by whether we have a `cipher`.
+        // - A JS array could be either a legacy encrypted value or a legacy
+        //   unencrypted value. We can tell the difference by whether we have a
+        //   `cipher`.
         //
         // - A JS object could be either a legacy unencrypted value or a
-        //   `MaybeEncrypted::Encrypted`. We assume that no legacy JS objects have the
-        //   properties to be successfully decoded into a `MaybeEncrypted::Encrypted`.
+        //   `MaybeEncrypted::Encrypted`. We assume that no legacy JS objects
+        //   have the properties to be successfully decoded into a
+        //   `MaybeEncrypted::Encrypted`.
 
         // First check if it looks like a `MaybeEncrypted`, of either type.
         if let Ok(maybe_encrypted) = serde_wasm_bindgen::from_value(value.clone()) {

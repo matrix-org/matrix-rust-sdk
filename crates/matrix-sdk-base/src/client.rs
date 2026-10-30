@@ -52,12 +52,11 @@ use ruma::{
     },
     profile::UserProfileUpdate,
     push::Ruleset,
-    time::Instant,
 };
 use tokio::sync::{Mutex, MutexGuard, broadcast};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{Level, debug, enabled, info, instrument, warn};
+use tracing::{Level, debug, info, instrument, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -125,7 +124,7 @@ pub struct BaseClient {
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
 
     /// Observable of when a user is ignored/unignored.
-    pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
+    pub(crate) ignore_user_list_changes: SharedObservable<Vec<OwnedUserId>>,
 
     /// Broadcasts the user IDs whose global profile changed during a sync.
     /// Requires the Profiles sliding sync extension to be enabled.
@@ -386,7 +385,8 @@ impl BaseClient {
     ///
     /// - `session_meta` - The meta of a session that the user already has from
     ///   a previous login call.
-    ///
+    /// - `room_load_settings` — Specify how many rooms must be restored; use
+    ///   `::default()` if you don't know which value to pick.
     /// - `custom_account` - A custom
     ///   [`matrix_sdk_crypto::vodozemac::olm::Account`] to be used for the
     ///   identity and one-time keys of this [`BaseClient`]. If no account is
@@ -395,9 +395,6 @@ impl BaseClient {
     ///   [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
     ///   useful if one wishes to create identity keys before knowing the
     ///   user/device IDs, e.g., to use the identity key as the device ID.
-    ///
-    /// - `room_load_settings` — Specify how many rooms must be restored; use
-    ///   `::default()` if you don't know which value to pick.
     ///
     /// # Panics
     ///
@@ -417,6 +414,9 @@ impl BaseClient {
         self.state_store.load_rooms(&session_meta.user_id, room_load_settings).await?;
         self.state_store.load_sync_token().await?;
         self.state_store.set_session_meta(session_meta);
+
+        let ignore_user_list = self.get_ignore_user_list().await?;
+        self.ignore_user_list_changes.set_if_not_eq(ignore_user_list);
 
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm(custom_account).await?;
@@ -448,7 +448,8 @@ impl BaseClient {
 
         let olm_machine = builder.build().await.map_err(OlmError::from)?;
 
-        // Subscribe before the machine is shared, so that no room key is missed.
+        // Subscribe before the machine is shared, so that no room key is
+        // missed.
         #[cfg(feature = "unstable-msc4354")]
         let room_keys_stream = olm_machine.store().room_keys_received_stream();
 
@@ -672,7 +673,7 @@ impl BaseClient {
             return Ok(SyncResponse::default());
         }
 
-        let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
+        let _time = timer!(Level::INFO, "Processing a sync response");
 
         // Acquire the state store lock and hold on to it while processing the
         // sync response below.
@@ -708,9 +709,10 @@ impl BaseClient {
                     ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo,
                     ToDeviceUnableToDecryptReason,
                 };
+                use ruma::events::ToDeviceEventType;
 
-                if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
-                    if event_type == "m.room.encrypted" {
+                if let Ok(Some(event_type)) = raw.get_field::<ToDeviceEventType>("type") {
+                    if event_type == ToDeviceEventType::RoomEncrypted {
                         ProcessedToDeviceEvent::UnableToDecrypt {
                             encrypted_event: raw,
                             utd_info: ToDeviceUnableToDecryptInfo {
@@ -880,10 +882,6 @@ impl BaseClient {
 
         // Release the state store lock
         drop(state_store_guard);
-
-        if enabled!(Level::INFO) {
-            info!("Processed a sync response in {:?}", now.map(|now| now.elapsed()));
-        }
 
         let response = SyncResponse {
             rooms: room_updates,
@@ -1175,9 +1173,25 @@ impl BaseClient {
         }
     }
 
+    /// Gets the ignore user list.
+    ///
+    /// Retrieves the ignored users from the state store, returning an empty
+    /// list if no ignored user list has been stored.
+    async fn get_ignore_user_list(&self) -> Result<Vec<OwnedUserId>> {
+        let Some(raw) =
+            self.state_store.get_account_data_event_static::<IgnoredUserListEventContent>().await?
+        else {
+            return Ok(Vec::new());
+        };
+
+        let event = raw.deserialize()?;
+
+        Ok(event.content.ignored_users.into_keys().collect())
+    }
+
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes
-    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<String>> {
+    pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<OwnedUserId>> {
         self.ignore_user_list_changes.subscribe()
     }
 
@@ -1392,7 +1406,7 @@ mod tests {
     use futures_util::FutureExt as _;
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{
-        BOB, InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
+        InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, User, async_test,
         event_factory::EventFactory, ruma_response_from_json,
     };
     #[cfg(feature = "unstable-msc4426")]
@@ -2058,16 +2072,16 @@ mod tests {
         let f = EventFactory::new();
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
         assert_let!(Some(ignored) = subscriber.next().await);
-        assert_eq!(ignored, [BOB.to_string()]);
+        assert_eq!(ignored, [User::Bob]);
 
         // Receive the same response.
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
+            .add_global_account_data(f.ignored_user_list([User::Bob.into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
@@ -2081,6 +2095,63 @@ mod tests {
 
         assert_let!(Some(ignored) = subscriber.next().await);
         assert!(ignored.is_empty());
+    }
+
+    async fn store_with_ignored_user() -> StoreConfig {
+        let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
+        let user_id = user_id!("@alice:example.org");
+
+        let client =
+            BaseClient::new(store.clone(), ThreadingSupport::Disabled, DmRoomDefinition::default());
+
+        client
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Ignore a user.
+        let event_factory = EventFactory::new();
+        let response = SyncResponseBuilder::new()
+            .add_global_account_data(event_factory.ignored_user_list([User::Bob.into()]))
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        store
+    }
+
+    #[async_test]
+    async fn test_ignored_user_list_restored_on_activation() {
+        let store = store_with_ignored_user().await;
+        let user_id = user_id!("@alice:example.org");
+
+        // New client with the previously populated store.
+        let client =
+            BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
+
+        // Acrivation should hydrate the ignored user list.
+        client
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client.subscribe_to_ignore_user_list_changes();
+
+        // The ignored user list is restored from the store.
+        assert_eq!(subscriber.get(), [User::Bob]);
+
+        // No changes occurred after subscribing.
+        assert!(subscriber.next().now_or_never().is_none());
     }
 
     #[async_test]

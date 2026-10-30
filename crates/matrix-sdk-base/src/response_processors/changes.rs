@@ -15,6 +15,7 @@
 use eyeball::SharedObservable;
 use matrix_sdk_common::timer;
 use ruma::{
+    OwnedUserId,
     events::{GlobalAccountDataEventType, ignored_user_list::IgnoredUserListEvent},
     serde::Raw,
 };
@@ -50,7 +51,7 @@ pub async fn save_and_apply(
     context: Context,
     state_store: &BaseStateStore,
     state_store_guard: &MutexGuard<'_, ()>,
-    ignore_user_list_changes: &SharedObservable<Vec<String>>,
+    ignore_user_list_changes: &SharedObservable<Vec<OwnedUserId>>,
     sync_token: Option<String>,
 ) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "_method");
@@ -86,7 +87,7 @@ async fn save_changes(
 
 fn apply_changes(
     context: &Context,
-    ignore_user_list_changes: &SharedObservable<Vec<String>>,
+    ignore_user_list_changes: &SharedObservable<Vec<OwnedUserId>>,
     previous_ignored_user_list: Option<Raw<IgnoredUserListEvent>>,
 ) {
     if let Some(event) =
@@ -94,22 +95,15 @@ fn apply_changes(
     {
         match event.deserialize_as_unchecked::<IgnoredUserListEvent>() {
             Ok(event) => {
-                let user_ids: Vec<String> =
-                    event.content.ignored_users.keys().map(|id| id.to_string()).collect();
+                let user_ids = event.content.ignored_users.into_keys().collect::<Vec<_>>();
 
                 // Try to only trigger the observable if the ignored user list
                 // has changed, from the previous time we've seen it. If we
                 // couldn't load the previous event for any reason, always
                 // trigger.
-                if let Some(prev_user_ids) =
-                    previous_ignored_user_list.and_then(|raw| raw.deserialize().ok()).map(|event| {
-                        event
-                            .content
-                            .ignored_users
-                            .keys()
-                            .map(|id| id.to_string())
-                            .collect::<Vec<_>>()
-                    })
+                if let Some(prev_user_ids) = previous_ignored_user_list
+                    .and_then(|raw| raw.deserialize().ok())
+                    .map(|event| event.content.ignored_users.into_keys().collect::<Vec<_>>())
                 {
                     if user_ids != prev_user_ids {
                         ignore_user_list_changes.set(user_ids);
