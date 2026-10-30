@@ -86,8 +86,8 @@ pub use http_client::{SupportedAuthScheme, SupportedPathBuilder, TransmissionPro
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
 pub use matrix_sdk_sqlite::{
-    STATE_STORE_DATABASE_NAME, SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore,
-    SqliteStoreConfig, Synchronous,
+    EVENT_CACHE_STORE_DATABASE_NAME, MEDIA_STORE_DATABASE_NAME, STATE_STORE_DATABASE_NAME,
+    SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore, SqliteStoreConfig, Synchronous,
 };
 pub use media::Media;
 pub use media_metrics::{MediaMetrics, MediaType, MediaUsage};

@@ -72,7 +72,7 @@ mod keys {
 }
 
 /// The database name.
-const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
+pub const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
