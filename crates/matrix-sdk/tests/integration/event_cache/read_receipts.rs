@@ -659,6 +659,218 @@ async fn test_select_best_receipt_considers_thread_config() {
     assert_eq!(room.num_unread_messages(), 2);
 }
 
+#[async_test]
+async fn test_room_unread_counts_respect_receipt_scope() {
+    for with_threading_support in [false, true] {
+        for receipt_type in [ReceiptType::Read, ReceiptType::ReadPrivate] {
+            for (receipt_thread, target, expected_unread) in [
+                // Unthreaded receipts read earlier events in every timeline,
+                // even when their target is a reply hidden from the room.
+                (
+                    ReceiptThread::Unthreaded,
+                    event_id!("$reply"),
+                    if with_threading_support { 1 } else { 2 },
+                ),
+                (
+                    ReceiptThread::Main,
+                    event_id!("$before"),
+                    if with_threading_support { 2 } else { 4 },
+                ),
+                // A receipt for a particular thread doesn't read the room.
+                (
+                    ReceiptThread::Thread(event_id!("$root").to_owned()),
+                    event_id!("$reply"),
+                    if with_threading_support { 4 } else { 6 },
+                ),
+            ] {
+                let server = MatrixMockServer::new().await;
+                let client = server
+                    .client_builder()
+                    .on_builder(|builder| {
+                        if with_threading_support {
+                            builder.with_threading_support(ThreadingSupport::Enabled {
+                                with_subscriptions: false,
+                            })
+                        } else {
+                            builder
+                        }
+                    })
+                    .build()
+                    .await;
+                client.event_cache().subscribe().unwrap();
+
+                let room_id = room_id!("!receipts:example.org");
+                let f = EventFactory::new().room(room_id).sender(*BOB);
+                let root = event_id!("$root");
+                let room = server.sync_joined_room(&client, room_id).await;
+                let (cache, _drop_handles) = room.event_cache().await.unwrap();
+                let (_, mut updates) = cache.subscribe().await.unwrap();
+
+                server
+                    .sync_room(
+                        &client,
+                        JoinedRoomBuilder::new(room_id)
+                            .add_timeline_event(f.text_msg("Root").event_id(root))
+                            .add_timeline_event(f.text_msg("Before").event_id(event_id!("$before")))
+                            .add_timeline_event(f.text_msg("Between").event_id(event_id!("$between")))
+                            .add_timeline_event(
+                                f.text_msg("Reply")
+                                    .in_thread(root, root)
+                                    .event_id(event_id!("$reply")),
+                            )
+                            .add_timeline_event(
+                                f.text_msg("Later reply")
+                                    .in_thread(root, event_id!("$reply"))
+                                    .event_id(event_id!("$later-reply")),
+                            )
+                            .add_timeline_event(f.text_msg("After").event_id(event_id!("$after")))
+                            .add_receipt(
+                                f.read_receipts()
+                                    .add(
+                                        target,
+                                        client.user_id().unwrap(),
+                                        receipt_type.clone(),
+                                        receipt_thread.clone(),
+                                    )
+                                    .into_event(),
+                            ),
+                    )
+                    .await;
+
+                assert_let_timeout!(
+                    Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = updates.recv()
+                );
+                assert_eq!(
+                    room.num_unread_messages(),
+                    expected_unread,
+                    "threading={with_threading_support}, type={receipt_type:?}, scope={receipt_thread:?}"
+                );
+                let receipts = room.read_receipts();
+                assert!(receipts.pending.is_empty());
+                assert_eq!(
+                    receipts.latest_active.as_ref().map(|receipt| receipt.event_id.as_ref()),
+                    (!matches!(receipt_thread, ReceiptThread::Thread(_))).then_some(target)
+                );
+            }
+        }
+    }
+}
+
+#[async_test]
+async fn test_pending_unthreaded_receipt_on_thread_reply() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!receipts:example.org");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let root = event_id!("$root");
+    let reply = event_id!("$reply");
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut updates) = cache.subscribe().await.unwrap();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Root").event_id(root))
+                .add_timeline_event(f.text_msg("Before").event_id(event_id!("$before")))
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            reply,
+                            client.user_id().unwrap(),
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = updates.recv());
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::AddReadReceiptEvent { .. }) = updates.recv());
+    assert_eq!(room.num_unread_messages(), 2);
+    assert!(room.read_receipts().pending.iter().any(|id| id == reply));
+
+    // The target arrives in a later sync without another receipt event. It
+    // resolves the pending receipt even though it is hidden from the room.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Reply").in_thread(root, root).event_id(reply))
+                .add_timeline_event(f.text_msg("After").event_id(event_id!("$after"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = updates.recv());
+    let receipts = room.read_receipts();
+    assert_eq!(receipts.num_unread, 1);
+    assert_eq!(receipts.latest_active.as_ref().unwrap().event_id, reply);
+    assert!(receipts.pending.is_empty());
+}
+
+#[async_test]
+async fn test_stored_unthreaded_receipt_on_thread_reply() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!receipts:example.org");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let root = event_id!("$root");
+    let reply = event_id!("$reply");
+
+    // Persist the receipt before the cache subscribes, as on session restore.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(
+                        reply,
+                        client.user_id().unwrap(),
+                        ReceiptType::ReadPrivate,
+                        ReceiptThread::Unthreaded,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+    client.event_cache().subscribe().unwrap();
+    let (cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut updates) = cache.subscribe().await.unwrap();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Root").event_id(root))
+                .add_timeline_event(f.text_msg("Reply").in_thread(root, root).event_id(reply))
+                .add_timeline_event(f.text_msg("After").event_id(event_id!("$after"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = updates.recv());
+    let receipts = room.read_receipts();
+    assert_eq!(receipts.num_unread, 1);
+    assert_eq!(receipts.latest_active.as_ref().unwrap().event_id, reply);
+    assert!(receipts.pending.is_empty());
+}
+
 /// Test that the unread count gets updated when the sync update only contains
 /// duplicate events and a new read receipt.
 #[async_test]

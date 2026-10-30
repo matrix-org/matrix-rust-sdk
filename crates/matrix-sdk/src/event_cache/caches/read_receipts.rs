@@ -294,7 +294,9 @@ pub trait EventFilter {
     /// Room ID of the room containing all the events.
     fn room_id(&self) -> &RoomId;
 
-    /// Decide whether an event is a candidate for a read receipt.
+    /// Whether an event belongs to this timeline for unread counts and
+    /// implicit receipts. An explicit unthreaded receipt can target an event
+    /// outside this timeline: it marks earlier events in every timeline read.
     fn filter(&self, event: &TimelineEvent) -> bool;
 
     /// Check whether a given [`ReceiptThread`] is valid, i.e. matches our
@@ -483,10 +485,10 @@ where
 
     // This loop folds two actions at once:
     //
-    // - try to find the most recent receipt, by looking at the events in reverse
-    //   order (i.e. from the most recent to the least recent),
-    // - try to match stashed receipts against known events in the linked chunk, so
-    //   as to shrink the stash of pending receipts.
+    // - try to find the most recent receipt, by looking at the events in
+    //   reverse order (i.e. from the most recent to the least recent),
+    // - try to match stashed receipts against known events in the linked chunk,
+    //   so as to shrink the stash of pending receipts.
     //
     // We can early exit out of this loop, as soon as there's no more work to
     // do, i.e., we've found a better receipt, _and_ there's no more pending
@@ -494,8 +496,9 @@ where
 
     let mut receipt = None;
 
-    // Don't filter here: clients without thread support send unthreaded
-    // receipts, which may point to in-thread events.
+    // Explicit receipts have already been selected by their `ReceiptThread`.
+    // An unthreaded receipt applies across all threads, so its target can be
+    // excluded by the event filter (e.g. a thread reply in the room cache).
     for (event, event_id) in
         linked_chunk.revents().filter_map(|(_pos, event)| Some((event, event.event_id()?)))
     {
@@ -508,8 +511,9 @@ where
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
                 receipt = Some(event_id.to_owned());
             }
-            // Try to find an implicit read receipt (i.e. an event sent by the
-            // current user). Sending an in-thread event doesn't read the room.
+            // Implicit receipts only read the timeline containing our message.
+            // Unlike an explicit unthreaded receipt, sending a thread reply
+            // must not mark earlier main-timeline messages as read.
             else if event_filter.filter(event) && event.sender().as_deref() == Some(user_id) {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
@@ -1172,8 +1176,10 @@ mod tests {
         assert_eq!(receipts.num_notifications, 0);
     }
 
-    /// Clients without thread support send unthreaded receipts on in-thread
-    /// events.
+    /// A thread-aware client can receive an unthreaded receipt from another
+    /// client of the same user. Its target can be a thread reply, but it still
+    /// marks earlier main-timeline events as read (Matrix spec, "Threaded read
+    /// receipts"). Only the main-timeline events after it remain unread.
     #[async_test]
     async fn test_unthreaded_receipt_on_an_in_thread_event() {
         let room_id = room_id!("!roomid:example.org");
@@ -1214,9 +1220,26 @@ mod tests {
         )
         .await;
 
-        assert_eq!(receipts.latest_active.unwrap().event_id, "$thread");
+        assert_eq!(receipts.latest_active.as_ref().unwrap().event_id, "$thread");
         assert_eq!(receipts.num_unread, 1);
         assert!(receipts.pending.is_empty());
+
+        // Reuse the active receipt on the next sync, even though its target is
+        // excluded from the main timeline. Our own newer thread reply must
+        // not advance it implicitly.
+        linked_chunk.push_events(vec![
+            f.text_msg("Own thread reply")
+                .sender(own_user_id)
+                .in_thread(event_id!("$1"), event_id!("$thread"))
+                .event_id(event_id!("$own-thread"))
+                .into_event(),
+            f.text_msg("Event 4").event_id(event_id!("$4")).into_event(),
+        ]);
+        compute_unread_counts(own_user_id, None, &linked_chunk, &event_filter, &mut receipts, None)
+            .await;
+
+        assert_eq!(receipts.latest_active.unwrap().event_id, "$thread");
+        assert_eq!(receipts.num_unread, 2);
     }
 
     #[test]
