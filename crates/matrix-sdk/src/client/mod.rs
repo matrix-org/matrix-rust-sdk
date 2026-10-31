@@ -5109,26 +5109,17 @@ pub(crate) mod tests {
     #[async_test]
     #[allow(deprecated)]
     async fn test_rtc_transports_caching() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
         let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
             "https://livekit.example.com".to_owned(),
         ))];
 
-        let transports_mock = Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "rtc_transports": [
-                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
-                ]
-            })))
+        let transports_mock = server
+            .mock_get_rtc_transports()
+            .ok_with_service_url()
             .named("first transports mock")
             .expect(1)
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await;
 
         let client = server.client_builder().build().await;
@@ -5144,16 +5135,12 @@ pub(crate) mod tests {
         // Reset the cache, and observe the endpoint being called again once.
         client.reset_rtc_transports();
 
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "rtc_transports": [
-                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
-                ]
-            })))
+        server
+            .mock_get_rtc_transports()
+            .ok_with_service_url()
             .named("second transports mock")
             .expect(2)
-            .mount(server.server())
+            .mount()
             .await;
 
         // Hits network again.
@@ -5177,26 +5164,18 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_rtc_transports_unsupported_caching() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
 
         // The homeserver doesn't implement the endpoint: it responds with a 404
         // and an `M_UNRECOGNIZED` error (as a homeserver does for an
         // unrecognized endpoint). We expect it to be hit only once, despite
         // several calls, thanks to the negative caching.
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                "errcode": "M_UNRECOGNIZED",
-                "error": "Unrecognized request",
-            })))
+        server
+            .mock_get_rtc_transports()
+            .error_unrecognized()
             .named("unrecognized transports mock")
             .expect(1)
-            .mount(server.server())
+            .mount()
             .await;
 
         let client = server.client_builder().build().await;
@@ -5217,31 +5196,12 @@ pub(crate) mod tests {
         server: &MatrixMockServer,
         supported: bool,
     ) -> wiremock::MockGuard {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
+        let endpoint = server.mock_get_rtc_transports();
 
-        let response = if supported {
-            ResponseTemplate::new(200).set_body_json(json!({
-                "rtc_transports": [
-                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
-                ]
-            }))
-        } else {
-            ResponseTemplate::new(404).set_body_json(json!({
-                "errcode": "M_UNRECOGNIZED",
-                "error": "Unrecognized request",
-            }))
-        };
+        let mock =
+            if supported { endpoint.ok_with_service_url() } else { endpoint.error_unrecognized() };
 
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(response)
-            .named("transports mock")
-            .expect(1)
-            .mount_as_scoped(server.server())
-            .await
+        mock.named("transports mock").expect(1).mount_as_scoped().await
     }
 
     #[async_test]
