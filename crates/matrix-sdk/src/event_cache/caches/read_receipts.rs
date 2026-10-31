@@ -206,12 +206,14 @@ trait ReadReceiptsExt {
     fn reset(&mut self);
 
     /// Try to find the event to which the receipt attaches to, and if found,
-    /// will update the notification count in the room.
+    /// will update the notification count in the room with the following
+    /// events matching `should_count`.
     fn find_and_process_events<'a>(
         &mut self,
         receipt_event_id: &EventId,
         user_id: &UserId,
         events: impl Iterator<Item = &'a TimelineEvent>,
+        should_count: impl Fn(&TimelineEvent) -> bool,
     ) -> bool;
 }
 
@@ -266,6 +268,7 @@ impl ReadReceiptsExt for ReadReceipts {
         receipt_event_id: &EventId,
         user_id: &UserId,
         events: impl Iterator<Item = &'a TimelineEvent>,
+        should_count: impl Fn(&TimelineEvent) -> bool,
     ) -> bool {
         let mut counting_receipts = false;
 
@@ -283,7 +286,7 @@ impl ReadReceiptsExt for ReadReceipts {
                 continue;
             }
 
-            if counting_receipts {
+            if counting_receipts && should_count(event) {
                 self.process_event(event, user_id);
             }
         }
@@ -298,7 +301,9 @@ pub trait EventFilter {
     /// Room ID of the room containing all the events.
     fn room_id(&self) -> &RoomId;
 
-    /// Decide whether an event is a candidate for a read receipt.
+    /// Whether an event belongs to this timeline for unread counts and
+    /// implicit receipts. An explicit unthreaded receipt can target an event
+    /// outside this timeline: it marks earlier events in every timeline read.
     fn filter(&self, event: &TimelineEvent) -> bool;
 
     /// Check whether a given [`ReceiptThread`] is valid, i.e. matches our
@@ -498,9 +503,12 @@ where
 
     let mut receipt = None;
 
-    for (event, event_id) in linked_chunk.revents().filter_map(|(_pos, event)| {
-        event_filter.filter(event).then_some((event, event.event_id()?))
-    }) {
+    // Explicit receipts have already been selected by their `ReceiptThread`.
+    // An unthreaded receipt applies across all threads, so its target can be
+    // excluded by the event filter (e.g. a thread reply in the room cache).
+    for (event, event_id) in
+        linked_chunk.revents().filter_map(|(_pos, event)| Some((event, event.event_id()?)))
+    {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent
             // receipt.
@@ -510,9 +518,10 @@ where
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
                 receipt = Some(event_id.to_owned());
             }
-            // Try to find an implicit read receipt (i.e. an event sent by the
-            // current user).
-            else if event.sender().as_deref() == Some(user_id) {
+            // Implicit receipts only read the timeline containing our message.
+            // Unlike an explicit unthreaded receipt, sending a thread reply
+            // must not mark earlier main-timeline messages as read.
+            else if event_filter.filter(event) && event.sender().as_deref() == Some(user_id) {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
             }
@@ -629,13 +638,13 @@ pub(crate) async fn compute_unread_counts<T>(
         read_receipts.latest_active = Some(LatestReadReceipt { event_id: event_id.clone() });
 
         // The event for the receipt is in the linked chunk, so we'll find it
-        // and can count safely from here.
+        // and can count safely from here. The receipt may point to a
+        // filtered-out event, so only filter the counted events.
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
-            linked_chunk
-                .events()
-                .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event)),
+            linked_chunk.events().map(|(_pos, event)| event),
+            |event| event_filter.filter(event),
         );
 
         debug!(?read_receipts, "after finding a better receipt");
@@ -777,7 +786,7 @@ mod tests {
 
     use matrix_sdk_base::{read_receipts::ReadReceipts, store::MemoryStore};
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
-    use matrix_sdk_test::{User, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, event_id,
         events::{
@@ -791,7 +800,8 @@ mod tests {
 
     use super::{
         EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, Receipts,
-        RoomReadReceiptEventFilter, marks_as_unread, select_best_receipt, stop_on_event_ids,
+        RoomReadReceiptEventFilter, compute_unread_counts, marks_as_unread, select_best_receipt,
+        stop_on_event_ids,
     };
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk, pagination::BackPaginationOutcome,
@@ -1007,7 +1017,7 @@ mod tests {
         // When provided with no events, we report not finding the event to
         // which the receipt relates.
         let mut receipts = ReadReceipts::default();
-        assert!(receipts.find_and_process_events(ev0, user_id, [].iter()).not());
+        assert!(receipts.find_and_process_events(ev0, user_id, [].iter(), |_| true).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1030,7 +1040,9 @@ mod tests {
         };
         assert!(
             receipts
-                .find_and_process_events(ev0, user_id, [make_event(event_id!("$1"))].iter())
+                .find_and_process_events(ev0, user_id, [make_event(event_id!("$1"))].iter(), |_| {
+                    true
+                })
                 .not()
         );
         assert_eq!(receipts.num_unread, 42);
@@ -1046,7 +1058,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_process_events(ev0, user_id, [make_event(ev0)].iter()));
+        assert!(receipts.find_and_process_events(ev0, user_id, [make_event(ev0)].iter(), |_| true));
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1070,6 +1082,7 @@ mod tests {
                         make_event(event_id!("$3"))
                     ]
                     .iter(),
+                    |_| true,
                 )
                 .not()
         );
@@ -1096,6 +1109,7 @@ mod tests {
                     make_event(event_id!("$3"))
                 ]
                 .iter(),
+                |_| true,
             )
         );
         assert_eq!(receipts.num_unread, 2);
@@ -1122,6 +1136,7 @@ mod tests {
                     make_event(event_id!("$3"))
                 ]
                 .iter(),
+                |_| true,
             )
         );
         assert_eq!(receipts.num_unread, 2);
@@ -1192,6 +1207,74 @@ mod tests {
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
         assert_eq!(receipts.num_notifications, 0);
+    }
+
+    /// A thread-aware client can receive an unthreaded receipt from another
+    /// client of the same user. Its target can be a thread reply, but it still
+    /// marks earlier main-timeline events as read. Only the main-timeline
+    /// events after it remain unread.
+    ///
+    /// See <https://spec.matrix.org/v1.19/client-server-api/#threaded-read-receipts>.
+    #[async_test]
+    async fn test_unthreaded_receipt_on_an_in_thread_event() {
+        let room_id = room_id!("!roomid:example.org");
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+        let own_user_id = user_id!("@not_alice:example.org");
+
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events(vec![
+            f.text_msg("Event 1").event_id(event_id!("$1")).into_event(),
+            f.text_msg("Event 2").event_id(event_id!("$2")).into_event(),
+            f.text_msg("In thread")
+                .in_thread(event_id!("$1"), event_id!("$1"))
+                .event_id(event_id!("$thread"))
+                .into_event(),
+            f.text_msg("Event 3").event_id(event_id!("$3")).into_event(),
+        ]);
+
+        let receipt_event = f
+            .read_receipts()
+            .add(event_id!("$thread"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+            .into_content();
+
+        let state_store = MemoryStore::new();
+        let event_filter = RoomReadReceiptEventFilter {
+            room_id,
+            with_threading_support: true,
+            state_store: &state_store,
+        };
+
+        let mut receipts = ReadReceipts::default();
+        compute_unread_counts(
+            own_user_id,
+            Some(&receipt_event),
+            &linked_chunk,
+            &event_filter,
+            &mut receipts,
+            None,
+        )
+        .await;
+
+        assert_eq!(receipts.latest_active.as_ref().unwrap().event_id, "$thread");
+        assert_eq!(receipts.num_unread, 1);
+        assert!(receipts.pending.is_empty());
+
+        // Reuse the active receipt on the next sync, even though its target is
+        // excluded from the main timeline. Our own newer thread reply must
+        // not advance it implicitly.
+        linked_chunk.push_events(vec![
+            f.text_msg("Own thread reply")
+                .sender(own_user_id)
+                .in_thread(event_id!("$1"), event_id!("$thread"))
+                .event_id(event_id!("$own-thread"))
+                .into_event(),
+            f.text_msg("Event 4").event_id(event_id!("$4")).into_event(),
+        ]);
+        compute_unread_counts(own_user_id, None, &linked_chunk, &event_filter, &mut receipts, None)
+            .await;
+
+        assert_eq!(receipts.latest_active.unwrap().event_id, "$thread");
+        assert_eq!(receipts.num_unread, 2);
     }
 
     #[test]
