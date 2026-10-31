@@ -4512,31 +4512,20 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_set_presence_sends_presence_status_update() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{body_partial_json, method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/(r0|v3)/presence/.*/status$"))
-            .and(body_partial_json(json!({
-                "presence": "online",
-                "status_msg": "Here"
-            })))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-            .expect(1)
-            .mount(server.server())
-            .await;
+        let state = PresenceState::Online;
+        let status_msg = "Here".to_owned();
+
+        server.mock_update_presence(&state, Some(&status_msg)).ok().expect(1).mount().await;
 
         client
-            .set_presence(PresenceState::Online, Some("Here".to_owned()), true)
+            .set_presence(state.clone(), Some(status_msg), true)
             .await
             .expect("presence update should succeed");
 
-        assert_eq!(client.sync_presence(), PresenceState::Online);
+        assert_eq!(client.sync_presence(), state);
     }
 
     #[async_test]

@@ -59,6 +59,7 @@ use ruma::{
         tag::TagName,
     },
     media::Method,
+    presence::PresenceState,
     profile::{ProfileFieldName, ProfileFieldValue},
     push::RuleKind,
     serde::{JsonObject, Raw},
@@ -1847,6 +1848,25 @@ impl MatrixMockServer {
             .and(path("/_matrix/client/v3/account/deactivate"))
             .and(body_json(body));
         self.mock_endpoint(mock, DeactivateAccountEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to update the presence of a
+    /// user.
+    pub fn mock_update_presence(
+        &self,
+        presence: &PresenceState,
+        status_msg: Option<&str>,
+    ) -> MockEndpoint<'_, UpdatePresenceEndpoint> {
+        let mut body = JsonObject::new();
+        body.insert("presence".to_owned(), presence.as_str().into());
+        if let Some(status_msg) = status_msg {
+            body.insert("status_msg".to_owned(), status_msg.into());
+        }
+
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex("^/_matrix/client/v3/presence/.*/status$"))
+            .and(body_json(body));
+        self.mock_endpoint(mock, UpdatePresenceEndpoint)
     }
 }
 
@@ -5591,5 +5611,15 @@ impl<'a> MockEndpoint<'a, DeactivateAccountEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id_server_unbind_result": "success",
         })))
+    }
+}
+
+/// A prebuilt mock for `PUT /_matrix/client/v3/presence/{userId}/status`.
+pub struct UpdatePresenceEndpoint;
+
+impl<'a> MockEndpoint<'a, UpdatePresenceEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
     }
 }
