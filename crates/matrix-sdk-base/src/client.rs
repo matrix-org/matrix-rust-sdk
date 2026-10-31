@@ -415,8 +415,11 @@ impl BaseClient {
         self.state_store.load_sync_token().await?;
         self.state_store.set_session_meta(session_meta);
 
+        // Always notify subscribers, even if the stored value is the same as
+        // the default one, so subscribers created before the activation
+        // always receive exactly one update for the initial load.
         let ignore_user_list = self.get_ignore_user_list().await?;
-        self.ignore_user_list_changes.set_if_not_eq(ignore_user_list);
+        self.ignore_user_list_changes.set(ignore_user_list);
 
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm(custom_account).await?;

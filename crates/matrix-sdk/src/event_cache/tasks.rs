@@ -52,6 +52,12 @@ pub(super) async fn ignore_user_list_update_task(
     span.follows_from(Span::current());
 
     async move {
+        // The event cache is created with the client, before it's activated, so
+        // the first update is always the ignore user list being loaded from the
+        // store in `BaseClient::activate`, not an actual change made by the
+        // user: skip it.
+        let _ = ignore_user_list_stream.next().await;
+
         while ignore_user_list_stream.next().await.is_some() {
             info!("Received an ignore user list change");
 
