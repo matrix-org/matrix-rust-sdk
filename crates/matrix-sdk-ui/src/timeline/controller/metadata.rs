@@ -17,6 +17,7 @@ use std::{
     sync::Arc,
 };
 
+use eyeball::SharedObservable;
 use imbl::Vector;
 use matrix_sdk::{deserialized_responses::EncryptionInfo, event_cache::EventCache};
 use ruma::{
@@ -120,9 +121,14 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Only works for remote events *and* replies which are remote-echoed.
     pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
 
-    /// Identifier of the fully-read event, helping knowing where to introduce
-    /// the read marker.
-    pub fully_read_event: Option<OwnedEventId>,
+    /// The raw `m.fully_read` event ID, from the room's account data. It may
+    /// point to an event that isn't loaded or rendered, see
+    /// [`Self::resolve_fully_read_event_id`].
+    pub raw_fully_read_event: Option<OwnedEventId>,
+
+    /// The value of [`Self::resolve_fully_read_event_id`], published on every
+    /// commit.
+    pub fully_read_event_id: SharedObservable<Option<OwnedEventId>>,
 
     /// Whether we have a fully read-marker item in the timeline, that's up to
     /// date with the room's read marker.
@@ -172,9 +178,10 @@ impl TimelineMetadata {
             next_internal_id: Default::default(),
             aggregations: Default::default(),
             replies: Default::default(),
-            fully_read_event: Default::default(),
+            raw_fully_read_event: Default::default(),
+            fully_read_event_id: SharedObservable::new(None),
             // It doesn't make sense to set this to false until we fill the
-            // `fully_read_event` field, otherwise we'll keep on exiting early
+            // `raw_fully_read_event` field, otherwise we'll keep on exiting early
             // in `Self::update_read_marker`.
             has_up_to_date_read_marker_item: true,
             read_receipts: Default::default(),
@@ -196,7 +203,7 @@ impl TimelineMetadata {
         // unique ids across timeline clears.
         self.aggregations.clear();
         self.replies.clear();
-        self.fully_read_event = None;
+        self.raw_fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new
         // one before attempting to update it for each new timeline item.
         self.has_up_to_date_read_marker_item = true;
@@ -257,21 +264,35 @@ impl TimelineMetadata {
         TimelineItem::new(kind, recycled_timeline_id.unwrap_or_else(|| self.next_internal_id()))
     }
 
+    /// Returns the ID of the closest visible event at or before the fully read
+    /// event.
+    ///
+    /// The fully read event may not be rendered (e.g. a reaction, an edit, or
+    /// an event filtered out). If it isn't loaded, or no visible event before
+    /// it is, its own ID is returned.
+    pub fn resolve_fully_read_event_id(
+        &self,
+        all_remote_events: &AllRemoteEvents,
+    ) -> Option<OwnedEventId> {
+        let fully_read_event = self.raw_fully_read_event.as_ref()?;
+
+        Some(
+            all_remote_events
+                .iter()
+                .rev()
+                .skip_while(|ev| ev.event_id != *fully_read_event)
+                .find(|ev| ev.visible)
+                .map_or_else(|| fully_read_event.clone(), |ev| ev.event_id.clone()),
+        )
+    }
+
     /// Try to update the read marker item in the timeline.
     pub(crate) fn update_read_marker(&mut self, items: &mut ObservableItemsTransaction<'_>) {
-        let Some(fully_read_event) = &self.fully_read_event else { return };
+        let Some(fully_read_event) = &self.resolve_fully_read_event_id(items.all_remote_events())
+        else {
+            return;
+        };
         trace!(?fully_read_event, "Updating read marker");
-
-        // The fully read event may not be rendered (e.g. a reaction, an edit,
-        // or an event filtered out): use the closest previous visible
-        // event instead.
-        let fully_read_event = &items
-            .all_remote_events()
-            .iter()
-            .rev()
-            .skip_while(|ev| ev.event_id != *fully_read_event)
-            .find(|ev| ev.visible)
-            .map_or_else(|| fully_read_event.clone(), |ev| ev.event_id.clone());
 
         let read_marker_idx = items
             .iter_remotes_region()
