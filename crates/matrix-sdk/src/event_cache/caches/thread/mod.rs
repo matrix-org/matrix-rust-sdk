@@ -46,10 +46,10 @@ use super::{
     },
     EventsOrigin, TimelineVectorDiffs,
     read_receipts::MaybeReceiptEventContent,
-    room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::RoomEventCacheGenericUpdate,
     subscriber::{AutoShrinkMessage, Subscriber},
 };
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 /// All the information related to a single thread.
 ///
@@ -104,7 +104,7 @@ impl ThreadEventCache {
         state: &StateLock,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 

@@ -56,6 +56,7 @@ use tracing::{instrument, trace};
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
+    event_cache::caches::room::LinkedChunkUpdateSender,
     paginators::PaginatorError,
 };
 
@@ -217,6 +218,10 @@ impl EventCacheDropHandles {
         event_cache_inner: &Arc<EventCacheInner>,
         event_cache_config: RwLockReadGuard<'_, EventCacheConfig>,
         auto_shrink_receiver: mpsc::Receiver<AutoShrinkMessage>,
+        #[cfg(feature = "experimental-search")] search_index_receiver: mpsc::UnboundedReceiver<(
+            OwnedRoomId,
+            Vec<matrix_sdk_base::event_cache::Event>,
+        )>,
         client: Client,
     ) -> Self {
         let task_monitor = client.task_monitor();
@@ -260,7 +265,7 @@ impl EventCacheDropHandles {
                 "event_cache::search_indexing",
                 tasks::search_indexing_task(
                     event_cache_inner.client.clone(),
-                    event_cache_inner.linked_chunk_update_sender.clone(),
+                    search_index_receiver,
                 ),
             )
             .abort_on_drop();
@@ -334,7 +339,12 @@ impl EventCache {
         enable_automatic_back_pagination: bool,
     ) -> Self {
         let (generic_update_sender, _) = channel(128);
-        let (linked_chunk_update_sender, _) = channel(128);
+        #[cfg(feature = "experimental-search")]
+        let (search_index_sender, search_index_receiver) = mpsc::unbounded_channel();
+        let linked_chunk_update_sender = LinkedChunkUpdateSender::new(
+            #[cfg(feature = "experimental-search")]
+            search_index_sender,
+        );
 
         let weak_client = WeakClient::from_inner(client);
         let client =
@@ -366,6 +376,8 @@ impl EventCache {
             &inner,
             inner.config.read().unwrap(),
             auto_shrink_receiver,
+            #[cfg(feature = "experimental-search")]
+            search_index_receiver,
             client,
         ));
 
@@ -641,7 +653,7 @@ struct EventCacheInner {
     /// can be used by observers to look for new events.
     ///
     /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateSender,
 
     /// A test helper receiver that will be emitted every time the thread
     /// subscriber task subscribed to a new thread.

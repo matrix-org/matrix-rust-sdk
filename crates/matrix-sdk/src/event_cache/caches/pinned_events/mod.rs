@@ -32,7 +32,7 @@ use ruma::{
     events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Receiver;
 use tracing::{debug, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
@@ -50,10 +50,12 @@ use super::{
     },
     EventLocation, TimelineVectorDiffs,
     event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
-    room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
-    Room, config::RequestConfig, event_cache::deduplicator::is_valid_event, room::WeakRoom,
+    Room,
+    config::RequestConfig,
+    event_cache::{caches::room::LinkedChunkUpdateSender, deduplicator::is_valid_event},
+    room::WeakRoom,
 };
 
 pub struct PinnedEventsCacheState {
@@ -81,7 +83,7 @@ pub struct PinnedEventsCacheState {
     /// during a sync or a back-pagination.
     ///
     /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateSender,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -498,7 +500,7 @@ impl PinnedEventsCache {
         weak_room: &WeakRoom,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
         state: &StateLock,
     ) -> Result<Self> {
         let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
