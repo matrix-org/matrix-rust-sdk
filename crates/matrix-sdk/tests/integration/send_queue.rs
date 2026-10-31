@@ -1300,6 +1300,66 @@ async fn test_edit() {
 }
 
 #[async_test]
+async fn test_edit_keeps_extra_content() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let sent_body = Arc::new(std::sync::Mutex::new(None));
+    let sent_body_clone = sent_body.clone();
+    mock.mock_room_send()
+        .respond_with(move |req: &Request| {
+            *sent_body_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" }))
+        })
+        .mock_once()
+        .mount()
+        .await;
+
+    // Queue an event with extra content, without sending it yet.
+    q.set_enabled(false);
+
+    let handle = q
+        .send(RoomMessageEventContent::text_plain("hello").into())
+        .with_extra_content(serde_json::Map::from_iter([(
+            "com.example.key".to_owned(),
+            json!("kept"),
+        )]))
+        .await
+        .unwrap();
+
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hello" });
+
+    // Edit it: only its content is replaced.
+    assert!(handle.edit(RoomMessageEventContent::text_plain("edited").into()).await.unwrap());
+
+    let edited = assert_update!((global_watch, watch) => edit local echo { txn = txn });
+    assert_eq!(edited.body(), "edited");
+
+    q.set_enabled(true);
+    assert_update!((global_watch, watch) => sent { txn = txn, });
+
+    // The extra content the event was queued with is sent along the edit.
+    let sent_body = sent_body.lock().unwrap().take().unwrap();
+    assert_eq!(sent_body["body"], "edited");
+    assert_eq!(sent_body["com.example.key"], "kept");
+
+    assert!(watch.is_empty());
+}
+
+#[async_test]
 async fn test_edit_with_poll_start() {
     let mock = MatrixMockServer::new().await;
 
