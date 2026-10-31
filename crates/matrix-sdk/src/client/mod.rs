@@ -4369,7 +4369,7 @@ pub(crate) mod tests {
         ttl::TtlValue,
     };
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, TestRoom, async_test,
+        JoinedRoomBuilder, SyncResponseBuilder, TestRoom, User, async_test,
         event_factory::EventFactory,
     };
     use strass::assert_let;
@@ -4391,9 +4391,9 @@ pub(crate) mod tests {
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_device_id, owned_room_id, owned_user_id,
+        owned_device_id,
         presence::PresenceState,
-        room_alias_id, room_id, user_id,
+        room_alias_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -4559,9 +4559,7 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data(
-                    f.ignored_user_list([owned_user_id!("@someone:example.org")]),
-                );
+                builder.add_global_account_data(f.ignored_user_list([User::Bob.into()]));
             })
             .await;
 
@@ -4670,21 +4668,17 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
-        server
-            .mock_sync()
-            .ok_and_run(&client, |builder| {
-                builder.add_joined_room(
-                    JoinedRoomBuilder::default()
-                        .add_state_event(
-                            f.member(user_id!("@example:localhost")).display_name("example"),
-                        )
-                        .add_state_event(f.power_levels()),
-                );
-            })
+        let f = EventFactory::new().sender(User::Alice);
+
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.member(User::Alice).display_name("example"))
+                    .add_state_event(f.power_levels()),
+            )
             .await;
 
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
         assert_eq!(room.state(), RoomState::Joined);
     }
 
@@ -4825,10 +4819,13 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_recently_visited_rooms() {
+        let room_1 = TestRoom::Default;
+        let room_2 = TestRoom::V12;
+
         // Tracking recently visited rooms requires authentication
         let client = MockClientBuilder::new(None).unlogged().build().await;
         assert_matches!(
-            client.account().track_recently_visited_room(owned_room_id!("!alpha:localhost")).await,
+            client.account().track_recently_visited_room(room_1.into()).await,
             Err(Error::AuthenticationRequired)
         );
 
@@ -4839,35 +4836,24 @@ pub(crate) mod tests {
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 0);
 
         // Tracking a valid room id should add it to the list
-        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+        account.track_recently_visited_room(room_1.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1]);
 
         // And the existing list shouldn't be changed
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1]);
 
         // Tracking the same room again shouldn't change the list
-        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+        account.track_recently_visited_room(room_1.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1]);
 
         // Tracking a second room should add it to the front of the list
-        account.track_recently_visited_room(owned_room_id!("!beta:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
-        assert_eq!(
-            account.get_recently_visited_rooms().await.unwrap(),
-            [room_id!("!beta:localhost"), room_id!("!alpha:localhost")]
-        );
+        account.track_recently_visited_room(room_2.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_2, room_1]);
 
         // Tracking the first room yet again should move it to the front of the
         // list
-        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
-        assert_eq!(
-            account.get_recently_visited_rooms().await.unwrap(),
-            [room_id!("!alpha:localhost"), room_id!("!beta:localhost")]
-        );
+        account.track_recently_visited_room(room_1.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1, room_2]);
 
         // Tracking should be capped at 20
         for n in 0..20 {
@@ -4881,8 +4867,8 @@ pub(crate) mod tests {
 
         // And the initial rooms should've been pushed out
         let rooms = account.get_recently_visited_rooms().await.unwrap();
-        assert!(!rooms.contains(&owned_room_id!("!alpha:localhost")));
-        assert!(!rooms.contains(&owned_room_id!("!beta:localhost")));
+        assert!(!rooms.contains(&room_1.into()));
+        assert!(!rooms.contains(&room_2.into()));
 
         // And the last tracked room should be the first
         assert_eq!(rooms.first().unwrap(), "!19:localhost");
@@ -4899,16 +4885,14 @@ pub(crate) mod tests {
         assert_eq!(weak_client.strong_count(), 1);
 
         {
-            let room_id = room_id!("!room:example.org");
-
             // Have the client know the room.
             let response = SyncResponseBuilder::default()
-                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .add_joined_room(JoinedRoomBuilder::default())
                 .build_sync_response();
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.event_cache().unwrap().room(room_id).await.unwrap();
+                client.event_cache().unwrap().room(TestRoom::Default.into()).await.unwrap();
         }
 
         drop(client);
@@ -5394,16 +5378,16 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!room:example.org");
+        let room_id = TestRoom::Default;
 
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+                builder.add_joined_room(JoinedRoomBuilder::default());
             })
             .await;
 
-        let room = client.await_room_remote_echo(room_id).now_or_never().unwrap();
+        let room = client.await_room_remote_echo(room_id.into()).now_or_never().unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
@@ -5412,7 +5396,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!room:example.org");
+        let room_id = TestRoom::Default;
 
         let client = Arc::new(client);
 
@@ -5426,14 +5410,15 @@ pub(crate) mod tests {
                 server
                     .mock_sync()
                     .ok_and_run(&client, |builder| {
-                        builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+                        builder.add_joined_room(JoinedRoomBuilder::default());
                     })
                     .await;
             }
         });
 
-        let room =
-            timeout(Duration::from_secs(10), client.await_room_remote_echo(room_id)).await.unwrap();
+        let room = timeout(Duration::from_secs(10), client.await_room_remote_echo(room_id.into()))
+            .await
+            .unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
@@ -5441,10 +5426,11 @@ pub(crate) mod tests {
     async fn test_await_room_remote_echo_will_timeout_if_no_room_is_found() {
         let client = MockClientBuilder::new(None).build().await;
 
-        let room_id = room_id!("!room:example.org");
         // Room is not present so the client won't be able to find it. The call
         // will timeout.
-        timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id)).await.unwrap_err();
+        timeout(Duration::from_secs(1), client.await_room_remote_echo(TestRoom::Default.into()))
+            .await
+            .unwrap_err();
     }
 
     #[async_test]
@@ -5515,10 +5501,7 @@ pub(crate) mod tests {
         server.mock_room_directory_create_room_alias().ok().expect(1).mount().await;
 
         let ret = client
-            .create_room_alias(
-                room_alias_id!("#some_alias:matrix.org"),
-                room_id!("!some_room:matrix.org"),
-            )
+            .create_room_alias(room_alias_id!("#some_alias:matrix.org"), TestRoom::Default.into())
             .await;
         assert_matches!(ret, Ok(()));
     }
@@ -5563,13 +5546,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is called once
         server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
         // We create a locally cached invited room
-        let invited_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Invited);
+        let invited_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Invited);
 
         // And we get a preview, the server endpoint was reached
         let preview = client
@@ -5585,13 +5569,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is called once
         server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
         // We create a locally cached left room
-        let left_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Left);
+        let left_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Left);
 
         // And we get a preview, the server endpoint was reached
         let preview = client
@@ -5607,13 +5592,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is called once
         server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
         // We create a locally cached knocked room
-        let knocked_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Knocked);
+        let knocked_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Knocked);
 
         // And we get a preview, the server endpoint was reached
         let preview = client
@@ -5629,13 +5615,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is not called
         server.mock_room_summary().ok(room_id).never().mount().await;
 
         // We create a locally cached joined room
-        let joined_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Joined);
+        let joined_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Joined);
 
         // And we get a preview, no server endpoint was reached
         let preview = client
@@ -5911,45 +5898,48 @@ pub(crate) mod tests {
     async fn test_get_dm_room_returns_the_room_we_have_with_this_user() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        // This is the user ID that is inside MemberAdditional. Note the
-        // confusing username, so we can share
-        // GlobalAccountDataTestEvent::Direct with the invited test.
-        let user_id = user_id!("@invited:localhost");
+        let user = User::Carol;
 
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user_id)))
-            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
+        // When we receive a sync response saying the user is part of a DM.
+        let f = EventFactory::new();
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user)))
+                    .add_global_account_data(f.direct().add_user(user, TestRoom::Default));
+            })
+            .await;
 
         // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+        let found_room = client.get_dm_room(user.into()).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user.into()).await.unwrap().is_some());
     }
 
     #[async_test]
     async fn test_get_dm_room_still_finds_room_where_participant_is_only_invited() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        // This is the user ID that is inside MemberInvite
-        let user_id = user_id!("@invited:localhost");
+        // This is the user that is invited.
+        let user = User::Carol;
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default()
-                    .add_state_event(f.member(user_id).invited(user_id).display_name("example")),
-            )
-            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
+        let f = EventFactory::new().sender(User::Alice);
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(
+                        JoinedRoomBuilder::default()
+                            .add_state_event(f.member(user).invited(user).display_name("example")),
+                    )
+                    .add_global_account_data(f.direct().add_user(user, TestRoom::Default));
+            })
+            .await;
 
         // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+        let found_room = client.get_dm_room(user.into()).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user.into()).await.unwrap().is_some());
     }
 
     #[async_test]
@@ -5961,24 +5951,24 @@ pub(crate) mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        // This is the user ID that is inside MemberAdditional. Note the
-        // confusing username, so we can share
-        // GlobalAccountDataTestEvent::Direct with the invited test.
-        let user_id = user_id!("@invited:localhost");
+        let user = User::Carol;
 
         // When we receive a sync response saying "invited" has left a DM
-        let f = EventFactory::new().sender(user_id);
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(f.member(user_id).leave()),
-            )
-            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
+        let f = EventFactory::new().sender(user);
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(
+                        JoinedRoomBuilder::default().add_state_event(f.member(user).leave()),
+                    )
+                    .add_global_account_data(f.direct().add_user(user, TestRoom::Default));
+            })
+            .await;
 
         // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+        let found_room = client.get_dm_room(user.into()).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user.into()).await.unwrap().is_some());
     }
 
     #[async_test]
@@ -6218,7 +6208,7 @@ pub(crate) mod tests {
             .await;
         };
 
-        let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+        let room = server.sync_default_joined_room(&client).await;
         set_num_notifications(&room, 1).await;
 
         let min_interval = Duration::from_millis(100);
@@ -6244,7 +6234,8 @@ pub(crate) mod tests {
         server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(room_id!("!d:b.c")).add_account_data(f.marked_unread(true)),
+                JoinedRoomBuilder::new(TestRoom::V12.into())
+                    .add_account_data(f.marked_unread(true)),
             )
             .await;
 

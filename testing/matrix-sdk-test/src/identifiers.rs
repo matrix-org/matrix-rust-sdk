@@ -6,7 +6,7 @@ use indexmap::Equivalent;
 use ruma::{
     OwnedRoomId, OwnedRoomOrAliasId, OwnedUserId, RoomId, RoomOrAliasId, UserId,
     events::direct::{DirectUserIdentifier, OwnedDirectUserIdentifier},
-    owned_user_id,
+    owned_room_id, owned_user_id,
 };
 use serde::Serialize;
 
@@ -196,11 +196,18 @@ pub enum TestRoom {
     /// The default room ID, `!SVkFJHzfwvuaIEawgC:localhost`.
     #[default]
     Default,
+
+    /// A room with an ID using the format introduced in room version 12,
+    /// `!2n76rSaCoTdcb1-zm9dcLm0laKJnuPyE80mopRnYgmg`.
+    V12,
 }
 
 /// Default room ID.
 static DEFAULT_ROOM_ID: LazyLock<OwnedRoomId> =
     LazyLock::new(|| crate::DEFAULT_TEST_ROOM_ID.to_owned());
+/// V12 room ID.
+static V12_ROOM_ID: LazyLock<OwnedRoomId> =
+    LazyLock::new(|| owned_room_id!("!2n76rSaCoTdcb1-zm9dcLm0laKJnuPyE80mopRnYgmg"));
 
 impl TestRoom {
     /// The room's ID.
@@ -210,6 +217,7 @@ impl TestRoom {
     fn id(&self) -> &'static OwnedRoomId {
         match self {
             Self::Default => &DEFAULT_ROOM_ID,
+            Self::V12 => &V12_ROOM_ID,
         }
     }
 

@@ -1716,9 +1716,9 @@ impl EventBuilder<DirectEventContent> {
     pub fn add_user(
         mut self,
         user_id: impl Into<OwnedDirectUserIdentifier>,
-        room_id: &RoomId,
+        room_id: impl Into<OwnedRoomId>,
     ) -> Self {
-        self.content.0.entry(user_id.into()).or_default().push(room_id.to_owned());
+        self.content.0.entry(user_id.into()).or_default().push(room_id.into());
         self
     }
 }
