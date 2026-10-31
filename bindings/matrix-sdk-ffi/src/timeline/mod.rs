@@ -1655,7 +1655,9 @@ pub enum LatestEventValue {
         content: TimelineItemContent,
     },
     RemoteInvite {
-        timestamp: Timestamp,
+        /// `None` for stripped invite state, which carries no
+        /// `origin_server_ts`.
+        timestamp: Option<Timestamp>,
         inviter: Option<String>,
         inviter_profile: ProfileDetails,
     },
@@ -1683,7 +1685,7 @@ impl From<UiLatestEventValue> for LatestEventValue {
             }
             UiLatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile } => {
                 Self::RemoteInvite {
-                    timestamp: timestamp.into(),
+                    timestamp: timestamp.map(Into::into),
                     inviter: inviter.map(|inviter| inviter.to_string()),
                     inviter_profile: inviter_profile.into(),
                 }
