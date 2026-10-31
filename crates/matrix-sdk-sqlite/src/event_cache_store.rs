@@ -43,9 +43,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
-use rusqlite::{
-    OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
-};
+use rusqlite::{OptionalExtension, ToSql, Transaction, params, params_from_iter};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
@@ -297,6 +295,15 @@ impl SqliteEventCacheStore {
 
         let connection = write_connection.lock_owned().await;
 
+        // Specify a busy timeout so that operations are automatically retried,
+        // in case the database was marked as locked, which can happen
+        // under very peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
+
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
         // time we try to get a connection, since we can't guarantee a previous
@@ -486,7 +493,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))?;
             txn.set_db_version(1)
         })
@@ -495,7 +502,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/002_lease_locks.sql"))?;
             txn.set_db_version(2)
         })
@@ -504,7 +511,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 3 {
         debug!("Upgrading database to version 3");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
             txn.set_db_version(3)
         })
@@ -513,7 +520,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 4 {
         debug!("Upgrading database to version 4");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/004_ignore_policy.sql"
             ))?;
@@ -524,7 +531,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 5 {
         debug!("Upgrading database to version 5");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/005_events_index_on_event_id.sql"
             ))?;
@@ -535,7 +542,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 6 {
         debug!("Upgrading database to version 6");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
             txn.set_db_version(6)
         })
@@ -544,7 +551,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 7 {
         debug!("Upgrading database to version 7");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/007_event_chunks.sql"
             ))?;
@@ -555,7 +562,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 8 {
         debug!("Upgrading database to version 8");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/008_linked_chunk_id.sql"
             ))?;
@@ -566,7 +573,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 9 {
         debug!("Upgrading database to version 9");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/009_related_event_index.sql"
             ))?;
@@ -577,7 +584,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 10 {
         debug!("Upgrading database to version 10");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))?;
             txn.set_db_version(10)
         })
@@ -592,7 +599,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 11 {
         debug!("Upgrading database to version 11");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/011_empty_event_cache.sql"
             ))?;
@@ -603,7 +610,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 12 {
         debug!("Upgrading database to version 12");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/012_store_event_type.sql"
             ))?;
@@ -614,7 +621,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 13 {
         debug!("Upgrading database to version 13");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
             ))?;
@@ -625,7 +632,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 14 {
         debug!("Upgrading database to version 14");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
             ))?;
@@ -636,7 +643,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 15 {
         debug!("Upgrading database to version 15");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/015_event_ids_are_encoded.sql"
             ))?;
@@ -647,7 +654,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 16 {
         debug!("Upgrading database to version 16");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/016_threads.sql"))?;
             txn.set_db_version(16)
         })
@@ -656,7 +663,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 17 {
         debug!("Upgrading database to version 17");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/017_threads_with_thread_infos.sql"
             ))?;
@@ -667,7 +674,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 18 {
         debug!("Upgrading database to version 18");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/018_event_chunks_unique_linked_chunk_id_event_id.sql"))?;
             txn.set_db_version(18)
         })
@@ -698,7 +705,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration) \
                     VALUES (?1, ?2, ?3) \
@@ -742,7 +749,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         // Use a single transaction throughout this function, so that either all
         // updates work, or none is taken into account.
-        with_immediate_transaction(self, move |txn| {
+        self.write().await?.with_immediate_transaction::<_, Self::Error, _>(move |txn| {
             for update in updates {
                 match update {
                     Update::NewItemsChunk { previous, new, next } => {
@@ -1464,7 +1471,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.execute(
                     "INSERT INTO threads VALUES (?, ?, ?, ?)",
                     (hashed_linked_chunk_id, hashed_room_id, hashed_thread_id, encoded_thread_id),
@@ -1490,7 +1497,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.execute(
                     "UPDATE threads SET info = ? WHERE linked_chunk_id = ?",
                     (encoded_thread_info, hashed_linked_chunk_id),
@@ -1510,7 +1517,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             None => {
                 self.write()
                     .await?
-                    .with_transaction(move |txn| {
+                    .with_immediate_transaction(move |txn| {
                         // Remove all the chunks, and let cascading do its job.
                         txn.execute("DELETE FROM linked_chunks", ())?;
 
@@ -1530,7 +1537,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 self.write()
                     .await?
-                    .with_transaction(move |txn| {
+                    .with_immediate_transaction(move |txn| {
                         // Delete linked chunks for the room and pinned-events caches.
                         {
                             let mut delete =
@@ -1825,7 +1832,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| -> Result<_> {
+            .with_immediate_transaction(move |txn| -> Result<_> {
                 txn.execute(
                     "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
@@ -1951,46 +1958,6 @@ fn find_event_relations_transaction(
 
         collect_results(transaction)
     }
-}
-
-/// Like `deadpool::managed::Object::with_transaction`, but starts the
-/// transaction in immediate (write) mode from the beginning, precluding errors
-/// of the kind SQLITE_BUSY from happening, for transactions that may involve
-/// both reads and writes, and start with a write.
-async fn with_immediate_transaction<
-    T: Send + 'static,
-    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
->(
-    this: &SqliteEventCacheStore,
-    f: F,
-) -> Result<T, Error> {
-    this.write()
-        .await?
-        .interact(move |conn| -> Result<T, Error> {
-            // Start the transaction in IMMEDIATE mode since all updates may
-            // cause writes, to avoid read transactions upgrading to write mode
-            // and causing SQLITE_BUSY errors. See also:
-            // https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
-            conn.set_transaction_behavior(TransactionBehavior::Immediate);
-
-            let code = || -> Result<T, Error> {
-                let txn = conn.transaction()?;
-                let res = f(&txn)?;
-                txn.commit()?;
-                Ok(res)
-            };
-
-            let res = code();
-
-            // Reset the transaction behavior to use Deferred, after this
-            // transaction has been run, whether it was successful or not.
-            conn.set_transaction_behavior(TransactionBehavior::Deferred);
-
-            res
-        })
-        .await
-        // SAFETY: same logic as in [`deadpool::managed::Object::with_transaction`].`
-        .unwrap()
 }
 
 fn insert_chunk(
