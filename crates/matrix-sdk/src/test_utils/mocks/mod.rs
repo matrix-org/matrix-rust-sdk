@@ -1868,6 +1868,14 @@ impl MatrixMockServer {
             .and(body_json(body));
         self.mock_endpoint(mock, UpdatePresenceEndpoint)
     }
+
+    /// Create a prebuilt mock for the endpoint used to discover the MatrixRTC
+    /// transports.
+    pub fn mock_get_rtc_transports(&self) -> MockEndpoint<'_, GetRtcTransportsEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"));
+        self.mock_endpoint(mock, GetRtcTransportsEndpoint)
+    }
 }
 
 /// A specification for a push rule ID.
@@ -5621,5 +5629,21 @@ impl<'a> MockEndpoint<'a, UpdatePresenceEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`.
+pub struct GetRtcTransportsEndpoint;
+
+impl<'a> MockEndpoint<'a, GetRtcTransportsEndpoint> {
+    /// Returns a successful response with a single transport with a service
+    /// URL.
+    pub fn ok_with_service_url(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rtc_transports": [
+                { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+            ]
+        })))
     }
 }
