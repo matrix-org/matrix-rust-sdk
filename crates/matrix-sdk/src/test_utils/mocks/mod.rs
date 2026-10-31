@@ -3959,14 +3959,14 @@ impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
     /// custom fields for the given room id.
     ///
     /// The custom fields may override the default data.
-    fn ok_with_custom_fields(
+    fn ok_with_custom_fields<'b>(
         self,
-        room_id: &RoomId,
+        room_id: impl Into<&'b RoomId>,
         fields: Vec<(String, Value)>,
     ) -> MatrixMock<'a> {
         let mut body = as_variant!(
             json!({
-                "room_id": room_id,
+                "room_id": room_id.into(),
                 "guest_can_join": true,
                 "num_joined_members": 1,
                 "world_readable": true,
@@ -3982,15 +3982,15 @@ impl<'a> MockEndpoint<'a, RoomSummaryEndpoint> {
 
     /// Returns a successful response with some default data for the given room
     /// id.
-    pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
+    pub fn ok<'b>(self, room_id: impl Into<&'b RoomId>) -> MatrixMock<'a> {
         self.ok_with_custom_fields(room_id, vec![])
     }
 
     /// Returns a successful response with some default data and the given
     /// membership for the given room id.
-    pub fn ok_with_membership(
+    pub fn ok_with_membership<'b>(
         self,
-        room_id: &RoomId,
+        room_id: impl Into<&'b RoomId>,
         membership: MembershipState,
     ) -> MatrixMock<'a> {
         self.ok_with_custom_fields(
