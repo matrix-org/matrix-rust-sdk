@@ -4,7 +4,7 @@ use std::{fmt, hash::Hash, sync::LazyLock};
 
 use indexmap::Equivalent;
 use ruma::{
-    OwnedRoomId, OwnedUserId, RoomId, UserId,
+    OwnedRoomId, OwnedRoomOrAliasId, OwnedUserId, RoomId, RoomOrAliasId, UserId,
     events::direct::{DirectUserIdentifier, OwnedDirectUserIdentifier},
     owned_user_id,
 };
@@ -228,6 +228,18 @@ impl From<TestRoom> for OwnedRoomId {
 impl From<TestRoom> for &'static RoomId {
     fn from(room: TestRoom) -> Self {
         room.id()
+    }
+}
+
+impl From<TestRoom> for OwnedRoomOrAliasId {
+    fn from(room: TestRoom) -> Self {
+        room.id().clone().into()
+    }
+}
+
+impl From<TestRoom> for &'static RoomOrAliasId {
+    fn from(room: TestRoom) -> Self {
+        <&RoomId>::from(room).into()
     }
 }
 

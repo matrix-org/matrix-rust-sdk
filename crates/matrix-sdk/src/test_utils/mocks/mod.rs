@@ -34,7 +34,7 @@ use matrix_sdk_test::{
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
-    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
+    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, RoomOrAliasId, ServerName, UserId,
     api::{
         client::{
             discovery::get_capabilities::v3::Capabilities,
@@ -426,6 +426,18 @@ impl MatrixMockServer {
         let mock = Mock::given(method("POST"))
             .and(path_regex(format!("^/_matrix/client/v3/rooms/{room_id}/join")));
         self.mock_endpoint(mock, JoinRoomEndpoint { room_id: room_id.to_owned() })
+    }
+
+    /// Creates a prebuilt mock for joining a room by ID or alias.
+    pub fn mock_room_join_by_id_or_alias<'a>(
+        &self,
+        room_id_or_alias: impl Into<&'a RoomOrAliasId>,
+    ) -> MockEndpoint<'_, JoinRoomByIdOrAliasEndpoint> {
+        let mock = Mock::given(method("POST")).and(path_regex(format!(
+            "^/_matrix/client/v3/join/{}$",
+            percent_encoded_path(room_id_or_alias.into().as_str())
+        )));
+        self.mock_endpoint(mock, JoinRoomByIdOrAliasEndpoint)
     }
 
     /// Creates a prebuilt mock for sending an event in a room.
@@ -5111,6 +5123,18 @@ impl<'a> MockEndpoint<'a, JoinRoomEndpoint> {
 
         self.ok_json(json!({
             "room_id": room_id,
+        }))
+    }
+}
+
+/// A prebuilt mock for `POST /_matrix/client/v3/join/{roomIdOrAlias}` requests.
+pub struct JoinRoomByIdOrAliasEndpoint;
+
+impl<'a> MockEndpoint<'a, JoinRoomByIdOrAliasEndpoint> {
+    /// Returns a successful response using the given [`RoomId`].
+    pub fn ok<'b>(self, room_id: impl Into<&'b RoomId>) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "room_id": room_id.into(),
         }))
     }
 }
