@@ -4369,7 +4369,7 @@ pub(crate) mod tests {
         ttl::TtlValue,
     };
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, TestRoom, async_test,
         event_factory::EventFactory,
     };
     use strass::assert_let;
@@ -5525,22 +5525,24 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_join_room_by_id_or_alias() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let target_room_id = room_id!("!some_id:matrix.org");
+        let target_room_id = TestRoom::Default;
         let target_alias = room_alias_id!("#some_alias:matrix.org");
 
-        Mock::given(method("POST"))
-            .and(path_regex("^/_matrix/client/v3/join/.*$"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "room_id": target_room_id
-            })))
-            .mount(server.server())
+        server
+            .mock_room_join_by_id_or_alias(target_room_id)
+            .ok(target_room_id)
+            .expect(1)
+            .mount()
+            .await;
+
+        server
+            .mock_room_join_by_id_or_alias(target_alias)
+            .ok(target_room_id)
+            .expect(1)
+            .mount()
             .await;
 
         server
@@ -5548,8 +5550,6 @@ pub(crate) mod tests {
             .ok(target_room_id.as_str(), Vec::new())
             .mount()
             .await;
-
-        server.mock_room_join(target_room_id).ok().mount().await;
 
         let ret = client.join_room_by_id_or_alias(target_alias.into(), &[]).await;
         assert!(ret.is_ok());
