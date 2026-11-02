@@ -506,6 +506,10 @@ where
     // Explicit receipts have already been selected by their `ReceiptThread`.
     // An unthreaded receipt applies across all threads, so its target can be
     // excluded by the event filter (e.g. a thread reply in the room cache).
+    //
+    // A `Main` receipt can match an in-thread event here too, since pending
+    // receipts don't keep their `ReceiptThread`. Main receipts shouldn't
+    // point to in-thread events in the first place.
     for (event, event_id) in
         linked_chunk.revents().filter_map(|(_pos, event)| Some((event, event.event_id()?)))
     {
