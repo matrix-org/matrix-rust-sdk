@@ -269,7 +269,7 @@ fn build_library() -> Result<()> {
     create_dir_all(ffi_directory.as_path())?;
 
     let sh = sh();
-    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --features {ffi_features}").run()?;
+    cmd!(sh, "rustup run stable cargo build -p {ffi_crate} --features {ffi_features}").run()?;
 
     rename(lib_output_dir.join(&ffi_library_name), ffi_directory.join(&ffi_library_name))?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
