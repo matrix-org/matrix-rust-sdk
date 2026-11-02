@@ -15,12 +15,14 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
-    ops::Deref,
     path::PathBuf,
     pin::pin,
     sync::{Arc, OnceLock},
     time::Duration,
 };
+
+#[cfg(feature = "experimental-prelude")]
+use ops::Deref;
 
 use anyhow::{Context as _, anyhow};
 #[cfg(feature = "sqlite")]
@@ -505,6 +507,8 @@ impl Client {
 
         Ok(client)
     }
+
+    #[cfg(feature = "experimental-prelude")]
     /// get hold of the inner actual matrix client for reusing in other crates
     pub fn cloned_inner(&self) -> MatrixClient {
         self.inner.clone().deref().clone()

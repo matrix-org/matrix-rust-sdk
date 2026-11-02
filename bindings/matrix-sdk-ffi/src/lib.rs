@@ -43,28 +43,16 @@ mod utd;
 mod utils;
 mod widget;
 
-pub use client::{Client, ClientDelegate, RoomLoadSettings, RoomVisibility};
-pub use client_builder::{ClientBuildError, ClientBuilder};
-pub use content_scanner::ContentScanner;
-pub use error::ClientError;
-pub use live_locations_observer::LiveLocationsObserver;
-use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
-#[cfg(feature = "experimental-search")]
-pub use search_service::{SearchService, SearchServiceResult};
-pub use sync_service::SyncService;
-pub use task_handle::TaskHandle;
-pub use timeline::{
-    ReceiptType, SendTarget, Timeline, TimelineDiff, TimelineItem,
-    threads::{ThreadListItem, ThreadListService},
-};
-pub use utd::UnableToDecryptDelegate;
+#[cfg(feature = "experimental-prelude")]
+pub mod prelude;
 
-use self::ruma::{Mentions, RoomMessageEventContentWithoutRelationExt};
-#[cfg(feature = "unstable-msc4354")]
-pub use crate::room::sticky_events::{StickyEventsListener, StickyEventsUpdate, StickyKey};
-/// Export the client and its helpers
-/// for other ffi crates to reuse
-pub use crate::room::{Room, room_info::RoomInfo};
+use self::{
+    error::ClientError,
+    ruma::{Mentions, RoomMessageEventContentWithoutRelationExt},
+    task_handle::TaskHandle,
+};
+
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
 uniffi::include_scaffolding!("api");
 
