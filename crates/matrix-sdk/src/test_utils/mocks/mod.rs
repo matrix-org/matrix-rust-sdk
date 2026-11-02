@@ -1553,6 +1553,12 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, GetDeviceEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint used to delete several devices.
+    pub fn mock_delete_devices(&self) -> MockEndpoint<'_, DeleteDevicesEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/delete_devices"));
+        self.mock_endpoint(mock, DeleteDevicesEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to search in the user
     /// directory.
     pub fn mock_user_directory(&self) -> MockEndpoint<'_, UserDirectoryEndpoint> {
@@ -4992,6 +4998,16 @@ impl<'a> MockEndpoint<'a, GetDeviceEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_json(&*test_json::DEVICE)
+    }
+}
+
+/// A prebuilt mock for the `POST /_matrix/client/v3/delete_devices` endpoint.
+pub struct DeleteDevicesEndpoint;
+
+impl<'a> MockEndpoint<'a, DeleteDevicesEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
     }
 }
 
