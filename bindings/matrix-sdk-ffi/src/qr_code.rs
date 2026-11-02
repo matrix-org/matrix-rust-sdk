@@ -633,6 +633,9 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
             QRCodeGrantLoginError::UnsupportedProtocol(protocol) => {
                 Self::UnsupportedProtocol(protocol.to_string())
             }
+            QRCodeGrantLoginError::NoSupportedProtocols => Self::UnsupportedProtocol(
+                "The homeserver does not support any of our protocols".to_owned(),
+            ),
             QRCodeGrantLoginError::MissingSecretsBackup(error) => {
                 Self::MissingSecretsBackup(error.map_or("other".to_owned(), |e| e.to_string()))
             }

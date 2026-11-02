@@ -169,6 +169,11 @@ pub enum QRCodeGrantLoginError {
     #[error("Unsupported protocol: {0}")]
     UnsupportedProtocol(LoginProtocolType),
 
+    /// The homeserver doesn't support any of the login protocols that we can
+    /// offer to the new device.
+    #[error("The homeserver doesn't support any of the login protocols we can offer")]
+    NoSupportedProtocols,
+
     /// The requested device ID is already in use.
     #[error("The requested device ID is already in use")]
     DeviceIDAlreadyInUse,
