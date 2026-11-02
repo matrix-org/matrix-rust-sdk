@@ -2359,10 +2359,14 @@ impl Client {
         &self,
         action: InvitePermissionAction,
     ) -> Result<(), ClientError> {
-        let mut config = InvitePermissionConfigEventContent::new();
+        let account = self.inner.account();
+
+        let mut config = account.fetch_invite_permission_config().await?.unwrap_or_default();
+
         config.default_action = action.into();
 
-        self.inner.account().set_invite_permission_config(config).await?;
+        account.set_invite_permission_config(config).await?;
+
         Ok(())
     }
 
