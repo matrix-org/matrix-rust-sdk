@@ -21,9 +21,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "experimental-prelude")]
-use ops::Deref;
-
 use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
@@ -83,6 +80,8 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use oauth2::Scope;
+#[cfg(feature = "experimental-prelude")]
+use ops::Deref;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId,
     RoomOrAliasId, ServerName,

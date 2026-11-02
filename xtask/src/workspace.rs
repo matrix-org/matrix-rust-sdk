@@ -28,8 +28,8 @@ fn load_metadata() -> Result<Metadata> {
     Ok(serde_json::from_str(&metadata_json)?)
 }
 
-/// read configuration in the `workspace.metadata.xtask` section of the workspace
-/// to allow downstream implementors to configure xtask parameters
+/// read configuration in the `workspace.metadata.xtask` section of the
+/// workspace to allow downstream implementors to configure xtask parameters
 /// see README.md of the xtask crate for more information
 fn load_xtask_metadata() -> Result<XtaskMetadata> {
     #[derive(Deserialize, Default)]

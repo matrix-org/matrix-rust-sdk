@@ -46,13 +46,13 @@ mod widget;
 #[cfg(feature = "experimental-prelude")]
 pub mod prelude;
 
+use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
+
 use self::{
     error::ClientError,
     ruma::{Mentions, RoomMessageEventContentWithoutRelationExt},
     task_handle::TaskHandle,
 };
-
-use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
 uniffi::include_scaffolding!("api");
 
