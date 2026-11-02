@@ -2025,10 +2025,13 @@ async fn test_get_rtc_transports() {
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
 
+    // The homeserver advertises both the current `m.livekit` and the legacy
+    // `livekit` transport types, both must be forwarded unchanged.
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "rtc_transports": [
+                { "type": "m.livekit", "url": "wss://livekit.example.com" },
                 { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
             ]
         })))
@@ -2051,6 +2054,7 @@ async fn test_get_rtc_transports() {
         response["response"],
         json!({
             "rtc_transports": [
+                { "type": "m.livekit", "url": "wss://livekit.example.com" },
                 { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
             ]
         })
@@ -2123,7 +2127,7 @@ async fn test_get_rtc_transports_falls_back_to_well_known() {
         response["response"],
         json!({
             "rtc_transports": [
-                { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                { "type": "m.livekit", "url": "wss://livekit.example.com" }
             ]
         })
     );

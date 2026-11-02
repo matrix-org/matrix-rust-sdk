@@ -2257,9 +2257,15 @@ impl Client {
     /// a fallback, unless well-known discovery was disabled with
     /// [`ClientBuilder::disable_well_known_lookup`] or
     /// [`Client::disable_well_known_lookup`].
+    ///
+    /// Both the `m.livekit` and the legacy `livekit` transport types count as
+    /// LiveKit support.
+    #[allow(deprecated)]
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
-        Ok(transports.iter().any(|focus| matches!(focus, RumaRtcTransport::LiveKit { .. })))
+        Ok(transports.iter().any(|transport| {
+            matches!(transport, RumaRtcTransport::LiveKit(_) | RumaRtcTransport::LegacyLiveKit(_))
+        }))
     }
 
     /// Discover the RTC transports advertised by the homeserver.
@@ -3729,6 +3735,9 @@ impl TryFrom<RumaAllowRule> for AllowRule {
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum RtcTransport {
     /// A LiveKit RTC transport.
+    ///
+    /// This covers both the `m.livekit` transport type and the legacy `livekit`
+    /// type used by implementations of earlier versions of MSC4195.
     LiveKit {
         /// The WebSocket URL of the LiveKit SFU.
         url: Option<String>,
@@ -3753,12 +3762,15 @@ pub enum RtcTransport {
 }
 
 impl From<&RumaRtcTransport> for RtcTransport {
-    // `service_url` is deprecated, but still exposed for backwards
-    // compatibility.
+    // `LegacyLiveKit` and `service_url` are deprecated, but still exposed for
+    // backwards compatibility.
     #[allow(deprecated)]
     fn from(value: &RumaRtcTransport) -> Self {
         match value {
             RumaRtcTransport::LiveKit(info) => {
+                Self::LiveKit { url: Some(info.url.clone()), service_url: info.service_url.clone() }
+            }
+            RumaRtcTransport::LegacyLiveKit(info) => {
                 Self::LiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
             }
             _ => Self::Custom {
@@ -4113,7 +4125,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn test_rtc_transport_conversion() {
-        use ruma::api::client::rtc::RtcTransport as RumaRtcTransport;
+        use ruma::api::client::rtc::{LegacyLiveKitRtcTransport, RtcTransport as RumaRtcTransport};
         use strass::assert_let;
 
         use super::RtcTransport;
@@ -4123,6 +4135,17 @@ mod tests {
         let livekit = RumaRtcTransport::LiveKit(transport);
         assert_let!(RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&livekit));
         assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
+
+        // The legacy `livekit` transport type is also exposed as LiveKit.
+        let legacy_livekit =
+            RumaRtcTransport::LegacyLiveKit(LegacyLiveKitRtcTransport::with_service_url(
+                "https://livekit-jwt.example.com".to_owned(),
+            ));
+        assert_let!(
+            RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&legacy_livekit)
+        );
+        assert_eq!(url, None);
         assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
 
         let custom = RumaRtcTransport::new(

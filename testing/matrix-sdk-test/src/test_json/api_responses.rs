@@ -373,8 +373,8 @@ pub static WELL_KNOWN: LazyLock<JsonValue> = LazyLock::new(|| {
         },
         "m.rtc_foci": [
             {
-                "type": "livekit",
-                "livekit_service_url": "https://livekit.example.com",
+                "type": "m.livekit",
+                "url": "wss://livekit.example.com",
             }
         ]
     })

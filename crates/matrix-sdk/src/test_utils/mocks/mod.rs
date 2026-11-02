@@ -4100,8 +4100,8 @@ impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
             },
             "m.rtc_foci": [
                 {
-                    "type": "livekit",
-                    "livekit_service_url": "https://livekit.example.com",
+                    "type": "m.livekit",
+                    "url": "wss://livekit.example.com",
                 },
             ],
         }))
@@ -5661,12 +5661,11 @@ impl<'a> MockEndpoint<'a, UpdatePresenceEndpoint> {
 pub struct GetRtcTransportsEndpoint;
 
 impl<'a> MockEndpoint<'a, GetRtcTransportsEndpoint> {
-    /// Returns a successful response with a single transport with a service
-    /// URL.
-    pub fn ok_with_service_url(self) -> MatrixMock<'a> {
+    /// Returns a successful response with a single `m.livekit` transport.
+    pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "rtc_transports": [
-                { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                { "type": "m.livekit", "url": "wss://livekit.example.com" }
             ]
         })))
     }
