@@ -43,8 +43,6 @@ allow-git = [
     "https://github.com/ruma/ruma",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
-    # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
-    "https://github.com/element-hq/async-compat",
     # Patch override for the bindings. Pinned one commit past 3.1.1 for the
     # unreleased guess-magnitude overflow fix, needed by the bindings' password
     # strength estimation.

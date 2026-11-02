@@ -24,7 +24,7 @@ as_variant = { version = "1.3.0", default-features = false }
 assert-json-diff = { version = "2.0.2", default-features = false }
 assert_matches = { version = "1.5.0", default-features = false }
 async_cell = { version = "0.2.3", default-features = false }
-async-compat = { version = "0.2.5", default-features = false }
+async-compat = { version = "0.2.6", default-features = false }
 async-rx = { version = "0.2.1", default-features = false }
 async-stream = { version = "0.3.6", default-features = false }
 async-trait = { version = "0.1.92", default-features = false }
@@ -252,6 +252,5 @@ inherits = "release"
 lto = false
 
 [patch.crates-io]
-async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 zxcvbn = { git = "https://github.com/shssoichiro/zxcvbn-rs", rev = "4e8e784b23541d118800df84feedf8160879d1af" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
