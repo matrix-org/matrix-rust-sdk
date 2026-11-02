@@ -358,6 +358,7 @@ macro_rules! make_media_type {
             }
 
             mime::VIDEO => {
+                #[cfg(feature = "unstable-msc4546")]
                 let circle = match &$info {
                     Some(AttachmentInfo::Video(video_info)) => video_info.circle,
                     _ => false,
@@ -371,8 +372,9 @@ macro_rules! make_media_type {
                     info: Some(Box::new(info)),
                     formatted,
                     filename,
-                    circle,
                 });
+                #[cfg(feature = "unstable-msc4546")]
+                let content = content.circle(circle);
                 <$t>::Video(content)
             }
 

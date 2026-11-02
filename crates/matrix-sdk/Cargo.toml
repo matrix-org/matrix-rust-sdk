@@ -101,6 +101,9 @@ unstable-msc4388 = []
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 
+# Add support for circle videos (MSC4546).
+unstable-msc4546 = ["ruma/unstable-msc4546"]
+
 experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
@@ -152,7 +155,6 @@ ruma = { workspace = true, features = [
     "unstable-msc4108",
     "unstable-msc4278",
     "unstable-msc4262",
-    "unstable-msc4546",
 ] }
 serde.workspace = true
 serde_html_form.workspace = true
