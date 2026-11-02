@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use matrix_sdk_base::{
     serde_helpers::{extract_redaction_target, extract_relation, extract_thread_root},
     sync::Timeline,
 };
 use ruma::{
-    OwnedEventId,
+    EventId, OwnedEventId,
     events::{
         AnySyncEphemeralRoomEvent,
         receipt::{ReceiptEventContent, ReceiptThread, Receipts},
@@ -30,6 +30,7 @@ use ruma::{
 
 use super::{
     super::{Result, states::StateLockReadGuard},
+    event_linked_chunk::EventLinkedChunk,
     read_receipts::MaybeReceiptEventContent,
     room::RoomEventCacheState,
     thread::ThreadEventCacheState,
@@ -201,7 +202,94 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
             .insert(read_receipt_event_id.clone(), read_receipt_event.clone());
     }
 
+    // An unthreaded receipt reads all earlier events, in every thread
+    // (MSC3771). Thread caches only handle their own `Thread` receipts, so
+    // map ours onto the latest event of each thread before its target.
+    if let Some(room) = &maybe_room {
+        let own_user_id = &room.own_user_id;
+        let known_threads = existing_threads
+            .keys()
+            .chain(new_events_by_thread.keys())
+            .cloned()
+            .collect::<HashSet<_>>();
+
+        for (target, receipts) in ephemeral
+            .iter()
+            .filter_map(|ephemeral| match ephemeral {
+                AnySyncEphemeralRoomEvent::Receipt(receipt_event) => Some(receipt_event),
+                _ => None,
+            })
+            .flat_map(|receipt_event| receipt_event.content.iter())
+        {
+            for (receipt_type, user_receipts) in receipts {
+                let Some(receipt) = user_receipts.get(own_user_id) else {
+                    continue;
+                };
+
+                if !matches!(receipt.thread, ReceiptThread::Unthreaded) {
+                    continue;
+                }
+
+                for (thread_root, event_id) in
+                    latest_thread_events_up_to(room.room_linked_chunk(), target, &known_threads)
+                {
+                    let mut receipt = receipt.clone();
+                    receipt.thread = ReceiptThread::Thread(thread_root.clone());
+
+                    new_events_by_thread
+                        .entry(thread_root)
+                        .or_insert_with(default_entry)
+                        .1
+                        .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
+                        .entry(event_id)
+                        .or_default()
+                        .entry(receipt_type.clone())
+                        .or_default()
+                        .insert(own_user_id.clone(), receipt);
+                }
+            }
+        }
+    }
+
     Ok(new_events_by_thread)
+}
+
+/// For each thread in `threads`, find its latest event at or before `target`
+/// in the room linked chunk. Empty if `target` isn't loaded.
+fn latest_thread_events_up_to(
+    room_linked_chunk: &EventLinkedChunk,
+    target: &EventId,
+    threads: &HashSet<OwnedEventId>,
+) -> HashMap<OwnedEventId, OwnedEventId> {
+    let mut found = HashMap::new();
+
+    for event in room_linked_chunk
+        .revents()
+        .map(|(_position, event)| event)
+        .skip_while(|event| event.event_id() != Some(target))
+    {
+        if found.len() == threads.len() {
+            break;
+        }
+
+        let Some(event_id) = event.event_id() else {
+            continue;
+        };
+
+        let thread_root = if threads.contains(event_id) {
+            Some(event_id.to_owned())
+        } else {
+            extract_thread_root(event.raw())
+        };
+
+        if let Some(thread_root) = thread_root
+            && threads.contains(&thread_root)
+        {
+            found.entry(thread_root).or_insert_with(|| event_id.to_owned());
+        }
+    }
+
+    found
 }
 
 pub fn aggregate_timeline_for_pinned_events(
