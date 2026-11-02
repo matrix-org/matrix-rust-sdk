@@ -19,7 +19,8 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomState, read_receipts::ReadReceipts, sync::RoomUpdates};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, User,
+    async_test,
     event_factory::EventFactory,
     test_json::{
         self,
@@ -102,68 +103,31 @@ async fn test_devices() {
 
 #[async_test]
 async fn test_delete_devices() {
-    let (client, server) = no_retry_test_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/delete_devices"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
-            "flows": [
-                {
-                    "stages": [
-                        "m.login.password"
-                    ]
-                }
-            ],
-            "params": {},
-            "session": "vBslorikviAjxzYBASOBGfPp"
-        })))
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
+    // The first request will require UIAA.
+    server.mock_delete_devices().error_uiaa_password().mock_once().mount().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/delete_devices"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
-            "flows": [
-                {
-                    "stages": [
-                        "m.login.password"
-                    ]
-                }
-            ],
-            "params": {},
-            "session": "vBslorikviAjxzYBASOBGfPp"
-        })))
-        .mount(&server)
-        .await;
+    // The second request containing the auth data will succeed.
+    let auth_data = uiaa::AuthData::Password(assign!(
+        uiaa::Password::new(
+            uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new(User::Alice.into())),
+            "wordpass".to_owned(),
+        ), {
+            session: Some("oFIJVvtEOCKmRUTYKTYIIPHL".to_owned()),
+        }
+    ));
+    server.mock_delete_devices().expect_uiaa_auth_data(&auth_data).ok().mock_once().mount().await;
 
     let devices = &[owned_device_id!("DEVICEID")];
 
-    if let Err(e) = client.delete_devices(devices, None).await
-        && let Some(info) = e.as_uiaa_response()
-    {
-        let mut auth_parameters = BTreeMap::new();
+    // The first request fails with a UIAA response.
+    assert_let!(Err(e) = client.delete_devices(devices, None).await);
+    assert_matches!(e.as_uiaa_response(), Some(_));
 
-        let identifier = json!({
-            "type": "m.id.user",
-            "user": "example",
-        });
-        auth_parameters.insert("identifier".to_owned(), identifier);
-        auth_parameters.insert("password".to_owned(), "wordpass".into());
-
-        let auth_data = uiaa::AuthData::Password(assign!(
-            uiaa::Password::new(
-                uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
-                "wordpass".to_owned(),
-            ), {
-                session: info.session.clone(),
-            }
-        ));
-
-        client.delete_devices(devices, Some(auth_data)).await.unwrap();
-    }
+    // The second request succeeds.
+    client.delete_devices(devices, Some(auth_data)).await.unwrap();
 }
 
 #[async_test]
