@@ -35,6 +35,7 @@ mod edit_validation;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod event_cache;
+mod has_encrypted_rooms;
 mod latest_event;
 mod matrix_auth;
 mod media;

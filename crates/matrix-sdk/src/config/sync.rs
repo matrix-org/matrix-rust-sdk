@@ -60,6 +60,9 @@ pub struct SyncSettings {
     pub(crate) filter: Option<Box<sync_events::v3::Filter>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) ignore_timeout_on_first_sync: bool,
+    /// Whether sync should be throttled, if the server sends responses too
+    /// fast.
+    pub(crate) throttle_sync_loop: bool,
     pub(crate) token: SyncToken,
     pub(crate) full_state: bool,
     pub(crate) set_presence: Option<PresenceState>,
@@ -81,11 +84,13 @@ impl fmt::Debug for SyncSettings {
             token: _,
             full_state,
             set_presence,
+            throttle_sync_loop,
         } = self;
         f.debug_struct("SyncSettings")
             .maybe_field("filter", filter)
             .maybe_field("timeout", timeout)
             .field("ignore_timeout_on_first_sync", ignore_timeout_on_first_sync)
+            .field("throttle_sync_loop", throttle_sync_loop)
             .field("full_state", full_state)
             .maybe_field("set_presence", set_presence)
             .finish()
@@ -100,6 +105,7 @@ impl SyncSettings {
             filter: None,
             timeout: Some(DEFAULT_SYNC_TIMEOUT),
             ignore_timeout_on_first_sync: false,
+            throttle_sync_loop: true,
             token: SyncToken::default(),
             full_state: false,
             set_presence: None,
@@ -126,6 +132,22 @@ impl SyncSettings {
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Whether to throttle sync loops.
+    ///
+    /// By default, in sync loops, sync requests are throttled and sent at most
+    /// once per second, even if the server responds faster than this. This
+    /// behavior can be controlled using the `value` parameter passed here.
+    ///
+    /// This setting is only active when using one of the sync loop methods:
+    /// - [`crate::Client::sync()`],
+    /// - [`crate::Client::sync_with_callback`]
+    /// - [`crate::Client::sync_with_result_callback`]
+    /// - [`crate::Client::sync_stream`]
+    pub fn throttle_sync_loop(mut self, value: bool) -> Self {
+        self.throttle_sync_loop = value;
         self
     }
 

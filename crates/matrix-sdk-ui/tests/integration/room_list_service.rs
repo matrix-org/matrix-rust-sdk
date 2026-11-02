@@ -8,7 +8,7 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_base::sync::UnreadNotificationsCount;
-use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{
     RoomListService,
     room_list_service::{
@@ -1517,27 +1517,11 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r4:bar.org" ];
         end;
     };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
+    // The room info notable updates are drained in one batch, and deduplicated
+    // by room: one `set` per room.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 0 ] [ "!r4:bar.org" ];
-        end;
-    };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
         set [ 0 ] [ "!r4:bar.org" ];
         end;
     };
@@ -1622,30 +1606,11 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
         push front [ "!r7:bar.org" ];
         end;
     };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
+    // The room info notable updates are drained in one batch, and deduplicated
+    // by room: one `set` per room.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 1 ] [ "!r5:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 0 ] [ "!r7:bar.org" ];
-        end;
-    };
-
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 1 ] [ "!r5:bar.org" ];
-        end;
-    };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
         set [ 0 ] [ "!r7:bar.org" ];
         end;
     };
@@ -1968,51 +1933,17 @@ async fn test_room_sorting() -> Result<(), Error> {
     };
 
     // Assert rooms are moving because their recency (based on the latest event)
-    // have changed.
-
-    // `!r0` is moving.
+    // have changed. The room info notable updates are drained in one batch,
+    // and deduplicated by room: the read receipt updates of `!r0`, `!r1` and
+    // `!r2` are folded into their moves.
     assert_entries_batch! {
         [stream]
         remove [ 3 ];
         push front [ "!r0:bar.org" ];
-        end;
-    };
-
-    // `!r1` is moving.
-    assert_entries_batch! {
-        [stream]
         remove [ 3 ];
         insert [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-
-    // `!r2` is supposed to move, but meanwhile, `!r0` receives a read receipt
-    // update.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r0:bar.org" ];
-        end;
-    };
-
-    // `!r2` is moving.
-    assert_entries_batch! {
-        [stream]
         remove [ 4 ];
         push front [ "!r2:bar.org" ];
-        end;
-    };
-
-    // `!r1` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r1:bar.org" ];
-        end;
-    };
-
-    // `!r2` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r2:bar.org" ];
         end;
     };
 
@@ -2096,25 +2027,15 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r4     | 5       |      |
     // | 5     | !r3     | 4       |      |
 
-    // `!r6` receives an unknown reason update.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // `!r6` receives a latest event update.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // `!r3` is moving.
+    // All the remaining updates (`!r3`'s new bump stamp and latest event,
+    // `!r6`'s name, latest event and read receipts) are drained and
+    // deduplicated into ONE batch: `!r3` moves to the front, `!r6` is refreshed
+    // in place.
     assert_entries_batch! {
         [stream]
         remove [ 5 ];
         push front [ "!r3:bar.org" ];
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
 
@@ -2128,27 +2049,6 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 3     | !r0     | 7       | Bbb  |
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
-
-    // `!r3` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r3:bar.org" ];
-        end;
-    };
-
-    // `!r6` receives a new name.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // `!r6` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
-        end;
-    };
 
     assert_pending!(stream);
 
@@ -2966,7 +2866,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     // We could subscribe to the room —with `RoomList::set_room_subscriptions`—
     // to automatically listen to the latest event updates, but we will do it
     // manually here (so that we can ignore the subscription thingies).
-    let latest_events = client.latest_events().await;
+    let latest_events = client.latest_events().await.unwrap();
     latest_events.listen_to_room(room_id).await.unwrap();
 
     // The latest event does not exist.
@@ -3222,14 +3122,14 @@ async fn test_multiple_timeline_init() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     // Send back-pagination responses with a small delay.
     server
         .mock_room_messages()
+        .with_delay(Duration::from_millis(500))
         .ok(RoomMessagesResponseTemplate::default()
-            .events(vec![f.text_msg("hello").into_raw_timeline()])
-            .with_delay(Duration::from_millis(500)))
+            .events(vec![f.text_msg("hello").into_raw_timeline()]))
         .mount()
         .await;
 

@@ -73,8 +73,8 @@ use crate::{
     machine::{
         EncryptionSyncChanges, OlmMachine,
         test_helpers::{
-            get_machine_after_query_test_helper, get_machine_pair_with_session,
-            get_machine_pair_with_session_using_store,
+            bootstrap_requests_to_keys_query_response, get_machine_after_query_test_helper,
+            get_machine_pair_with_session, get_machine_pair_with_session_using_store,
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
         },
     },
@@ -2229,4 +2229,67 @@ async fn test_verified_latch_migration() {
     alice_store.load_tracked_users().await.unwrap().iter().for_each(|tu| {
         assert!(!tu.dirty);
     });
+}
+
+/// Sign the given device keys with the machine's own self-signing key.
+async fn cross_sign_device_keys(machine: &OlmMachine, device_keys: &mut DeviceKeys) {
+    let private_identity = machine.store().private_identity();
+    let private_identity = private_identity.lock().await;
+    let self_signing = private_identity.self_signing_key.lock().await;
+    self_signing.as_ref().unwrap().sign_device(device_keys).unwrap();
+}
+
+#[async_test]
+async fn test_has_other_devices_to_verify_against() {
+    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
+
+    // Without a cross-signing identity there is nothing to verify against.
+    let devices = machine.get_user_devices(user_id(), None).await.unwrap();
+    assert!(!devices.has_other_devices_to_verify_against());
+
+    // Bootstrap cross-signing and feed the public keys back in, so that our
+    // own device becomes cross-signed.
+    let bootstrap_requests = machine.bootstrap_cross_signing(false).await.unwrap();
+    let kq_response = bootstrap_requests_to_keys_query_response(bootstrap_requests);
+    machine.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+
+    let devices = machine.get_user_devices(user_id(), None).await.unwrap();
+    let own_device = devices.get(alice_device_id()).unwrap();
+    assert!(own_device.is_cross_signed_by_owner());
+    // Our own device is cross-signed, but it is not a device we can verify
+    // against.
+    assert!(!devices.has_other_devices_to_verify_against());
+
+    let own_device_keys = own_device.as_device_keys().clone();
+
+    // A cross-signed dehydrated device is not a candidate either.
+    let mut dehydrated_device_keys = Account::new_dehydrated(user_id()).device_keys();
+    cross_sign_device_keys(&machine, &mut dehydrated_device_keys).await;
+
+    let kq_response = ruma_response_from_json(&json!({
+        "device_keys": { user_id(): {
+            own_device_keys.device_id.clone(): &own_device_keys,
+            dehydrated_device_keys.device_id.clone(): &dehydrated_device_keys,
+        }}
+    }));
+    machine.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+
+    let devices = machine.get_user_devices(user_id(), None).await.unwrap();
+    assert!(!devices.has_other_devices_to_verify_against());
+
+    // A cross-signed regular device is a candidate.
+    let mut other_device_keys =
+        Account::with_device_id(user_id(), device_id!("OTHERDEVICE")).device_keys();
+    cross_sign_device_keys(&machine, &mut other_device_keys).await;
+
+    let kq_response = ruma_response_from_json(&json!({
+        "device_keys": { user_id(): {
+            own_device_keys.device_id.clone(): &own_device_keys,
+            other_device_keys.device_id.clone(): &other_device_keys,
+        }}
+    }));
+    machine.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+
+    let devices = machine.get_user_devices(user_id(), None).await.unwrap();
+    assert!(devices.has_other_devices_to_verify_against());
 }

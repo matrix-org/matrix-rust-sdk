@@ -130,7 +130,10 @@ pub(crate) enum AggregationKind {
     ///
     /// Our own pending redactions are applied reversibly, sent or remote ones
     /// irreversibly; see [`Aggregation::is_local`].
-    Redaction,
+    Redaction {
+        /// The reason given with the redaction, if any.
+        reason: Option<String>,
+    },
 
     /// An event has been edited.
     ///
@@ -287,7 +290,7 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Redaction => {
+            AggregationKind::Redaction { reason } => {
                 let is_local = self.is_local();
                 let is_local_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_some();
@@ -305,6 +308,7 @@ impl Aggregation {
                 } else {
                     let mut new_item = event.redact(&rules.redaction, is_local);
                     new_item.redaction_send_state = self.send_state.clone();
+                    new_item.redaction_reason = reason.clone();
                     *event = Cow::Owned(new_item);
                     ApplyAggregationResult::UpdatedItem
                 }
@@ -405,7 +409,7 @@ impl Aggregation {
                 ApplyAggregationResult::Error(AggregationError::CantUndoPollEnd)
             }
 
-            AggregationKind::Redaction => {
+            AggregationKind::Redaction { .. } => {
                 if self.is_local() {
                     if event.unredacted_item.is_some() {
                         // Unapply local redaction.
@@ -501,7 +505,7 @@ impl Aggregation {
                 true
             }
 
-            AggregationKind::Redaction => {
+            AggregationKind::Redaction { .. } => {
                 event.to_mut().redaction_send_state = self.send_state.clone();
                 true
             }
@@ -592,7 +596,7 @@ impl Aggregations {
     pub fn add(&mut self, related_to: TimelineEventItemId, aggregation: Aggregation) {
         // If the aggregation is a redaction, it invalidates all the other
         // aggregations; remove them.
-        if matches!(aggregation.kind, AggregationKind::Redaction) {
+        if matches!(aggregation.kind, AggregationKind::Redaction { .. }) {
             for agg in self.related_events.remove(&related_to).unwrap_or_default() {
                 self.inverted_map.remove(&agg.own_id);
             }
@@ -603,7 +607,7 @@ impl Aggregations {
         if let Some(previous_aggregations) = self.related_events.get(&related_to)
             && previous_aggregations
                 .iter()
-                .any(|agg| matches!(agg.kind, AggregationKind::Redaction))
+                .any(|agg| matches!(agg.kind, AggregationKind::Redaction { .. }))
         {
             return;
         }
@@ -899,7 +903,7 @@ impl Aggregations {
             self.inverted_map.insert(TimelineEventItemId::EventId(event_id), target.clone());
         }
 
-        let sent_redaction = matches!(updated.kind, AggregationKind::Redaction)
+        let sent_redaction = matches!(updated.kind, AggregationKind::Redaction { .. })
             && matches!(updated.send_state, Some(EventSendState::Sent { .. }));
 
         if sent_redaction {

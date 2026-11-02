@@ -28,7 +28,7 @@ use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
-use futures_util::{StreamExt, join};
+use futures_util::{StreamExt, future::OptionFuture, join};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
@@ -45,7 +45,7 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValue};
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, sleep::sleep, ttl::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -462,10 +462,9 @@ impl ClientInner {
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
         respect_login_well_known: bool,
         well_known_lookup_disabled: bool,
-        event_cache: OnceCell<EventCache>,
         enable_automatic_back_pagination: bool,
+        enable_event_cache: bool,
         send_queue: Arc<SendQueueData>,
-        latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_lock_config: CrossProcessLockConfig,
@@ -502,9 +501,9 @@ impl ClientInner {
             respect_login_well_known,
             well_known_lookup_disabled: StdRwLock::new(well_known_lookup_disabled),
             sync_beat: event_listener::Event::new(),
-            event_cache,
+            event_cache: OnceCell::new(),
             send_queue_data: send_queue,
-            latest_events,
+            latest_events: OnceCell::new(),
             #[cfg(feature = "e2e-encryption")]
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
@@ -529,13 +528,15 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_tasks(&client);
 
-        let init_event_cache = client.event_cache.get_or_init(|| async {
-            EventCache::new(
-                &client,
-                client.base_client.event_cache_store().clone(),
-                enable_automatic_back_pagination,
-            )
-        });
+        let init_event_cache = OptionFuture::from(enable_event_cache.then(|| {
+            client.event_cache.get_or_init(|| async {
+                EventCache::new(
+                    &client,
+                    client.base_client.event_cache_store().clone(),
+                    enable_automatic_back_pagination,
+                )
+            })
+        }));
 
         let init_thread_subscription_catchup = client
             .thread_subscription_catchup
@@ -616,11 +617,19 @@ impl Client {
 
         // Next, activate R2D2 since the `OlmMachine` is now setup.
         #[cfg(feature = "e2e-encryption")]
-        if let Some(event_cache) = self.inner.event_cache.get() {
+        if let Some(event_cache) = self.event_cache() {
             event_cache.initialise_redecryptor()?;
         }
 
         Ok(())
+    }
+
+    /// Create a [`WeakClient`], i.e. a weak reference to the [`Client`], for
+    /// use in background tasks.
+    ///
+    /// See doc comment of [`WeakClient`].
+    pub fn downgrade(&self) -> WeakClient {
+        WeakClient::from_inner(&self.inner)
     }
 
     /// Returns a subscriber that publishes an event every time the ignore user
@@ -1634,6 +1643,53 @@ impl Client {
             .sum()
     }
 
+    /// Returns a [`Stream`] containing the total unread notification count
+    /// updates, which will be computed at most once every `min_interval` when
+    /// new [`RoomInfoNotableUpdate`] items are received, to avoid computing
+    /// this value dozens or hundreds of times in a short amount of time.
+    pub fn observe_total_unread_notifications(
+        &self,
+        min_interval: Duration,
+    ) -> impl Stream<Item = u64> + use<> {
+        let mut update_receiver = self.room_info_notable_update_receiver();
+        let this = self.clone();
+
+        stream! {
+            // Initial value.
+            let mut current = this.total_unread_notifications();
+
+            // Yield the current total.
+            yield current;
+
+            // TODO ideally we'd filter `RoomInfoNotableUpdateReasons` here, but several
+            //  reasons can cause the unread notifications to change and it's not always
+            //  clear when this can happen. So let's not filter them *yet*.
+            loop {
+                // Drain all updates.
+                while update_receiver.try_recv().is_ok() {}
+
+                // Wait `min_interval`.
+                sleep(min_interval).await;
+
+                // Wait for an update.
+                // Either it arrived while sleeping (the `Recv` future will resolve immediately),
+                // or it will arrive in the future.
+                if update_receiver.recv().await.is_err() {
+                    break;
+                }
+
+                // When we got an update, re-compute the total.
+                let next = this.total_unread_notifications();
+
+                if next != current {
+                    current = next;
+
+                    // Yield the current total.
+                    yield current;
+                }
+            }
+        }
+    }
     /// Get a room with the given room id.
     ///
     /// # Arguments
@@ -2929,8 +2985,8 @@ impl Client {
     ///     RtcTransport::LiveKit(info) => Some(info),
     ///     _ => None,
     /// });
-    /// if let Some(info) = default_livekit_focus_info {
-    ///     println!("Default LiveKit service URL: {}", info.service_url);
+    /// if let Some(url) = default_livekit_focus_info.and_then(|info| info.url.as_ref()) {
+    ///     println!("Default LiveKit SFU URL: {url}");
     /// }
     /// # anyhow::Ok(()) };
     /// ```
@@ -3655,7 +3711,7 @@ impl Client {
         Ok(())
     }
 
-    //// Repeatedly synchronize the client state with the server.
+    /// Repeatedly synchronize the client state with the server.
     /// This method will internally call [`Client::sync_once`] in a loop and is
     /// equivalent to the [`Client::sync`] method but the responses are provided
     /// as an async stream.
@@ -3726,7 +3782,9 @@ impl Client {
                     .instrument(parent_span.clone())
                     .await;
 
-                Client::delay_sync(&mut last_sync_time).await
+                if sync_settings.throttle_sync_loop {
+                    Client::delay_sync(&mut last_sync_time).await
+                }
             }
         })
     }
@@ -3818,10 +3876,10 @@ impl Client {
                 self.inner.caches.well_known.value(),
                 self.inner.respect_login_well_known,
                 self.well_known_lookup_disabled(),
-                self.inner.event_cache.clone(),
+                false,
+                // We don't need the `EventCache` in a notification client.
                 false,
                 self.inner.send_queue_data.clone(),
-                self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
                 #[cfg(feature = "e2e-encryption")]
@@ -3839,24 +3897,30 @@ impl Client {
     }
 
     /// The [`EventCache`] instance for this [`Client`].
-    pub fn event_cache(&self) -> &EventCache {
-        // SAFETY: always initialized in the `Client` ctor.
-        self.inner.event_cache.get().unwrap()
+    pub fn event_cache(&self) -> Option<&EventCache> {
+        self.inner.event_cache.get()
     }
 
-    /// The [`LatestEvents`] instance for this [`Client`].
-    pub async fn latest_events(&self) -> &LatestEvents {
-        self.inner
-            .latest_events
-            .get_or_init(|| async {
-                LatestEvents::new(
-                    WeakClient::from_client(self),
-                    self.event_cache().clone(),
-                    SendQueue::new(self.clone()),
-                    self.room_info_notable_update_receiver(),
-                )
-            })
-            .await
+    /// The [`LatestEvents`] instance for this [`Client`], if the [`EventCache`]
+    /// is enabled.
+    pub async fn latest_events(&self) -> Option<&LatestEvents> {
+        if let Some(event_cache) = self.event_cache() {
+            Some(
+                self.inner
+                    .latest_events
+                    .get_or_init(|| async {
+                        LatestEvents::new(
+                            self.downgrade(),
+                            event_cache.clone(),
+                            SendQueue::new(self.clone()),
+                            self.room_info_notable_update_receiver(),
+                        )
+                    })
+                    .await,
+            )
+        } else {
+            None
+        }
     }
 
     /// Waits until an at least partially synced room is received, and returns
@@ -4112,11 +4176,17 @@ impl Client {
 
         let media_store_size = self.media_store().lock().await?.get_size().await.ok().flatten();
 
+        #[cfg(feature = "experimental-search")]
+        let search_index_size = self.search_index().size();
+        #[cfg(not(feature = "experimental-search"))]
+        let search_index_size = None;
+
         Ok(StoreSizes {
             crypto_store: crypto_store_size,
             state_store: state_store_size,
             event_cache_store: event_cache_store_size,
             media_store: media_store_size,
+            search_index: search_index_size,
         })
     }
 
@@ -4178,6 +4248,8 @@ pub struct StoreSizes {
     pub event_cache_store: Option<usize>,
     /// The size of the MediaStore.
     pub media_store: Option<usize>,
+    /// The size of the search index.
+    pub search_index: Option<usize>,
 }
 
 /// A custom to-device message received by the client.
@@ -4237,10 +4309,15 @@ impl Client {
     }
 }
 
-/// A weak reference to the inner client, useful when trying to get a handle on
-/// the owning client.
+/// A weak reference to the inner [`Client`], useful when trying to get a handle
+/// on the owning client.
+///
+/// This is intended for use in background tasks that require a [`Client`], as
+/// otherwise killing all the [`Client`] instances wouldn't be sufficient to
+/// drop the underlying inner client, and resume in a memory leak at best, and
+/// confusing background syncs for a supposedly dead client at worst.
 #[derive(Clone, Debug)]
-pub(crate) struct WeakClient {
+pub struct WeakClient {
     client: Weak<ClientInner>,
 }
 
@@ -4250,11 +4327,6 @@ impl WeakClient {
         Self { client: Arc::downgrade(client) }
     }
 
-    /// Construct a [`WeakClient`] from a [`Client`].
-    pub fn from_client(client: &Client) -> Self {
-        Self::from_inner(&client.inner)
-    }
-
     /// Attempts to get a [`Client`] from this [`WeakClient`].
     pub fn get(&self) -> Option<Client> {
         self.client.upgrade().map(|inner| Client { inner })
@@ -4262,7 +4334,6 @@ impl WeakClient {
 
     /// Gets the number of strong (`Arc`) pointers still pointing to this
     /// client.
-    #[allow(dead_code)]
     pub fn strong_count(&self) -> usize {
         self.client.strong_count()
     }
@@ -4292,12 +4363,13 @@ pub(crate) mod tests {
     use futures_util::{FutureExt, StreamExt};
     use js_int::{UInt, uint};
     use matrix_sdk_base::{
-        RoomState,
+        RoomInfoNotableUpdateReasons, RoomState,
+        read_receipts::ReadReceipts,
         store::{MemoryStore, StoreConfig},
         ttl::TtlValue,
     };
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+        JoinedRoomBuilder, SyncResponseBuilder, TestRoom, User, async_test,
         event_factory::EventFactory,
     };
     use strass::assert_let;
@@ -4309,16 +4381,19 @@ pub(crate) mod tests {
         RoomId, ServerName, UserId,
         api::{
             FeatureFlag, MatrixVersion,
-            client::{room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport},
+            client::{
+                room::create_room::v3::Request as CreateRoomRequest,
+                rtc::{LiveKitRtcTransport, RtcTransport},
+            },
         },
         assign,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_device_id, owned_room_id, owned_user_id,
+        owned_device_id,
         presence::PresenceState,
-        room_alias_id, room_id, user_id,
+        room_alias_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -4330,8 +4405,8 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        Error, Result, TransmissionProgress,
-        client::{WeakClient, caches::CachedValue, futures::SendMediaUploadRequest},
+        Error, Result, TransmissionProgress, assert_next_eq_with_timeout,
+        client::{caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
         media::MediaError,
@@ -4366,6 +4441,23 @@ pub(crate) mod tests {
         assert_eq!(client.sync_presence(), PresenceState::Offline);
         assert_eq!(clone.sync_presence(), PresenceState::Offline);
         assert_eq!(notification_client.sync_presence(), PresenceState::Offline);
+    }
+
+    // Without the `e2e-encryption` feature, the notification client has no
+    // session and can't sync.
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_disabled_event_cache_is_inherited_by_notification_client() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_event_cache(false))
+            .build()
+            .await;
+        let notification_client =
+            client.notification_client(CrossProcessLockConfig::SingleProcess).await.unwrap();
+        assert!(client.event_cache().is_none());
+        assert!(notification_client.event_cache().is_none());
     }
 
     #[async_test]
@@ -4420,31 +4512,20 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_set_presence_sends_presence_status_update() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{body_partial_json, method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/(r0|v3)/presence/.*/status$"))
-            .and(body_partial_json(json!({
-                "presence": "online",
-                "status_msg": "Here"
-            })))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-            .expect(1)
-            .mount(server.server())
-            .await;
+        let state = PresenceState::Online;
+        let status_msg = "Here".to_owned();
+
+        server.mock_update_presence(&state, Some(&status_msg)).ok().expect(1).mount().await;
 
         client
-            .set_presence(PresenceState::Online, Some("Here".to_owned()), true)
+            .set_presence(state.clone(), Some(status_msg), true)
             .await
             .expect("presence update should succeed");
 
-        assert_eq!(client.sync_presence(), PresenceState::Online);
+        assert_eq!(client.sync_presence(), state);
     }
 
     #[async_test]
@@ -4478,9 +4559,7 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data(
-                    f.ignored_user_list([owned_user_id!("@someone:example.org")]),
-                );
+                builder.add_global_account_data(f.ignored_user_list([User::Bob.into()]));
             })
             .await;
 
@@ -4589,21 +4668,17 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
-        server
-            .mock_sync()
-            .ok_and_run(&client, |builder| {
-                builder.add_joined_room(
-                    JoinedRoomBuilder::default()
-                        .add_state_event(
-                            f.member(user_id!("@example:localhost")).display_name("example"),
-                        )
-                        .add_state_event(f.default_power_levels()),
-                );
-            })
+        let f = EventFactory::new().sender(User::Alice);
+
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.member(User::Alice).display_name("example"))
+                    .add_state_event(f.power_levels()),
+            )
             .await;
 
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
         assert_eq!(room.state(), RoomState::Joined);
     }
 
@@ -4744,10 +4819,13 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_recently_visited_rooms() {
+        let room_1 = TestRoom::Default;
+        let room_2 = TestRoom::V12;
+
         // Tracking recently visited rooms requires authentication
         let client = MockClientBuilder::new(None).unlogged().build().await;
         assert_matches!(
-            client.account().track_recently_visited_room(owned_room_id!("!alpha:localhost")).await,
+            client.account().track_recently_visited_room(room_1.into()).await,
             Err(Error::AuthenticationRequired)
         );
 
@@ -4758,35 +4836,24 @@ pub(crate) mod tests {
         assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 0);
 
         // Tracking a valid room id should add it to the list
-        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+        account.track_recently_visited_room(room_1.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1]);
 
         // And the existing list shouldn't be changed
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1]);
 
         // Tracking the same room again shouldn't change the list
-        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 1);
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), ["!alpha:localhost"]);
+        account.track_recently_visited_room(room_1.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1]);
 
         // Tracking a second room should add it to the front of the list
-        account.track_recently_visited_room(owned_room_id!("!beta:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
-        assert_eq!(
-            account.get_recently_visited_rooms().await.unwrap(),
-            [room_id!("!beta:localhost"), room_id!("!alpha:localhost")]
-        );
+        account.track_recently_visited_room(room_2.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_2, room_1]);
 
         // Tracking the first room yet again should move it to the front of the
         // list
-        account.track_recently_visited_room(owned_room_id!("!alpha:localhost")).await.unwrap();
-        assert_eq!(account.get_recently_visited_rooms().await.unwrap().len(), 2);
-        assert_eq!(
-            account.get_recently_visited_rooms().await.unwrap(),
-            [room_id!("!alpha:localhost"), room_id!("!beta:localhost")]
-        );
+        account.track_recently_visited_room(room_1.into()).await.unwrap();
+        assert_eq!(account.get_recently_visited_rooms().await.unwrap(), &[room_1, room_2]);
 
         // Tracking should be capped at 20
         for n in 0..20 {
@@ -4800,8 +4867,8 @@ pub(crate) mod tests {
 
         // And the initial rooms should've been pushed out
         let rooms = account.get_recently_visited_rooms().await.unwrap();
-        assert!(!rooms.contains(&owned_room_id!("!alpha:localhost")));
-        assert!(!rooms.contains(&owned_room_id!("!beta:localhost")));
+        assert!(!rooms.contains(&room_1.into()));
+        assert!(!rooms.contains(&room_2.into()));
 
         // And the last tracked room should be the first
         assert_eq!(rooms.first().unwrap(), "!19:localhost");
@@ -4814,20 +4881,18 @@ pub(crate) mod tests {
         // Wait for the init tasks to die.
         sleep(Duration::from_secs(1)).await;
 
-        let weak_client = WeakClient::from_client(&client);
+        let weak_client = client.downgrade();
         assert_eq!(weak_client.strong_count(), 1);
 
         {
-            let room_id = room_id!("!room:example.org");
-
             // Have the client know the room.
             let response = SyncResponseBuilder::default()
-                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .add_joined_room(JoinedRoomBuilder::default())
                 .build_sync_response();
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(TestRoom::Default.into()).await.unwrap();
         }
 
         drop(client);
@@ -4941,12 +5006,15 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    #[allow(deprecated)]
     async fn test_well_known_caching() {
         let server = MatrixMockServer::new().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let server_name = <&ServerName>::try_from(domain).unwrap();
-        let rtc_foci = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
+            "https://livekit.example.com".to_owned(),
+        ))];
 
         let well_known_mock = server
             .mock_well_known()
@@ -5023,25 +5091,19 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    #[allow(deprecated)]
     async fn test_rtc_transports_caching() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
-        let transports = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
+            "https://livekit.example.com".to_owned(),
+        ))];
 
-        let transports_mock = Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "rtc_transports": [
-                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
-                ]
-            })))
+        let transports_mock = server
+            .mock_get_rtc_transports()
+            .ok_with_service_url()
             .named("first transports mock")
             .expect(1)
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await;
 
         let client = server.client_builder().build().await;
@@ -5057,16 +5119,12 @@ pub(crate) mod tests {
         // Reset the cache, and observe the endpoint being called again once.
         client.reset_rtc_transports();
 
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "rtc_transports": [
-                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
-                ]
-            })))
+        server
+            .mock_get_rtc_transports()
+            .ok_with_service_url()
             .named("second transports mock")
             .expect(2)
-            .mount(server.server())
+            .mount()
             .await;
 
         // Hits network again.
@@ -5090,26 +5148,18 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_rtc_transports_unsupported_caching() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
 
         // The homeserver doesn't implement the endpoint: it responds with a 404
         // and an `M_UNRECOGNIZED` error (as a homeserver does for an
         // unrecognized endpoint). We expect it to be hit only once, despite
         // several calls, thanks to the negative caching.
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                "errcode": "M_UNRECOGNIZED",
-                "error": "Unrecognized request",
-            })))
+        server
+            .mock_get_rtc_transports()
+            .error_unrecognized()
             .named("unrecognized transports mock")
             .expect(1)
-            .mount(server.server())
+            .mount()
             .await;
 
         let client = server.client_builder().build().await;
@@ -5130,37 +5180,21 @@ pub(crate) mod tests {
         server: &MatrixMockServer,
         supported: bool,
     ) -> wiremock::MockGuard {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
+        let endpoint = server.mock_get_rtc_transports();
 
-        let response = if supported {
-            ResponseTemplate::new(200).set_body_json(json!({
-                "rtc_transports": [
-                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
-                ]
-            }))
-        } else {
-            ResponseTemplate::new(404).set_body_json(json!({
-                "errcode": "M_UNRECOGNIZED",
-                "error": "Unrecognized request",
-            }))
-        };
+        let mock =
+            if supported { endpoint.ok_with_service_url() } else { endpoint.error_unrecognized() };
 
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
-            .respond_with(response)
-            .named("transports mock")
-            .expect(1)
-            .mount_as_scoped(server.server())
-            .await
+        mock.named("transports mock").expect(1).mount_as_scoped().await
     }
 
     #[async_test]
+    #[allow(deprecated)]
     async fn test_discover_rtc_transports_prefers_the_endpoint() {
         let server = MatrixMockServer::new().await;
-        let transports = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
+            "https://livekit.example.com".to_owned(),
+        ))];
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
 
@@ -5180,10 +5214,13 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    #[allow(deprecated)]
     async fn test_discover_rtc_transports_falls_back_to_well_known() {
         let server = MatrixMockServer::new().await;
         // The `m.rtc_foci` advertised by `WellKnownEndpoint::ok`.
-        let rtc_foci = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
+            "https://livekit.example.com".to_owned(),
+        ))];
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
 
@@ -5341,16 +5378,16 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!room:example.org");
+        let room_id = TestRoom::Default;
 
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+                builder.add_joined_room(JoinedRoomBuilder::default());
             })
             .await;
 
-        let room = client.await_room_remote_echo(room_id).now_or_never().unwrap();
+        let room = client.await_room_remote_echo(room_id.into()).now_or_never().unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
@@ -5359,7 +5396,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!room:example.org");
+        let room_id = TestRoom::Default;
 
         let client = Arc::new(client);
 
@@ -5373,14 +5410,15 @@ pub(crate) mod tests {
                 server
                     .mock_sync()
                     .ok_and_run(&client, |builder| {
-                        builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+                        builder.add_joined_room(JoinedRoomBuilder::default());
                     })
                     .await;
             }
         });
 
-        let room =
-            timeout(Duration::from_secs(10), client.await_room_remote_echo(room_id)).await.unwrap();
+        let room = timeout(Duration::from_secs(10), client.await_room_remote_echo(room_id.into()))
+            .await
+            .unwrap();
         assert_eq!(room.room_id(), room_id);
     }
 
@@ -5388,10 +5426,11 @@ pub(crate) mod tests {
     async fn test_await_room_remote_echo_will_timeout_if_no_room_is_found() {
         let client = MockClientBuilder::new(None).build().await;
 
-        let room_id = room_id!("!room:example.org");
         // Room is not present so the client won't be able to find it. The call
         // will timeout.
-        timeout(Duration::from_secs(1), client.await_room_remote_echo(room_id)).await.unwrap_err();
+        timeout(Duration::from_secs(1), client.await_room_remote_echo(TestRoom::Default.into()))
+            .await
+            .unwrap_err();
     }
 
     #[async_test]
@@ -5462,32 +5501,31 @@ pub(crate) mod tests {
         server.mock_room_directory_create_room_alias().ok().expect(1).mount().await;
 
         let ret = client
-            .create_room_alias(
-                room_alias_id!("#some_alias:matrix.org"),
-                room_id!("!some_room:matrix.org"),
-            )
+            .create_room_alias(room_alias_id!("#some_alias:matrix.org"), TestRoom::Default.into())
             .await;
         assert_matches!(ret, Ok(()));
     }
 
     #[async_test]
     async fn test_join_room_by_id_or_alias() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path_regex},
-        };
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let target_room_id = room_id!("!some_id:matrix.org");
+        let target_room_id = TestRoom::Default;
         let target_alias = room_alias_id!("#some_alias:matrix.org");
 
-        Mock::given(method("POST"))
-            .and(path_regex("^/_matrix/client/v3/join/.*$"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "room_id": target_room_id
-            })))
-            .mount(server.server())
+        server
+            .mock_room_join_by_id_or_alias(target_room_id)
+            .ok(target_room_id)
+            .expect(1)
+            .mount()
+            .await;
+
+        server
+            .mock_room_join_by_id_or_alias(target_alias)
+            .ok(target_room_id)
+            .expect(1)
+            .mount()
             .await;
 
         server
@@ -5495,8 +5533,6 @@ pub(crate) mod tests {
             .ok(target_room_id.as_str(), Vec::new())
             .mount()
             .await;
-
-        server.mock_room_join(target_room_id).ok().mount().await;
 
         let ret = client.join_room_by_id_or_alias(target_alias.into(), &[]).await;
         assert!(ret.is_ok());
@@ -5510,13 +5546,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is called once
         server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
         // We create a locally cached invited room
-        let invited_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Invited);
+        let invited_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Invited);
 
         // And we get a preview, the server endpoint was reached
         let preview = client
@@ -5532,13 +5569,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is called once
         server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
         // We create a locally cached left room
-        let left_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Left);
+        let left_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Left);
 
         // And we get a preview, the server endpoint was reached
         let preview = client
@@ -5554,13 +5592,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is called once
         server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
         // We create a locally cached knocked room
-        let knocked_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Knocked);
+        let knocked_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Knocked);
 
         // And we get a preview, the server endpoint was reached
         let preview = client
@@ -5576,13 +5615,14 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        let room_id = TestRoom::Default;
 
         // Make sure the summary endpoint is not called
         server.mock_room_summary().ok(room_id).never().mount().await;
 
         // We create a locally cached joined room
-        let joined_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Joined);
+        let joined_room =
+            client.inner.base_client.get_or_create_room(room_id.into(), RoomState::Joined);
 
         // And we get a preview, no server endpoint was reached
         let preview = client
@@ -5858,45 +5898,48 @@ pub(crate) mod tests {
     async fn test_get_dm_room_returns_the_room_we_have_with_this_user() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        // This is the user ID that is inside MemberAdditional. Note the
-        // confusing username, so we can share
-        // GlobalAccountDataTestEvent::Direct with the invited test.
-        let user_id = user_id!("@invited:localhost");
+        let user = User::Carol;
 
-        // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user_id)))
-            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
+        // When we receive a sync response saying the user is part of a DM.
+        let f = EventFactory::new();
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(JoinedRoomBuilder::default().add_state_event(f.member(user)))
+                    .add_global_account_data(f.direct().add_user(user, TestRoom::Default));
+            })
+            .await;
 
         // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+        let found_room = client.get_dm_room(user.into()).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user.into()).await.unwrap().is_some());
     }
 
     #[async_test]
     async fn test_get_dm_room_still_finds_room_where_participant_is_only_invited() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        // This is the user ID that is inside MemberInvite
-        let user_id = user_id!("@invited:localhost");
+        // This is the user that is invited.
+        let user = User::Carol;
 
         // When we receive a sync response saying "invited" is invited to a DM
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default()
-                    .add_state_event(f.member(user_id).invited(user_id).display_name("example")),
-            )
-            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
+        let f = EventFactory::new().sender(User::Alice);
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(
+                        JoinedRoomBuilder::default()
+                            .add_state_event(f.member(user).invited(user).display_name("example")),
+                    )
+                    .add_global_account_data(f.direct().add_user(user, TestRoom::Default));
+            })
+            .await;
 
         // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+        let found_room = client.get_dm_room(user.into()).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user.into()).await.unwrap().is_some());
     }
 
     #[async_test]
@@ -5908,24 +5951,24 @@ pub(crate) mod tests {
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        // This is the user ID that is inside MemberAdditional. Note the
-        // confusing username, so we can share
-        // GlobalAccountDataTestEvent::Direct with the invited test.
-        let user_id = user_id!("@invited:localhost");
+        let user = User::Carol;
 
         // When we receive a sync response saying "invited" has left a DM
-        let f = EventFactory::new().sender(user_id);
-        let response = SyncResponseBuilder::default()
-            .add_joined_room(
-                JoinedRoomBuilder::default().add_state_event(f.member(user_id).leave()),
-            )
-            .add_global_account_data(f.direct().add_user(user_id, *DEFAULT_TEST_ROOM_ID))
-            .build_sync_response();
-        client.base_client().receive_sync_response(response).await.unwrap();
+        let f = EventFactory::new().sender(user);
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(
+                        JoinedRoomBuilder::default().add_state_event(f.member(user).leave()),
+                    )
+                    .add_global_account_data(f.direct().add_user(user, TestRoom::Default));
+            })
+            .await;
 
         // Then get_dm_room finds this room
-        let found_room = client.get_dm_room(user_id).expect("DM not found!");
-        assert!(found_room.get_member_no_sync(user_id).await.unwrap().is_some());
+        let found_room = client.get_dm_room(user.into()).expect("DM not found!");
+        assert!(found_room.get_member_no_sync(user.into()).await.unwrap().is_some());
     }
 
     #[async_test]
@@ -6146,5 +6189,57 @@ pub(crate) mod tests {
             .await
             .expect("no timeout")
             .expect("task didn't panick");
+    }
+
+    #[async_test]
+    async fn test_observe_total_unread_notifications() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let f = EventFactory::new();
+
+        let set_num_notifications = async |room: &crate::Room, num: u64| {
+            room.update_room_info(|mut room_info| {
+                room_info.set_read_receipts(ReadReceipts {
+                    num_notifications: num,
+                    ..Default::default()
+                });
+                (room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT)
+            })
+            .await;
+        };
+
+        let room = server.sync_default_joined_room(&client).await;
+        set_num_notifications(&room, 1).await;
+
+        let min_interval = Duration::from_millis(100);
+        let mut stream = pin!(client.observe_total_unread_notifications(min_interval));
+
+        // The current value is emitted right away when subscribing.
+        assert_next_eq_with_timeout!(stream, 1);
+        assert_pending!(stream);
+
+        // Several updates in a short amount of time are coalesced, and only the
+        // latest value is emitted, once the interval is over.
+        set_num_notifications(&room, 3).await;
+        set_num_notifications(&room, 5).await;
+
+        assert_next_eq_with_timeout!(stream, 5, 300 ms);
+        assert_pending!(stream);
+
+        // An update that doesn't change the total doesn't emit a new value.
+        set_num_notifications(&room, 5).await;
+        assert!(timeout(min_interval * 3, stream.next()).await.is_err());
+
+        // Marking another room as unread adds one to the total.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(TestRoom::V12.into())
+                    .add_account_data(f.marked_unread(true)),
+            )
+            .await;
+
+        assert_next_eq_with_timeout!(stream, 6, 300 ms);
+        assert_pending!(stream);
     }
 }

@@ -1,14 +1,19 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use ruma::OwnedRoomId;
 use tantivy::{
     Index,
     directory::{MmapDirectory, error::OpenDirectoryError},
 };
+use tracing::warn;
 use zeroize::Zeroizing;
 
 use crate::{
-    encrypted::encrypted_dir::{EncryptedMmapDirectory, PBKDF_COUNT},
+    encrypted::encrypted_dir::EncryptedMmapDirectory,
     error::IndexError,
     index::RoomIndex,
     schema::{MatrixSearchIndexSchema, RoomMessageSchema},
@@ -52,12 +57,12 @@ impl PhysicalRoomIndexBuilder {
         }
     }
 
-    /// Make an encrypted index
-    pub fn encrypted<P: Into<String>>(&self, password: P) -> EncryptedPhysicalRoomIndexBuilder {
+    /// Make an index encrypted with the given high-entropy key
+    pub fn encrypted<K: Into<String>>(&self, key: K) -> EncryptedPhysicalRoomIndexBuilder {
         EncryptedPhysicalRoomIndexBuilder {
             path: self.path.clone(),
             room_id: self.room_id.clone(),
-            password: Zeroizing::new(password.into()),
+            key: Zeroizing::new(key.into()),
         }
     }
 }
@@ -97,29 +102,28 @@ impl UnencryptedPhysicalRoomIndexBuilder {
 pub struct EncryptedPhysicalRoomIndexBuilder {
     path: PathBuf,
     room_id: OwnedRoomId,
-    password: Zeroizing<String>,
+    key: Zeroizing<String>,
 }
 
 impl EncryptedPhysicalRoomIndexBuilder {
-    /// Build the [`RoomIndex`]
+    /// Build the [`RoomIndex`].
+    ///
+    /// An existing index that can't be opened, e.g. because it was encrypted
+    /// with another key or in an older format, is deleted and recreated.
     pub fn build(&self) -> Result<RoomIndex, IndexError> {
         let path = self.path.join(self.room_id.as_str());
-        let mmap_dir =
-            match EncryptedMmapDirectory::open_or_create(path, &self.password, PBKDF_COUNT) {
-                Ok(dir) => Ok(dir),
-                Err(err) => match err {
-                    OpenDirectoryError::DoesNotExist(path) => {
-                        fs::create_dir_all(path.clone()).map_err(|err| {
-                            OpenDirectoryError::IoError {
-                                io_error: Arc::new(err),
-                                directory_path: path.to_path_buf(),
-                            }
-                        })?;
-                        EncryptedMmapDirectory::open_or_create(path, &self.password, PBKDF_COUNT)
-                    }
-                    _ => Err(err),
-                },
-            }?;
+
+        // Any failure to open recreates the index, as it can't tell a wrong
+        // key from other errors.
+        self.open(&path).or_else(|err| {
+            warn!(room_id = %self.room_id, "Recreating the search index: {err}");
+            fs::remove_dir_all(&path)?;
+            self.open(&path)
+        })
+    }
+
+    fn open(&self, path: &Path) -> Result<RoomIndex, IndexError> {
+        let mmap_dir = EncryptedMmapDirectory::open_or_create(path, &self.key)?;
         let schema = RoomMessageSchema::new();
         let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
         Ok(RoomIndex::new_with(index, schema, &self.room_id))

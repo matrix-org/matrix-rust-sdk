@@ -70,7 +70,10 @@ use ruma::{
             to_device::send_event_to_device::v3::{
                 Request as RumaToDeviceRequest, Response as ToDeviceResponse,
             },
-            uiaa::{AuthData, AuthType, OAuth as OAuthData, OAuthParams, UiaaInfo},
+            uiaa::{
+                AuthData, AuthType, OAuth as OAuthData, OAuthParams, Password, UiaaInfo,
+                UserIdentifier,
+            },
         },
         error::{ErrorBody, StandardErrorBody},
     },
@@ -418,7 +421,13 @@ impl CrossSigningResetHandle {
         .unwrap_or_else(|_| {
             warn!("Timed out waiting for keys/device_signing/upload to succeed.");
             Err(Error::Timeout)
-        })
+        })?;
+
+        if let Some(olm) = self.client.olm_machine().await.as_ref() {
+            self.client.encryption().query_own_keys(olm).await;
+        }
+
+        Ok(())
     }
 
     /// Cancel the ongoing identity reset process
@@ -458,19 +467,38 @@ impl CrossSigningResetAuthType {
 /// authentication for the upload of cross-signing keys.
 #[derive(Debug, Clone)]
 pub struct UiaaCrossSigningResetInfo {
-    /// Session key to use to complete the authentication.
-    pub session: String,
+    auth_info: UiaaInfo,
 }
 
 impl UiaaCrossSigningResetInfo {
     fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
-        Ok(UiaaCrossSigningResetInfo {
-            session: auth_info
-                .session
-                .as_ref()
-                .ok_or_else(|| serde_json::Error::custom("UIAA info is missing a session token"))?
-                .to_owned(),
-        })
+        if auth_info.session.is_none() {
+            return Err(serde_json::Error::custom("UIAA info is missing a session token").into());
+        }
+
+        Ok(UiaaCrossSigningResetInfo { auth_info: auth_info.clone() })
+    }
+
+    /// Session key to use to complete the authentication.
+    pub fn session(&self) -> &str {
+        self.auth_info.session.as_deref().expect("The session is checked in from_auth_info")
+    }
+
+    /// The full UIAA info, containing the flows the homeserver supports, their
+    /// parameters and the stages that were already completed.
+    pub fn auth_info(&self) -> &UiaaInfo {
+        &self.auth_info
+    }
+
+    /// Create `m.login.password` UIAA [`AuthData`] to continue this reset
+    /// session.
+    ///
+    /// Only use this if the homeserver offers the `m.login.password` stage,
+    /// see [`UiaaCrossSigningResetInfo::auth_info`] for the available flows.
+    pub fn as_password_auth_data(&self, identifier: UserIdentifier, password: String) -> AuthData {
+        AuthData::Password(assign!(Password::new(identifier, password), {
+            session: Some(self.session().to_owned()),
+        }))
     }
 }
 
@@ -1157,27 +1185,20 @@ impl Encryption {
         Some(machine.cross_signing_status().await)
     }
 
-    /// Does the user have other devices that the current device can verify
-    /// against?
+    /// Does the user have devices, other than the current one, that the
+    /// current device can verify against?
     ///
-    /// The device must be signed by the user's cross-signing key, must have an
-    /// identity, and must not be a dehydrated device.
+    /// The device must be signed by the user's cross-signing key, must support
+    /// Olm (have a Curve25519 key), and must not be a dehydrated device.
     pub async fn has_devices_to_verify_against(&self) -> Result<bool> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
-        let user_id = olm_machine.user_id();
 
         self.ensure_initial_key_query().await?;
 
-        let devices = self.get_user_devices(user_id).await?;
+        let devices = olm_machine.get_user_devices(olm_machine.user_id(), None).await?;
 
-        let ret = devices.devices().any(|device| {
-            device.is_cross_signed_by_owner()
-                && device.curve25519_key().is_some()
-                && !device.is_dehydrated()
-        });
-
-        Ok(ret)
+        Ok(devices.has_other_devices_to_verify_against())
     }
 
     /// Get all the tracked users we know about
@@ -1585,6 +1606,7 @@ impl Encryption {
         }
         self.client.send(upload_signing_keys_req).await?;
         self.client.send(upload_signatures_req).await?;
+        self.query_own_keys(olm).await;
 
         Ok(())
     }
@@ -1594,7 +1616,7 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::{ruma::api::client::uiaa, encryption::CrossSigningResetAuthType};
+    /// use matrix_sdk::encryption::CrossSigningResetAuthType;
     ///
     /// # async {
     /// # let homeserver = url::Url::parse("http://example.com")?;
@@ -1605,13 +1627,9 @@ impl Encryption {
     /// if let Some(handle) = encryption.reset_cross_signing().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
-    ///             use matrix_sdk::ruma::api::client::uiaa;
-    ///
     ///             let password = "1234".to_owned();
-    ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = Some(uiaa.session.clone());
     ///
-    ///             handle.auth(uiaa::AuthData::Password(password)).await?;
+    ///             handle.auth(uiaa.as_password_auth_data(user_id, password)).await?;
     ///         }
     ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
@@ -1662,8 +1680,23 @@ impl Encryption {
             }
         } else {
             self.client.send(upload_signatures_req).await?;
+            self.query_own_keys(olm).await;
 
             Ok(None)
+        }
+    }
+
+    /// Query the user's own device keys, so that the signatures we just
+    /// uploaded for our own device are reflected locally.
+    ///
+    /// This is best-effort: the signatures are already uploaded, so if this
+    /// fails a later sync will pick them up.
+    async fn query_own_keys(&self, olm: &OlmMachine) {
+        let (request_id, request) = olm.query_keys_for_users([olm.user_id()]);
+        if let Err(error) = self.client.keys_query(&request_id, request.device_keys).await {
+            warn!(
+                "Couldn't query our own keys after uploading cross-signing signatures: {error:?}"
+            );
         }
     }
 
@@ -2265,6 +2298,11 @@ impl Encryption {
 
                     if is_verified {
                         self.client.inner.verification_state.set(VerificationState::Verified);
+                    } else if matches!(self.get_user_identity(device.user_id()).await, Ok(None)) {
+                        // We don't know our own identity yet, so we can't tell
+                        // whether we're verified; it'll be updated after the
+                        // next keys query.
+                        self.client.inner.verification_state.set(VerificationState::Unknown);
                     } else {
                         self.client.inner.verification_state.set(VerificationState::Unverified);
                     }
@@ -2300,7 +2338,7 @@ impl Encryption {
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
-        let client = WeakClient::from_client(&self.client);
+        let client = self.client.downgrade();
         self.client.add_event_handler(|ev: OriginalSyncRoomMemberEvent, room: Room| async move {
             let Some(client) = client.get() else {
                 // The main client has been dropped.
@@ -2492,7 +2530,7 @@ mod tests {
                     .add_state_event(
                         f.member(user_id!("@example:localhost")).display_name("example"),
                     )
-                    .add_state_event(f.default_power_levels())
+                    .add_state_event(f.power_levels())
                     .add_state_event(f.room_encryption()),
             )
             .build_sync_response();
@@ -2727,9 +2765,9 @@ mod tests {
         set_client_session(&client).await;
 
         // Then we can get an updated value without waiting for any network
-        // requests
+        // requests, which stays unknown as we don't know our own identity yet
         assert!(keys_requested.load(Ordering::SeqCst).not());
-        assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
+        assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
     }
 
     #[test]

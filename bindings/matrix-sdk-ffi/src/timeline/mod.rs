@@ -1238,6 +1238,9 @@ pub struct EventTimelineItem {
     edit_send_state: Option<EventSendState>,
     /// Send state of our pending redaction of this event, if any.
     redaction_send_state: Option<EventSendState>,
+    /// The reason given with the redaction of this event, if any: from the
+    /// server, or from our own redaction while it is still pending.
+    redaction_reason: Option<String>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1281,6 +1284,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             local_send_state: item.send_state().map(|s| s.into()),
             edit_send_state: item.edit_send_state().map(|s| s.into()),
             redaction_send_state: item.redaction_send_state().map(|s| s.into()),
+            redaction_reason: item.redaction_reason().map(ToOwned::to_owned),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
             origin: item.origin(),

@@ -51,10 +51,8 @@ async fn test_reset_legacy_auth() {
 
     assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
 
-    let mut password = uiaa::Password::new(user_id.to_owned().into(), "1234".to_owned());
-    password.session = Some(uiaa_info.session.clone());
     reset_handle
-        .auth(uiaa::AuthData::Password(password))
+        .auth(uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned()))
         .await
         .expect("We should be able to reset the cross-signing keys using the reset handle");
 
@@ -93,10 +91,10 @@ async fn test_reset_legacy_auth_invalid_password() {
 
     assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
 
-    let mut password = uiaa::Password::new(user_id.to_owned().into(), "wrong-password".to_owned());
-    password.session = Some(uiaa_info.session.clone());
     reset_handle
-        .auth(uiaa::AuthData::Password(password))
+        .auth(
+            uiaa_info.as_password_auth_data(user_id.to_owned().into(), "wrong-password".to_owned()),
+        )
         .await
         .expect_err("Resetting with the wrong password should return the error");
 }

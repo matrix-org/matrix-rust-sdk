@@ -46,9 +46,11 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 pub use self::crypto_store::SqliteCryptoStore;
 pub use self::error::OpenStoreError;
 #[cfg(feature = "event-cache-store")]
-pub use self::event_cache_store::SqliteEventCacheStore;
+pub use self::event_cache_store::{
+    DATABASE_NAME as EVENT_CACHE_STORE_DATABASE_NAME, SqliteEventCacheStore,
+};
 #[cfg(feature = "media-store")]
-pub use self::media_store::SqliteMediaStore;
+pub use self::media_store::{DATABASE_NAME as MEDIA_STORE_DATABASE_NAME, SqliteMediaStore};
 #[cfg(feature = "state-store")]
 pub use self::state_store::{DATABASE_NAME as STATE_STORE_DATABASE_NAME, SqliteStateStore};
 

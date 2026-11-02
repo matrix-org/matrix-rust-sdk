@@ -4,7 +4,7 @@ use futures_util::StreamExt as _;
 use matrix_sdk::{
     assert_let_timeout, room::edit::EditedContent, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     Error, EventSendState, RoomExt as _, SendTarget, TimelineEventItemId,
 };
@@ -282,7 +282,7 @@ async fn test_abort_failed_redaction_restores_item() {
     assert!(date_divider.is_date_divider());
 
     server.mock_room_redact().error_too_large().mock_once().mount().await;
-    timeline.redact(&item_id, None).await.unwrap();
+    timeline.redact(&item_id, Some("oops")).await.unwrap();
 
     // Redacted locally, pending, then failed.
     assert_let_timeout!(Some(updates) = stream.next());
@@ -291,6 +291,7 @@ async fn test_abort_failed_redaction_restores_item() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), Some(EventSendState::NotSentYet { .. }));
+    assert_eq!(item.redaction_reason(), Some("oops"));
 
     assert_let_timeout!(Some(updates) = stream.next());
     assert_eq!(updates.len(), 1);
@@ -309,6 +310,7 @@ async fn test_abort_failed_redaction_restores_item() {
     let item = item.as_event().unwrap();
     assert_eq!(item.content().as_message().unwrap().body(), "hello");
     assert_matches!(item.redaction_send_state(), None);
+    assert_matches!(item.redaction_reason(), None);
     assert_pending!(stream);
 }
 
@@ -370,9 +372,10 @@ async fn test_retry_failed_redaction() {
         Some(EventSendState::NotSentYet { .. })
     );
 
-    // Sent, then the remote echo clears the send state.
+    // Sent, then the remote echo clears the send state, then the event cache
+    // hands over the redacted event.
     assert_let_timeout!(Some(updates) = stream.next());
-    assert_eq!(updates.len(), 2);
+    assert_eq!(updates.len(), 3);
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[0]);
     let item = item.as_event().unwrap();
@@ -383,6 +386,13 @@ async fn test_retry_failed_redaction() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), None);
+    // The redaction dropped the item's JSON, and nothing has replaced it yet.
+    assert!(item.latest_json().is_none());
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &updates[2]);
+    let item = item.as_event().unwrap();
+    assert!(item.content().is_redacted());
+    assert!(item.latest_json().unwrap().json().get().contains("redacted_because"));
 
     assert_pending!(stream);
 }
@@ -832,7 +842,7 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
     assert_let_timeout!(Some(_) = stream.next());
     let items = timeline.items().await;
     let results = items[1].as_event().unwrap().content().as_poll().unwrap().results();
-    assert_eq!(results.votes["0"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["0"], &[User::Alice]);
 
     assert!(timeline.abort_send(&item_id, SendTarget::Edit).await.unwrap());
 
@@ -844,7 +854,7 @@ async fn test_abort_reverts_a_poll_edit_but_keeps_its_votes() {
     let results = item.content().as_poll().unwrap().results();
     assert_eq!(results.question, "original question");
     assert!(!results.has_been_edited);
-    assert_eq!(results.votes["0"], vec![ALICE.to_string()]);
+    assert_eq!(results.votes["0"], &[User::Alice]);
     assert_matches!(item.edit_send_state(), None);
     assert_pending!(stream);
 }

@@ -16,9 +16,7 @@ use std::{assert_matches, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use matrix_sdk::assert_next_with_timeout;
-use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -60,8 +58,8 @@ async fn test_read_receipts_updates_on_live_events() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
-    timeline.handle_live_event(f.text_msg("B").sender(*BOB)).await;
+    timeline.handle_live_event(f.text_msg("A").sender(User::Alice)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(User::Bob)).await;
 
     // No read receipt for our own user.
     let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -77,7 +75,7 @@ async fn test_read_receipts_updates_on_live_events() {
     assert!(event_b.read_receipts().get(&User::Bob).is_some());
 
     // Implicit read receipt of Bob is updated.
-    timeline.handle_live_event(f.text_msg("C").sender(*BOB)).await;
+    timeline.handle_live_event(f.text_msg("C").sender(User::Bob)).await;
 
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
     let event_a = item_a.as_event().unwrap();
@@ -88,7 +86,7 @@ async fn test_read_receipts_updates_on_live_events() {
     assert_eq!(event_c.read_receipts().len(), 1);
     assert!(event_c.read_receipts().get(&User::Bob).is_some());
 
-    timeline.handle_live_event(f.text_msg("D").sender(*ALICE)).await;
+    timeline.handle_live_event(f.text_msg("D").sender(User::Alice)).await;
 
     let item_d = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_d = item_d.as_event().unwrap();
@@ -99,7 +97,7 @@ async fn test_read_receipts_updates_on_live_events() {
         .handle_read_receipts([(
             event_d.event_id().unwrap().to_owned(),
             ReceiptType::Read,
-            BOB.to_owned(),
+            User::Bob,
             ReceiptThread::Unthreaded,
         )])
         .await;
@@ -129,13 +127,13 @@ async fn test_read_receipts_updates_on_back_paginated_events() {
 
     timeline
         .handle_back_paginated_event(
-            f.text_msg("A").sender(*BOB).event_id(event_id!("$event_a")).into_raw_timeline(),
+            f.text_msg("A").sender(User::Bob).event_id(event_id!("$event_a")).into_raw_timeline(),
         )
         .await;
     timeline
         .handle_back_paginated_event(
             f.text_msg("B")
-                .sender(*CAROL)
+                .sender(User::Carol)
                 .event_id(event_id!("$event_with_bob_receipt"))
                 .into_raw_timeline(),
         )
@@ -169,8 +167,8 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
-    timeline.handle_live_event(f.notice("B").sender(*BOB)).await;
+    timeline.handle_live_event(f.text_msg("A").sender(User::Alice)).await;
+    timeline.handle_live_event(f.notice("B").sender(User::Bob)).await;
 
     // No read receipt for our own user.
     let item_a = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
@@ -186,7 +184,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
     assert!(event_a.read_receipts().get(&User::Bob).is_some());
 
     // Implicit read receipt of Bob is updated.
-    timeline.handle_live_event(f.text_msg("C").sender(*BOB)).await;
+    timeline.handle_live_event(f.text_msg("C").sender(User::Bob)).await;
 
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event_a = item_a.as_event().unwrap();
@@ -200,9 +198,9 @@ async fn test_read_receipts_updates_on_filtered_events() {
     // Populate more events.
     let event_d_id = owned_event_id!("$event_d");
 
-    timeline.handle_live_event(f.notice("D").sender(*ALICE).event_id(&event_d_id)).await;
+    timeline.handle_live_event(f.notice("D").sender(User::Alice).event_id(&event_d_id)).await;
 
-    timeline.handle_live_event(f.text_msg("E").sender(*ALICE)).await;
+    timeline.handle_live_event(f.text_msg("E").sender(User::Alice)).await;
 
     let item_e = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     let event_e = item_e.as_event().unwrap();
@@ -213,7 +211,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         .handle_read_receipts([(
             event_d_id,
             ReceiptType::Read,
-            BOB.to_owned(),
+            User::Bob,
             ReceiptThread::Unthreaded,
         )])
         .await;
@@ -223,7 +221,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
         .handle_read_receipts([(
             event_e.event_id().unwrap().to_owned(),
             ReceiptType::Read,
-            BOB.to_owned(),
+            User::Bob,
             ReceiptThread::Unthreaded,
         )])
         .await;
@@ -252,7 +250,7 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
         .entry(ReceiptThread::Unthreaded)
         .or_default()
         .insert(
-            BOB.to_owned(),
+            User::Bob.into(),
             (
                 event_with_bob_receipt_id.to_owned(),
                 Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5))),
@@ -271,9 +269,9 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     let f = &timeline.factory;
     let mut stream = timeline.subscribe().await;
 
-    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
+    timeline.handle_live_event(f.text_msg("A").sender(User::Alice)).await;
     timeline
-        .handle_live_event(f.notice("B").sender(*CAROL).event_id(event_with_bob_receipt_id))
+        .handle_live_event(f.notice("B").sender(User::Carol).event_id(event_with_bob_receipt_id))
         .await;
 
     // No read receipt for our own user.
@@ -297,7 +295,7 @@ async fn test_read_receipts_updates_on_filtered_events_with_stored() {
     assert!(event_a.read_receipts().get(&User::Carol).is_some());
 
     // Implicit read receipt of Bob is updated.
-    timeline.handle_live_event(f.text_msg("C").sender(*BOB)).await;
+    timeline.handle_live_event(f.text_msg("C").sender(User::Bob)).await;
 
     let item_a = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
     let event_a = item_a.as_event().unwrap();
@@ -323,7 +321,7 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
         .entry(ReceiptThread::Unthreaded)
         .or_default()
         .insert(
-            BOB.to_owned(),
+            User::Bob.into(),
             (
                 event_with_bob_receipt_id.to_owned(),
                 Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5))),
@@ -346,12 +344,15 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
 
     timeline
         .handle_back_paginated_event(
-            f.text_msg("A").sender(*ALICE).event_id(event_id!("$event_a")).into_raw_timeline(),
+            f.text_msg("A").sender(User::Alice).event_id(event_id!("$event_a")).into_raw_timeline(),
         )
         .await;
     timeline
         .handle_back_paginated_event(
-            f.notice("B").sender(*CAROL).event_id(event_with_bob_receipt_id).into_raw_timeline(),
+            f.notice("B")
+                .sender(User::Carol)
+                .event_id(event_with_bob_receipt_id)
+                .into_raw_timeline(),
         )
         .await;
 
@@ -366,7 +367,7 @@ async fn test_read_receipts_updates_on_back_paginated_filtered_events() {
     // Add non-filtered event to show read receipts.
     timeline
         .handle_back_paginated_event(
-            f.text_msg("C").sender(*CAROL).event_id(event_id!("$event_c")).into_raw_timeline(),
+            f.text_msg("C").sender(User::Carol).event_id(event_id!("$event_c")).into_raw_timeline(),
         )
         .await;
 
@@ -541,7 +542,7 @@ async fn test_initial_public_unthreaded_receipt() {
         .entry(ReceiptThread::Unthreaded)
         .or_default()
         .insert(
-            ALICE.to_owned(),
+            User::Alice.into(),
             (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
         );
 
@@ -554,7 +555,8 @@ async fn test_initial_public_unthreaded_receipt() {
         .build()
         .await;
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -570,7 +572,7 @@ async fn test_initial_public_main_thread_receipt() {
         .entry(ReceiptThread::Main)
         .or_default()
         .insert(
-            ALICE.to_owned(),
+            User::Alice.into(),
             (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
         );
 
@@ -583,7 +585,8 @@ async fn test_initial_public_main_thread_receipt() {
         .build()
         .await;
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -599,7 +602,7 @@ async fn test_initial_private_unthreaded_receipt() {
         .entry(ReceiptThread::Unthreaded)
         .or_default()
         .insert(
-            ALICE.to_owned(),
+            User::Alice.into(),
             (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
         );
 
@@ -612,7 +615,8 @@ async fn test_initial_private_unthreaded_receipt() {
         .build()
         .await;
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -628,7 +632,7 @@ async fn test_initial_private_main_thread_receipt() {
         .entry(ReceiptThread::Main)
         .or_default()
         .insert(
-            ALICE.to_owned(),
+            User::Alice.into(),
             (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
         );
 
@@ -641,7 +645,8 @@ async fn test_initial_private_main_thread_receipt() {
         .build()
         .await;
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -662,7 +667,7 @@ async fn test_clear_read_receipts() {
 
     let event_a_content = RoomMessageEventContent::text_plain("A");
     timeline
-        .handle_live_event(f.event(event_a_content.clone()).sender(*BOB).event_id(event_a_id))
+        .handle_live_event(f.event(event_a_content.clone()).sender(User::Bob).event_id(event_a_id))
         .await;
 
     let items = timeline.controller.items().await;
@@ -677,13 +682,13 @@ async fn test_clear_read_receipts() {
     timeline.controller.clear().await;
 
     // New message via sync.
-    timeline.handle_live_event(f.text_msg("B").sender(*BOB).event_id(event_b_id)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(User::Bob).event_id(event_b_id)).await;
 
     // Old message via back-pagination.
     timeline
         .handle_back_paginated_event(
             f.event(event_a_content)
-                .sender(*BOB)
+                .sender(User::Bob)
                 .room(room_id)
                 .event_id(event_a_id)
                 .into_raw_timeline(),
@@ -724,15 +729,15 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
         .entry(ReceiptThread::Unthreaded)
         .or_default();
     unthreaded_read_receipts.insert(
-        ALICE.to_owned(),
+        User::Alice.into(),
         (carol_event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
     );
     unthreaded_read_receipts.insert(
-        BOB.to_owned(),
+        User::Bob.into(),
         (carol_event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(5)))),
     );
     unthreaded_read_receipts.insert(
-        CAROL.to_owned(),
+        User::Carol.into(),
         (carol_event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(1)))),
     );
 
@@ -746,11 +751,14 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
         .await;
 
     // Check that the receipts are at the correct place.
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Bob.into()).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Carol.into()).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
 
     // Add the events.
@@ -759,7 +767,7 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
             timeline
                 .factory
                 .text_msg("I am Carol!")
-                .sender(*CAROL)
+                .sender(User::Carol)
                 .room(room_id)
                 .event_id(&carol_event_id)
                 .into_raw_timeline(),
@@ -770,7 +778,7 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
             timeline
                 .factory
                 .text_msg("I am Bob!")
-                .sender(*BOB)
+                .sender(User::Bob)
                 .room(room_id)
                 .event_id(&bob_event_id)
                 .into_raw_timeline(),
@@ -781,7 +789,7 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
             timeline
                 .factory
                 .text_msg("I am Alice!")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .room(room_id)
                 .event_id(&alice_event_id)
                 .into_raw_timeline(),
@@ -789,11 +797,14 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
         .await;
 
     // The receipts shouldn't have moved.
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Bob.into()).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
+    let (receipt_event_id, _) =
+        timeline.controller.latest_user_read_receipt(User::Carol.into()).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
 }
 
@@ -812,44 +823,48 @@ async fn test_threaded_latest_user_read_receipt() {
         .await;
 
     // Sanity check: no read receipts before any events.
-    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
-    assert!(timeline.controller.latest_user_read_receipt(*BOB).await.is_none());
+    assert!(timeline.controller.latest_user_read_receipt(User::Alice.into()).await.is_none());
+    assert!(timeline.controller.latest_user_read_receipt(User::Bob.into()).await.is_none());
 
     // Add some sync events.
     let f = &timeline.factory;
 
     timeline
-        .handle_live_event(f.text_msg("hi I'm Bob.").sender(*ALICE).event_id(event_id!("$1")))
+        .handle_live_event(f.text_msg("hi I'm Bob.").sender(User::Alice).event_id(event_id!("$1")))
         .await;
 
     timeline
-        .handle_live_event(f.text_msg("hi Alice, I'm Bob.").sender(*BOB).event_id(event_id!("$2")))
+        .handle_live_event(
+            f.text_msg("hi Alice, I'm Bob.").sender(User::Bob).event_id(event_id!("$2")),
+        )
         .await;
 
     // Implicit receipts are taken into account.
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, "$1");
     assert_eq!(receipt.thread, receipt_thread);
 
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+        timeline.controller.latest_user_read_receipt(User::Bob.into()).await.unwrap();
     assert_eq!(receipt_event_id, "$2");
     assert_eq!(receipt.thread, receipt_thread);
 
     timeline
-        .handle_live_event(f.text_msg("nice to meet you!").sender(*ALICE).event_id(event_id!("$3")))
+        .handle_live_event(
+            f.text_msg("nice to meet you!").sender(User::Alice).event_id(event_id!("$3")),
+        )
         .await;
 
     // Alice's latest read receipt is updated.
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 
     // But Bob's isn't.
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+        timeline.controller.latest_user_read_receipt(User::Bob.into()).await.unwrap();
     assert_eq!(receipt_event_id, "$2");
     assert_eq!(receipt.thread, receipt_thread);
 
@@ -858,20 +873,20 @@ async fn test_threaded_latest_user_read_receipt() {
         .handle_read_receipts([(
             owned_event_id!("$3"),
             ReceiptType::Read,
-            BOB.to_owned(),
+            User::Bob,
             receipt_thread.clone(),
         )])
         .await;
 
     // Alice's latest read receipt is at the same position.
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+        timeline.controller.latest_user_read_receipt(User::Alice.into()).await.unwrap();
     assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 
     // But Bob's has moved!
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+        timeline.controller.latest_user_read_receipt(User::Bob.into()).await.unwrap();
     assert_eq!(receipt_event_id, "$3");
     assert_eq!(receipt.thread, receipt_thread);
 }
@@ -892,8 +907,8 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
 
     // Alice sends 2 messages
     let f = &timeline.factory;
-    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
-    timeline.handle_live_event(f.text_msg("B").sender(*ALICE).event_id(event_b)).await;
+    timeline.handle_live_event(f.text_msg("A").sender(User::Alice)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(User::Alice).event_id(event_b)).await;
 
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
     assert_next_matches!(stream, VectorDiff::PushFront { .. });
@@ -905,7 +920,7 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
         .handle_read_receipts([(
             event_b.to_owned(),
             ReceiptType::Read,
-            BOB.to_owned(),
+            User::Bob,
             ReceiptThread::Unthreaded,
         )])
         .await;
@@ -924,7 +939,7 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     timeline
         .handle_live_event(
             f.text_msg("C")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .event_id(event_c)
                 .in_thread(thread_event_id, event_id!("$latest")),
         )
@@ -938,7 +953,7 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
         .handle_read_receipts([(
             event_c.to_owned(),
             ReceiptType::Read,
-            BOB.to_owned(),
+            User::Bob,
             ReceiptThread::Thread(thread_event_id.to_owned()),
         )])
         .await;

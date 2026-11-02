@@ -40,6 +40,7 @@ use ruma::{
     },
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
+    time::SystemTime,
 };
 use serde_json::Error as JsonError;
 use thiserror::Error;
@@ -238,12 +239,12 @@ impl RetryKind {
     /// This method should be used for errors where the server explicitly tells
     /// us how long we must wait before we retry the request again.
     fn from_retry_after(retry_after: Option<&RetryAfter>) -> Self {
-        let retry_after = retry_after
-            .and_then(|retry_after| match retry_after {
-                RetryAfter::Delay(d) => Some(d),
-                RetryAfter::DateTime(_) => None,
-            })
-            .copied();
+        let retry_after = retry_after.and_then(|retry_after| match retry_after {
+            RetryAfter::Delay(d) => Some(*d),
+            // `duration_since` fails if the date is already in the past, in which case we
+            // fall back to the regular backoff.
+            RetryAfter::DateTime(time) => time.duration_since(SystemTime::now()).ok(),
+        });
 
         Self::Transient { retry_after }
     }
@@ -797,9 +798,14 @@ impl WrongRoomState {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use assert_matches::assert_matches;
     use http::StatusCode;
-    use ruma::api::EndpointError as _;
+    use ruma::{
+        api::{EndpointError as _, error::RetryAfter},
+        time::SystemTime,
+    };
 
     use super::{
         HttpError, RefreshTokenError, RetryKind, RumaApiError,
@@ -841,6 +847,38 @@ mod tests {
         assert_matches!(
             HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired).retry_kind(),
             RetryKind::Permanent
+        );
+    }
+
+    #[test]
+    fn test_retry_kind_from_retry_after() {
+        assert_matches!(
+            RetryKind::from_retry_after(None),
+            RetryKind::Transient { retry_after: None }
+        );
+
+        assert_matches!(
+            RetryKind::from_retry_after(Some(&RetryAfter::Delay(Duration::from_secs(5)))),
+            RetryKind::Transient { retry_after: Some(delay) } => {
+                assert_eq!(delay, Duration::from_secs(5));
+            }
+        );
+
+        // A date in the future is turned into the delay until that date.
+        let in_a_minute = SystemTime::now() + Duration::from_secs(60);
+        assert_matches!(
+            RetryKind::from_retry_after(Some(&RetryAfter::DateTime(in_a_minute))),
+            RetryKind::Transient { retry_after: Some(delay) } => {
+                assert!(delay > Duration::from_secs(55));
+                assert!(delay <= Duration::from_secs(60));
+            }
+        );
+
+        // A date in the past falls back to the regular backoff.
+        let a_minute_ago = SystemTime::now() - Duration::from_secs(60);
+        assert_matches!(
+            RetryKind::from_retry_after(Some(&RetryAfter::DateTime(a_minute_ago))),
+            RetryKind::Transient { retry_after: None }
         );
     }
 

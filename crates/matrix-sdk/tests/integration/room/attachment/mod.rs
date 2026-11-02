@@ -6,7 +6,7 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -380,7 +380,7 @@ async fn test_room_attachment_reply_outside_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -447,7 +447,7 @@ async fn test_room_attachment_start_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -514,7 +514,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -583,7 +583,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(*ALICE)
+            .sender(User::Alice)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -668,6 +668,48 @@ async fn test_room_attachment_send_is_animated() {
         .unwrap();
 
     assert_eq!(expected_event_id, response.event_id)
+}
+
+#[async_test]
+#[cfg(feature = "unstable-msc4546")]
+async fn test_room_attachment_send_circle_video() {
+    let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
+            "msgtype": "m.video",
+            "org.interferolog.circle": true,
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_upload()
+        .expect_mime_type("video/mp4")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let config = AttachmentConfig::new()
+        .info(AttachmentInfo::Video(BaseVideoInfo { circle: true, ..Default::default() }));
+
+    let video_mp4: mime::Mime = "video/mp4".parse().unwrap();
+    let response = room
+        .send_attachment("circle.mp4", &video_mp4, b"Hello world".to_vec(), config)
+        .await
+        .unwrap();
+
+    assert_eq!(expected_event_id, response.event_id);
 }
 
 #[async_test]

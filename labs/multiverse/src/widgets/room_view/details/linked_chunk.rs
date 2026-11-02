@@ -26,8 +26,13 @@ impl Widget for &mut LinkedChunkView<'_> {
             Some(room) => {
                 let lines = tokio::task::block_in_place(|| {
                     Handle::current().block_on(async {
-                        let (cache, _drop_guards) =
-                            room.event_cache().await.expect("no event cache for that room");
+                        let (cache, _drop_guards) = room
+                            .client()
+                            .event_cache()
+                            .unwrap()
+                            .room(room.room_id())
+                            .await
+                            .expect("no event cache for that room");
                         cache.debug_string().await
                     })
                 });

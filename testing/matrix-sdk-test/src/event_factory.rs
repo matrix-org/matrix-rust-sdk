@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     sync::atomic::{AtomicU64, Ordering::SeqCst},
     time::Duration,
 };
@@ -26,8 +26,8 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
-    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
-    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
+    OwnedRoomAliasId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, OwnedVoipId,
+    RoomId, RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -37,6 +37,7 @@ use ruma::{
         RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
         RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
+        TimelineEventType,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
         call::{
@@ -99,10 +100,9 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         space_order::SpaceOrderEventContent,
         sticker::StickerEventContent,
-        tag::{TagEventContent, Tags},
+        tag::{TagEventContent, TagInfo, TagName, Tags},
         typing::TypingEventContent,
     },
-    owned_device_id,
     presence::PresenceState,
     push::Ruleset,
     room::RoomType,
@@ -113,7 +113,7 @@ use ruma::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 
-use crate::base64_sha256_hash;
+use crate::{TestRoom, base64_sha256_hash};
 
 pub trait TimestampArg {
     fn to_milliseconds_since_unix_epoch(self) -> MilliSecondsSinceUnixEpoch;
@@ -244,6 +244,12 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
 
     pub fn room(mut self, room_id: &RoomId) -> Self {
         self.room = Some(room_id.to_owned());
+        self
+    }
+
+    /// Set the room ID as the default value for tests.
+    pub fn default_room(mut self) -> Self {
+        self.room = Some(TestRoom::Default.into());
         self
     }
 
@@ -888,6 +894,12 @@ impl EventFactory {
         self
     }
 
+    /// Set the room ID of the generated events as the default value for tests.
+    pub fn default_room(mut self) -> Self {
+        self.room = Some(TestRoom::Default.into());
+        self
+    }
+
     pub fn sender(mut self, sender: impl Into<OwnedUserId>) -> Self {
         self.sender = Some(sender.into());
         self
@@ -1155,6 +1167,25 @@ impl EventFactory {
         builder
     }
 
+    /// Create a redacted event like [`EventFactory::redacted`], with a reason
+    /// in the `unsigned.redacted_because` redaction.
+    pub fn redacted_with_reason<
+        T: StaticEventContent<IsPrefix = False> + RedactedMessageLikeEventContent,
+    >(
+        &self,
+        redacter: impl Into<OwnedUserId>,
+        content: T,
+        reason: impl Into<String>,
+    ) -> EventBuilder<T> {
+        let mut builder = self.redacted(redacter, content);
+        if let Some(because) =
+            builder.unsigned.as_mut().and_then(|unsigned| unsigned.redacted_because.as_mut())
+        {
+            because.content.reason = Some(reason.into());
+        }
+        builder
+    }
+
     /// Create a redacted event, with extra information in the unsigned section
     /// about the redaction itself.
     pub fn redacted<T: StaticEventContent<IsPrefix = False> + RedactedMessageLikeEventContent>(
@@ -1310,16 +1341,17 @@ impl EventFactory {
     /// Create a new `m.room.create` event.
     pub fn create(
         &self,
-        creator_user_id: &UserId,
+        creator: impl Into<OwnedUserId>,
         room_version: RoomVersionId,
     ) -> EventBuilder<RoomCreateEventContent> {
-        let mut event = self.event(RoomCreateEventContent::new_v1(creator_user_id.to_owned()));
+        let creator = creator.into();
+        let mut event = self.event(RoomCreateEventContent::new_v1(creator.clone()));
         event.content.room_version = room_version;
 
         if self.sender.is_some() {
             event.sender = self.sender.clone();
         } else {
-            event.sender = Some(creator_user_id.to_owned());
+            event.sender = Some(creator);
         }
 
         event.state_key = Some("".to_owned());
@@ -1327,21 +1359,11 @@ impl EventFactory {
         event
     }
 
-    /// Create a new `m.room.power_levels` event.
-    pub fn power_levels(
-        &self,
-        map: &mut BTreeMap<OwnedUserId, Int>,
-    ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-        content.users.append(map);
-        let mut event = self.event(content);
+    /// Create a new `m.room.power_levels` event with default values.
+    pub fn power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
+        let mut event = self.event(RoomPowerLevelsEventContent::new(&AuthorizationRules::V1));
         event.state_key = Some("".to_owned());
         event
-    }
-
-    /// Create a new `m.room.power_levels` event with default values.
-    pub fn default_power_levels(&self) -> EventBuilder<RoomPowerLevelsEventContent> {
-        self.power_levels(&mut BTreeMap::new())
     }
 
     /// Create a new `m.room.server_acl` event.
@@ -1505,19 +1527,20 @@ impl EventFactory {
     /// ```
     pub fn call_membership_state(
         &self,
-        user_id: OwnedUserId,
+        user_id: impl Into<OwnedUserId>,
         device_id: String,
     ) -> EventBuilder<CallMemberEventContent> {
+        let user_id = user_id.into();
         let event = self.event(CallMemberEventContent::new(
             Application::Call(CallApplicationContent::new("".to_owned(), CallScope::Room)),
-            owned_device_id!(device_id.clone()),
+            device_id.clone().into(),
             ActiveFocus::Livekit(ActiveLivekitFocus::new()),
             vec![],
             Some(MilliSecondsSinceUnixEpoch::now()),
             Some(Duration::from_secs(3600)),
         ));
         event
-            .sender(&user_id)
+            .sender(user_id.clone())
             .state_key(CallMemberStateKey::new(user_id, device_id.into(), true).as_ref())
     }
 
@@ -1611,6 +1634,14 @@ impl EventFactory {
         self.room_account_data(tags.into())
     }
 
+    /// Create a new `m.tag` room account data event with the given list of tag
+    /// names.
+    ///
+    /// For each name, a default [`TagInfo`] is constructed.
+    pub fn tag_from_names(&self, tag_names: Vec<TagName>) -> EventBuilder<TagEventContent> {
+        self.tag(tag_names.into_iter().map(|name| (name, TagInfo::default())).collect())
+    }
+
     /// Create a new `m.space_order` room account data event with the given
     /// order.
     pub fn space_order(&self, order: &str) -> EventBuilder<SpaceOrderEventContent> {
@@ -1685,9 +1716,17 @@ impl EventBuilder<DirectEventContent> {
     pub fn add_user(
         mut self,
         user_id: impl Into<OwnedDirectUserIdentifier>,
-        room_id: &RoomId,
+        room_id: impl Into<OwnedRoomId>,
     ) -> Self {
-        self.content.0.entry(user_id.into()).or_default().push(room_id.to_owned());
+        self.content.0.entry(user_id.into()).or_default().push(room_id.into());
+        self
+    }
+}
+
+impl EventBuilder<RoomRedactionEventContent> {
+    /// Set the reason of the redaction.
+    pub fn reason(mut self, reason: impl Into<String>) -> Self {
+        self.content.reason = Some(reason.into());
         self
     }
 }
@@ -1838,12 +1877,57 @@ impl EventBuilder<RtcNotificationEventContent> {
     }
 }
 
+impl EventBuilder<RoomPowerLevelsEventContent> {
+    /// Set the custom power levels of users.
+    pub fn set_users<I, U, P>(mut self, users: I) -> Self
+    where
+        I: IntoIterator<Item = (U, P)>,
+        U: Into<OwnedUserId>,
+        P: Into<Int>,
+    {
+        self.content.users = users.into_iter().map(|(user, pl)| (user.into(), pl.into())).collect();
+        self
+    }
+
+    /// Set the custom power levels of event types.
+    pub fn set_events<I, P>(mut self, events: I) -> Self
+    where
+        I: IntoIterator<Item = (TimelineEventType, P)>,
+        P: Into<Int>,
+    {
+        self.content.events =
+            events.into_iter().map(|(event_type, pl)| (event_type, pl.into())).collect();
+        self
+    }
+}
+
 impl EventBuilder<CallMemberEventContent> {
     /// Sets the livekit focus to the call membership event
-    pub fn set_livekit_focus(mut self, alias: String, service_url: String) -> Self {
+    #[allow(deprecated)]
+    pub fn set_livekit_focus(
+        mut self,
+        alias: Option<String>,
+        url: Option<String>,
+        server_name: Option<OwnedServerName>,
+        service_url: Option<String>,
+    ) -> Self {
         if let CallMemberEventContent::SessionContent(session_data) = &mut self.content {
-            session_data.foci_preferred =
-                vec![Focus::Livekit(LivekitFocus::new(alias, service_url))];
+            let mut livekit = if let Some(url) = url {
+                let mut focus = LivekitFocus::new(url);
+                focus.service_url = service_url;
+                focus
+            } else {
+                if let Some(service_url) = service_url {
+                    let mut focus = LivekitFocus::with_service_url(service_url);
+                    focus.url = url;
+                    focus
+                } else {
+                    panic!("need to provide either url or service_url")
+                }
+            };
+            livekit.alias = alias;
+            livekit.server_name = server_name;
+            session_data.foci_preferred = vec![Focus::Livekit(livekit)];
         } else {
             panic!("focus() called on a non-SessionContent call member event");
         }
@@ -1877,7 +1961,7 @@ impl ReadReceiptBuilder<'_> {
     pub fn add(
         self,
         event_id: &EventId,
-        user_id: &UserId,
+        user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
     ) -> Self {
@@ -1889,7 +1973,7 @@ impl ReadReceiptBuilder<'_> {
     pub fn add_with_timestamp(
         mut self,
         event_id: &EventId,
-        user_id: &UserId,
+        user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
         ts: Option<MilliSecondsSinceUnixEpoch>,
@@ -1903,7 +1987,7 @@ impl ReadReceiptBuilder<'_> {
         }
         receipt.thread = thread;
 
-        by_type.insert(user_id.to_owned(), receipt);
+        by_type.insert(user_id.into(), receipt);
         self
     }
 

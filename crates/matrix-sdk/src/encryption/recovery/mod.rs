@@ -111,7 +111,6 @@ use crate::encryption::{
 };
 use crate::{
     Client,
-    client::WeakClient,
     encryption::{backups::BackupState, secret_storage::SecretStorageError},
 };
 
@@ -404,8 +403,7 @@ impl Recovery {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    ///     encryption::recovery, encryption::CrossSigningResetAuthType, ruma::api::client::uiaa,
-    ///     Client,
+    ///     encryption::recovery, encryption::CrossSigningResetAuthType, Client,
     ///   };
     /// # use url::Url;
     /// # async {
@@ -418,10 +416,8 @@ impl Recovery {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
     ///             let password = "1234".to_owned();
-    ///             let mut password = uiaa::Password::new(user_id, password);
-    ///             password.session = Some(uiaa.session.clone());
     ///
-    ///             handle.reset(uiaa::AuthData::Password(password)).await?;
+    ///             handle.reset(uiaa.as_password_auth_data(user_id, password)).await?;
     ///         }
     ///         CrossSigningResetAuthType::OAuth(oauth) => {
     ///             println!(
@@ -727,7 +723,7 @@ impl Recovery {
         client: &Client,
     ) -> impl Future<Output = ()> + use<> {
         let mut stream = client.encryption().backups().state_stream();
-        let weak = WeakClient::from_client(client);
+        let weak = client.downgrade();
 
         async move {
             while let Some(update) = stream.next().await {

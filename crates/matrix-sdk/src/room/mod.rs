@@ -156,7 +156,9 @@ use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
+use self::futures::{
+    SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent, SendRawStateEvent,
+};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
     messages::{
@@ -169,14 +171,13 @@ use crate::encryption::backups::BackupState;
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 #[cfg(feature = "experimental-encrypted-state-events")]
-use crate::room::futures::{SendRawStateEvent, SendStateEvent};
+use crate::room::futures::SendStateEvent;
 use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
     attachment::{AttachmentConfig, AttachmentInfo},
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
-    event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     live_locations_observer::LiveLocationsObserver,
     media::{MediaFormat, MediaRequestParameters},
@@ -357,6 +358,11 @@ macro_rules! make_media_type {
             }
 
             mime::VIDEO => {
+                #[cfg(feature = "unstable-msc4546")]
+                let circle = match &$info {
+                    Some(AttachmentInfo::Video(video_info)) => video_info.circle,
+                    _ => false,
+                };
                 let info = assign!($info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some($content_type.as_ref().to_owned()),
                     thumbnail_source,
@@ -365,8 +371,10 @@ macro_rules! make_media_type {
                 let content = assign!(VideoMessageEventContent::new(body, $source), {
                     info: Some(Box::new(info)),
                     formatted,
-                    filename
+                    filename,
                 });
+                #[cfg(feature = "unstable-msc4546")]
+                let content = content.circle(circle);
                 <$t>::Video(content)
             }
 
@@ -870,15 +878,17 @@ impl Room {
         event_id: &EventId,
         request_config: Option<RequestConfig>,
     ) -> Result<TimelineEvent> {
-        match self.event_cache().await {
-            Ok((event_cache, _drop_handles)) => {
-                if let Some(event) = event_cache.find_event(event_id).await? {
-                    return Ok(event);
+        if let Some(event_cache) = self.client.event_cache() {
+            match event_cache.room(self.room_id()).await {
+                Ok((room_event_cache, _drop_handles)) => {
+                    if let Some(event) = room_event_cache.find_event(event_id).await? {
+                        return Ok(event);
+                    }
+                    // Fallthrough: try with a request.
                 }
-                // Fallthrough: try with a request.
-            }
-            Err(err) => {
-                debug!("error when getting the event cache: {err}");
+                Err(err) => {
+                    debug!("error when getting the event cache: {err}");
+                }
             }
         }
 
@@ -981,29 +991,37 @@ impl Room {
 
         // First, try to load the event _and_ its relations from the event
         // cache, all at once.
-        let event_cache = match self.event_cache().await {
-            Ok((event_cache, drop_handles)) => {
-                if let Some((event, mut relations)) =
-                    event_cache.find_event_with_relations(event_id, filter.clone()).await?
-                {
-                    if relations.is_empty() {
-                        // The event cache doesn't have any relations for this
-                        // event, try to fetch them from the server instead.
-                        relations = fetch_relations().await;
+        let room_event_cache = match self.client.event_cache() {
+            Some(event_cache) => {
+                match event_cache.room(self.room_id()).await {
+                    Ok((event_cache, drop_handles)) => {
+                        if let Some((event, mut relations)) =
+                            event_cache.find_event_with_relations(event_id, filter.clone()).await?
+                        {
+                            if relations.is_empty() {
+                                // The event cache doesn't have any relations
+                                // for this
+                                // event, try to fetch them from the server
+                                // instead.
+                                relations = fetch_relations().await;
+                            }
+
+                            return Ok((event, relations));
+                        }
+
+                        // Otherwise, get the event from the server.
+                        Some((event_cache, drop_handles))
                     }
 
-                    return Ok((event, relations));
+                    Err(err) => {
+                        debug!("error when getting the event cache: {err}");
+                        // Fallthrough: try with a request.
+                        None
+                    }
                 }
-
-                // Otherwise, get the event from the server.
-                Some((event_cache, drop_handles))
             }
 
-            Err(err) => {
-                debug!("error when getting the event cache: {err}");
-                // Fallthrough: try with a request.
-                None
-            }
+            None => None,
         };
 
         // Fetch the event from the server. A failure here is fatal, as we must
@@ -1015,7 +1033,7 @@ impl Room {
         // To understand why, see the documentation in `load_or_fetch_event`.
 
         // Try to get the relations from the event cache (if we have one).
-        if let Some((event_cache, _drop_handles)) = event_cache
+        if let Some((event_cache, _drop_handles)) = room_event_cache
             && let Some(relations) =
                 event_cache.find_event_relations(event_id, filter.clone()).await.ok()
             && !relations.is_empty()
@@ -3336,58 +3354,6 @@ impl Room {
 
     /// Send a raw room state event to the homeserver.
     ///
-    /// Returns the parsed response from the server.
-    ///
-    /// # Arguments
-    ///
-    /// - `event_type` - The type of the event that we're sending out.
-    /// - `state_key` - A unique key which defines the overwriting semantics for
-    /// this piece of room state. This value is often a zero-length string.
-    /// - `content` - The content of the event as a raw JSON value. The argument
-    ///   type can be `serde_json::Value`, but also other raw JSON types; for
-    ///   the full list check the documentation of [`IntoRawStateEventContent`].
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use serde_json::json;
-    ///
-    /// # async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
-    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
-    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    ///
-    /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.send_state_event_raw("m.room.member", "", json!({
-    ///         "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
-    ///         "displayname": "Alice Margatroid",
-    ///         "membership": "join",
-    ///     })).await?;
-    /// }
-    /// # anyhow::Ok(()) };
-    /// ```
-    #[cfg(not(feature = "experimental-encrypted-state-events"))]
-    #[instrument(skip_all)]
-    pub async fn send_state_event_raw(
-        &self,
-        event_type: &str,
-        state_key: &str,
-        content: impl IntoRawStateEventContent,
-    ) -> Result<send_state_event::v3::Response> {
-        self.ensure_room_joined()?;
-
-        let request = send_state_event::v3::Request::new_raw(
-            self.room_id().to_owned(),
-            event_type.into(),
-            state_key.to_owned(),
-            content.into_raw_state_event_content(),
-        );
-
-        Ok(self.client.send(request).await?)
-    }
-
-    /// Send a raw room state event to the homeserver.
-    ///
     /// If the experimental state event encryption feature is enabled, this
     /// method will transparently encrypt the event if this room is encrypted
     /// (except if the event type is considered critical for the room to
@@ -3425,7 +3391,6 @@ impl Room {
     /// ```
     ///
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
-    #[cfg(feature = "experimental-encrypted-state-events")]
     #[instrument(skip_all)]
     pub fn send_state_event_raw<'a>(
         &'a self,
@@ -3860,7 +3825,10 @@ impl Room {
         }
 
         self.client.base_client().forget_room(room_id).await?;
-        self.client.event_cache().forget_room(room_id).await?;
+
+        if let Some(event_cache) = self.client.event_cache() {
+            event_cache.forget_room(room_id).await?;
+        }
 
         Ok(())
     }
@@ -4004,14 +3972,6 @@ impl Room {
 
         self.client.send(request).await?;
         Ok(())
-    }
-
-    /// Returns the [`RoomEventCache`] associated to this room, assuming the
-    /// global [`EventCache`] has been enabled for subscription.
-    pub async fn event_cache(
-        &self,
-    ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        self.client.event_cache().room(self.room_id()).await
     }
 
     /// Get the beacon information event in the room for the `user_id`.
@@ -5017,11 +4977,11 @@ fn has_state_events_of_type(update: &RoomUpdate, event_type: &StateEventType) ->
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::BTreeMap, time::Duration};
+    use std::time::Duration;
 
     use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+        JoinedRoomBuilder, SyncResponseBuilder, TestRoom, async_test, event_factory::EventFactory,
     };
     use ruma::{
         RoomVersionId, event_id,
@@ -5051,7 +5011,7 @@ mod tests {
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
         use matrix_sdk_base::store::RoomLoadSettings;
-        use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, message_like_event_content};
+        use matrix_sdk_test::{TestRoom, message_like_event_content};
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let sqlite_path = tmp_dir.path().join("cache_invalidation_while_encrypt.db");
@@ -5091,14 +5051,14 @@ mod tests {
                         .add_state_event(
                             f.member(user_id!("@example:localhost")).display_name("example"),
                         )
-                        .add_state_event(f.default_power_levels())
+                        .add_state_event(f.power_levels())
                         .add_state_event(f.room_encryption()),
                 )
                 .build_sync_response();
             client.base_client().receive_sync_response(response).await.unwrap();
         }
 
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+        let room = client.get_room(TestRoom::Default.into()).expect("Room should exist");
 
         // Step 1, preshare the room keys.
         room.preshare_room_key().await.unwrap();
@@ -5146,15 +5106,13 @@ mod tests {
 
     #[async_test]
     async fn test_composer_draft() {
-        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
-
         let client = logged_in_client(None).await;
 
         let response = SyncResponseBuilder::default()
             .add_joined_room(JoinedRoomBuilder::default())
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+        let room = client.get_room(TestRoom::Default.into()).expect("Room should exist");
 
         assert_eq!(room.load_composer_draft(None).await.unwrap(), None);
 
@@ -5552,11 +5510,10 @@ mod tests {
         let room_id = room_id!("!a:b.c");
         let sender_id = client.user_id().expect("No session id");
         let f = EventFactory::new().room(room_id).sender(sender_id);
-        let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
 
         // Computing the power levels will need these 3 state events:
-        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into();
-        let power_levels_event = f.power_levels(&mut user_map).state_key("").into();
+        let room_create_event = f.create(sender_id, RoomVersionId::V1).into();
+        let power_levels_event = f.power_levels().set_users([(sender_id, 50)]).into();
         let room_member_event = f.member(sender_id).into();
 
         // With only the room member event
@@ -5904,5 +5861,24 @@ mod tests {
             assert_eq!(result.max_lifetime(), case.expected_max, "{}", case.description);
             assert_eq!(result.min_lifetime(), case.expected_min, "{}", case.description);
         }
+    }
+
+    #[async_test]
+    async fn test_send_state_event_raw_with_request_config() {
+        let server = MatrixMockServer::new().await;
+        // The client retries by default, the request below must override that.
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
+            .build()
+            .await;
+        let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+
+        server.mock_room_send_state().error500().expect(1).mount().await;
+
+        room.send_state_event_raw("org.example.custom", "", serde_json::json!({}))
+            .with_request_config(RequestConfig::new().disable_retry())
+            .await
+            .unwrap_err();
     }
 }

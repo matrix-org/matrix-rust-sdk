@@ -25,8 +25,6 @@ use std::{
 use ops::Deref;
 
 use anyhow::{Context as _, anyhow};
-#[cfg(feature = "sqlite")]
-use matrix_sdk::STATE_STORE_DATABASE_NAME;
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
@@ -65,6 +63,10 @@ use matrix_sdk::{
     store::RoomLoadSettings as SdkRoomLoadSettings,
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
+};
+#[cfg(feature = "sqlite")]
+use matrix_sdk::{
+    EVENT_CACHE_STORE_DATABASE_NAME, MEDIA_STORE_DATABASE_NAME, STATE_STORE_DATABASE_NAME,
 };
 #[cfg(feature = "experimental-x509-identity-verification")]
 use matrix_sdk_base::crypto::x509::RawX509Signature;
@@ -425,6 +427,12 @@ pub struct Client {
     #[cfg_attr(not(feature = "sqlite"), allow(unused))]
     store_path: Option<PathBuf>,
 
+    /// The path to the directory where the event cache store and the media
+    /// store are located, if the `Client` instance has been built with an
+    /// SQLite store.
+    #[cfg_attr(not(feature = "sqlite"), allow(unused))]
+    cache_path: Option<PathBuf>,
+
     content_scanner: RwLock<Option<Arc<ContentScanner>>>,
 }
 
@@ -433,6 +441,7 @@ impl Client {
         sdk_client: MatrixClient,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
         store_path: Option<PathBuf>,
+        cache_path: Option<PathBuf>,
     ) -> Result<Self, ClientError> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
@@ -470,6 +479,7 @@ impl Client {
             utd_hook_manager: OnceLock::new(),
             session_verification_controller,
             store_path,
+            cache_path,
             content_scanner: Default::default(),
         };
 
@@ -1890,6 +1900,19 @@ impl Client {
         Arc::new(Encryption { inner: self.inner.encryption(), _client: self.clone() })
     }
 
+    /// Whether the user has joined at least one encrypted room, spaces
+    /// excluded.
+    ///
+    /// The local cache is consulted first, falling back to asking the
+    /// homeserver directly if no encrypted room is known. If the server
+    /// does not answer in `timeout_ms` milliseconds, this returns an error.
+    ///
+    /// Clients should treat errors as "maybe encrypted", not as "not
+    /// encrypted".
+    pub async fn has_encrypted_rooms(&self, timeout: Duration) -> Result<bool, ClientError> {
+        Ok(self.inner.has_encrypted_rooms(timeout).await?)
+    }
+
     // Ignored users
 
     pub async fn ignored_users(&self) -> Result<Vec<String>, ClientError> {
@@ -2164,11 +2187,12 @@ impl Client {
     /// it via dropping the previous and re-creating it, restarting their
     /// application, or any other similar means.
     ///
-    /// - This will get rid of the backing state store file, if provided.
     /// - This will empty all the room's persisted event caches, so all rooms
     ///   will start as if they were empty.
-    /// - This will empty the media cache according to the current media
-    ///   retention policy.
+    /// - This will delete the search index.
+    /// - This will close all the stores, then get rid of the backing state
+    ///   store, event cache store and media store files, if provided. The
+    ///   crypto store is kept.
     pub async fn clear_caches(
         &self,
         sync_service: Option<Arc<SyncService>>,
@@ -2179,57 +2203,46 @@ impl Client {
                 sync_service.inner.expire_sessions().await;
             }
 
-            // Disable the send queues, as they might read and write to the
-            // state store. Events being send might still be active, and cause
-            // errors if processing finishes, so this will only minimize damage.
-            // Since this method should only be called in exceptional cases,
-            // this has been deemed acceptable.
-            self.inner.send_queue().set_enabled(false).await;
+            // Disable the send queues, and close all the stores: in-flight
+            // operations complete, then the database connections are released,
+            // so the files below aren't deleted while still in use. This must
+            // come after expiring the sessions, which saves the reset sync
+            // position in the crypto store.
+            self.inner.pause().await?;
 
-            // Clean up the media cache according to the current media retention
-            // policy.
-            self.inner
-                .media_store()
-                .lock()
-                .await
-                .map_err(Error::from)?
-                .clean()
-                .await
-                .map_err(Error::from)?;
+            // Delete the search index, now that no new event can be saved, and
+            // indexed, anymore. It may share its directory with the stores, so
+            // only its own files are deleted.
+            #[cfg(feature = "experimental-search")]
+            self.inner.search_index().clear().await.map_err(ClientError::from_err)?;
 
-            // Clear all the room chunks. It's important to _not_ call
-            // `EventCacheStore::clear_all_events` here, because there might be
-            // live observers of the linked chunks, and that would cause some
-            // very bad state mismatch.
-            self.inner.event_cache().clear_all_rooms().await?;
-
-            // Delete the state store file, if it exists.
+            // Delete the store files, if they exist.
             #[cfg(feature = "sqlite")]
-            if let Some(store_path) = &self.store_path {
-                debug!("Removing the state store: {}", store_path.display());
-
+            if let (Some(store_path), Some(cache_path)) = (&self.store_path, &self.cache_path) {
                 // The state store and the crypto store both live in the same
                 // store path, so we can't blindly delete the directory.
                 //
-                // Delete the state store SQLite file, as well as the
-                // write-ahead log (WAL) and shared-memory (SHM) files, if they
-                // exist.
-
-                for file_name in [
-                    PathBuf::from(STATE_STORE_DATABASE_NAME),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}-wal")),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}-shm")),
+                // Delete the SQLite files, as well as the write-ahead log (WAL)
+                // and shared-memory (SHM) files, if they exist.
+                for (dir, database_name) in [
+                    (store_path, STATE_STORE_DATABASE_NAME),
+                    (cache_path, EVENT_CACHE_STORE_DATABASE_NAME),
+                    (cache_path, MEDIA_STORE_DATABASE_NAME),
                 ] {
-                    let file_path = store_path.join(file_name);
-                    if file_path.exists() {
-                        debug!("Removing file: {}", file_path.display());
-                        std::fs::remove_file(&file_path).map_err(|err| ClientError::Generic {
-                            msg: format!(
-                                "couldn't delete the state store file {}: {err}",
-                                file_path.display()
-                            ),
-                            details: None,
-                        })?;
+                    for suffix in ["", "-wal", "-shm"] {
+                        let file_path = dir.join(format!("{database_name}{suffix}"));
+                        if file_path.exists() {
+                            debug!("Removing file: {}", file_path.display());
+                            std::fs::remove_file(&file_path).map_err(|err| {
+                                ClientError::Generic {
+                                    msg: format!(
+                                        "couldn't delete the store file {}: {err}",
+                                        file_path.display()
+                                    ),
+                                    details: None,
+                                }
+                            })?;
+                        }
                     }
                 }
             }
@@ -2449,13 +2462,16 @@ impl Client {
     /// front-loaded by recency (the last week for all rooms first, then the
     /// previous week, and so on), to populate the search index.
     ///
-    /// Requires `ClientBuilder::enable_automatic_back_pagination` to have been
-    /// enabled, otherwise this no-ops.
+    /// Requires `ClientBuilder::enable_automatic_back_pagination` and
+    /// `ClientBuilder::enable_event_cache` to have been enabled, otherwise
+    /// this no-ops.
     pub fn run_search_backfill(&self, strategy: SearchBackfillStrategy) -> Arc<TaskHandle> {
         let client = self.inner.clone();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            client.event_cache().run_search_backfill(strategy).await;
+            if let Some(event_cache) = client.event_cache() {
+                event_cache.run_search_backfill(strategy).await;
+            }
         })))
     }
 
@@ -2572,6 +2588,38 @@ impl Client {
             }
         })))
     }
+
+    /// Subscribe to the total unread notification count of this [`Client`].
+    ///
+    /// The listener is called at most once every `min_interval` when new
+    /// [`RoomInfoNotableUpdate`] are received. This interval mode is to avoid
+    /// calculating hundreds of new values in a very small amount of time.
+    ///
+    /// An initial value will be reported as soon as the subscription starts.
+    ///
+    /// Use the returned [`TaskHandle`] to cancel the subscription.
+    pub fn observe_total_unread_notifications(
+        &self,
+        listener: Box<dyn TotalUnreadNotificationsListener>,
+        min_interval: Duration,
+    ) -> Arc<TaskHandle> {
+        let stream = self.inner.observe_total_unread_notifications(min_interval);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let mut stream = pin!(stream);
+
+            while let Some(total_count) = stream.next().await {
+                listener.on_update(total_count);
+            }
+        })))
+    }
+}
+
+/// A callback interface for receiving updates of the total unread notification
+/// count.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait TotalUnreadNotificationsListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, count: u64);
 }
 
 #[cfg(feature = "unstable-msc4354")]
@@ -3694,8 +3742,14 @@ impl TryFrom<RumaAllowRule> for AllowRule {
 pub enum RtcTransport {
     /// A LiveKit RTC transport.
     LiveKit {
-        /// The URL of the LiveKit service.
-        service_url: String,
+        /// The WebSocket URL of the LiveKit SFU.
+        url: Option<String>,
+
+        /// The URL of the LiveKit JWT service.
+        ///
+        /// Deprecated in favor of `url`. Should only be used when backwards
+        /// compatibility with older versions of MSC4195 is required
+        service_url: Option<String>,
     },
 
     /// A transport type the SDK doesn't know about, up for interpretation by
@@ -3711,10 +3765,13 @@ pub enum RtcTransport {
 }
 
 impl From<&RumaRtcTransport> for RtcTransport {
+    // `service_url` is deprecated, but still exposed for backwards
+    // compatibility.
+    #[allow(deprecated)]
     fn from(value: &RumaRtcTransport) -> Self {
         match value {
             RumaRtcTransport::LiveKit(info) => {
-                Self::LiveKit { service_url: info.service_url.clone() }
+                Self::LiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
             }
             _ => Self::Custom {
                 transport_type: value.transport_type().to_owned(),
@@ -3737,6 +3794,8 @@ pub struct StoreSizes {
     event_cache_store: Option<u64>,
     /// The size of the MediaStore.
     media_store: Option<u64>,
+    /// The size of the search index.
+    search_index: Option<u64>,
 }
 
 impl From<matrix_sdk::StoreSizes> for StoreSizes {
@@ -3746,6 +3805,7 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
             state_store: value.state_store.map(|v| v as u64),
             event_cache_store: value.event_cache_store.map(|v| v as u64),
             media_store: value.media_store.map(|v| v as u64),
+            search_index: value.search_index.map(|v| v as u64),
         }
     }
 }
@@ -3824,7 +3884,10 @@ mod tests {
 
     use ruma::{
         ServerName,
-        api::client::room::{Visibility, create_room},
+        api::client::{
+            room::{Visibility, create_room},
+            rtc::LiveKitRtcTransport,
+        },
         authentication::TokenType,
         events::StateEventType,
         room::RoomType,
@@ -3934,7 +3997,7 @@ mod tests {
         // reference to `ClientInner` is the local `sdk_client` variable.
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let ffi_client = super::Client::new(sdk_client.clone(), None, None).await.unwrap();
+        let ffi_client = super::Client::new(sdk_client.clone(), None, None, None).await.unwrap();
 
         // Dropping `sdk_client` leaves `ffi_client` as the sole Arc holder of
         // `ClientInner` — mirroring what happens when the last JS reference to
@@ -3946,6 +4009,55 @@ mod tests {
         std::thread::spawn(move || drop(ffi_client))
             .join()
             .expect("Client::drop panicked on a non-tokio thread");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_clear_caches_deletes_the_store_files() {
+        use matrix_sdk::{Client, config::RequestConfig};
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+        use tempfile::tempdir;
+
+        let data_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+
+        let sdk_client = Client::builder()
+            .homeserver_url("https://example.com")
+            .request_config(RequestConfig::new().disable_retry())
+            .sqlite_store_with_cache_path(data_dir.path(), cache_dir.path(), None)
+            .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+            .build()
+            .await
+            .unwrap();
+        let client = super::Client::new(
+            sdk_client,
+            None,
+            Some(data_dir.path().to_owned()),
+            Some(cache_dir.path().to_owned()),
+        )
+        .await
+        .unwrap();
+
+        let crypto_store = data_dir.path().join("matrix-sdk-crypto.sqlite3");
+        let store_files = [
+            data_dir.path().join("matrix-sdk-state.sqlite3"),
+            cache_dir.path().join("matrix-sdk-event-cache.sqlite3"),
+            cache_dir.path().join("matrix-sdk-media.sqlite3"),
+        ];
+        assert!(crypto_store.exists());
+        for path in &store_files {
+            assert!(path.exists(), "{} doesn't exist", path.display());
+        }
+
+        client.clear_caches(None).await.unwrap();
+
+        assert!(crypto_store.exists());
+        for path in &store_files {
+            for suffix in ["", "-wal", "-shm"] {
+                let path = format!("{}{suffix}", path.display());
+                assert!(!std::path::Path::new(&path).exists(), "{path} wasn't removed");
+            }
+        }
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -4011,15 +4123,19 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_rtc_transport_conversion() {
         use ruma::api::client::rtc::RtcTransport as RumaRtcTransport;
         use strass::assert_let;
 
         use super::RtcTransport;
 
-        let livekit = RumaRtcTransport::livekit("https://livekit.example.com".to_owned());
-        assert_let!(RtcTransport::LiveKit { service_url } = RtcTransport::from(&livekit));
-        assert_eq!(service_url, "https://livekit.example.com");
+        let mut transport = LiveKitRtcTransport::new("wss://livekit.example.com".to_owned());
+        transport.service_url = Some("https://livekit-jwt.example.com".to_owned());
+        let livekit = RumaRtcTransport::LiveKit(transport);
+        assert_let!(RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&livekit));
+        assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
 
         let custom = RumaRtcTransport::new(
             "com.example.custom",

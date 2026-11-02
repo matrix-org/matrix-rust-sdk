@@ -14,6 +14,7 @@
 
 use std::{pin::Pin, sync::Arc, time::Duration};
 
+use cms::cert::x509::der::DateTime;
 use ruma::{DeviceKeyId, UserId, canonical_json::to_canonical_value};
 use thiserror::Error;
 use tracing::info;
@@ -93,13 +94,13 @@ impl X509Signer {
             return false;
         };
 
+        // The latest expiry among the signatures we have inspected so far.
+        let mut latest_expiry = None;
+
         // We check all the available X.509 signatures. If any of them has a
-        // later or equal expiry, then we return `false`. Otherwise, all of them
-        // have a strictly earlier expiry, so we return `true`.
+        // later or equal expiry, then we can bail out by returning `false`.
         for sig in this_user_sigs.values() {
             if let Ok(Signature::X509(sig)) = sig {
-                // We get the earliest expiry date from all the certificates in
-                // the signature.
                 let data: cms::signed_data::SignedData =
                     match sig.get_signature().content.decode_as() {
                         Ok(res) => res,
@@ -111,32 +112,72 @@ impl X509Signer {
                             continue;
                         }
                     };
-                let Some(certificate_set) = data.certificates else {
-                    tracing::warn!("X509: has_later_expiry_than(): no certificates found");
-                    continue;
-                };
-                let Some(validity_not_after) = certificate_set
-                    .0
-                    .iter()
-                    .filter_map(|cert| match cert {
-                        cms::cert::CertificateChoices::Certificate(c) => {
-                            Some(c.tbs_certificate.validity.not_after.to_unix_duration())
-                        }
-                        _ => None,
-                    })
-                    .min()
+
+                let Some(certificate_set) =
+                    data.certificates.as_ref().filter(|set| !set.0.is_empty())
                 else {
-                    tracing::warn!("X509: has_later_expiry_than(): no certificates found");
+                    tracing::warn!(
+                        "X509: has_later_expiry_than(): no certificates found in X509 signature"
+                    );
                     continue;
                 };
 
-                if validity_not_after >= signer_validity_not_after {
-                    // We found a signature with a certificate that has a
+                // Build a list of (subject, expiry) pairs, to help with
+                // logging.
+                let cert_expiries = certificate_set.0.iter()
+                    .filter_map(|c| {
+                        let cms::cert::CertificateChoices::Certificate(cert) = c else {
+                            tracing::warn!(
+                                "X509: has_later_expiry_than(): non-X509 certificate in X509 signature"
+                            );
+                            return None;
+                        };
+
+                        let not_after = cert.tbs_certificate.validity.not_after;
+                        let name = cert.tbs_certificate.subject.to_string();
+                        Some((name, not_after))
+                    }).collect::<Vec<_>>();
+
+                let signature_expiry =
+                    cert_expiries.iter().map(|(_, t)| t.to_unix_duration()).min();
+
+                tracing::debug!(
+                    "X509: has_later_expiry_than(): signer expiry: {:?}; signature cert expiries: {:?} (min {:?})",
+                    DateTime::from_unix_duration(signer_validity_not_after),
+                    cert_expiries,
+                    signature_expiry.map(DateTime::from_unix_duration),
+                );
+
+                let Some(exp) = signature_expiry else {
+                    // The signature contained only non-X.509 certs. We've
+                    // already warned about them, so just ignore this signature.
+                    continue;
+                };
+
+                // `signature_expiry` now holds the earliest expiry date of any
+                // of the certificates in the signature.
+                if exp >= signer_validity_not_after {
+                    // We found a signature whose certificates have a
                     // later-or-equal validity period.
                     return false;
                 }
+
+                // Track the latest found expiry time, for later logging. If
+                // this expiry is later than the previous latest, record it.
+                latest_expiry = latest_expiry.max(Some(exp));
             }
         }
+
+        if let Some(latest) = latest_expiry {
+            info!(
+                "X509: has_later_expiry_than(): latest signature expiry {:?} is earlier than signer expiry {:?}",
+                DateTime::from_unix_duration(latest),
+                DateTime::from_unix_duration(signer_validity_not_after),
+            );
+        } else {
+            info!("X509: has_later_expiry_than(): no usable X509 signatures found");
+        }
+
         true
     }
 }

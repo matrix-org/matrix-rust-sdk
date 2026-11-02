@@ -1,6 +1,8 @@
-use std::{assert_matches, collections::BTreeSet};
+use std::{assert_matches, collections::BTreeSet, time::Duration};
 
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
+    config::SyncSettings,
     deserialized_responses::RawSyncOrStrippedState,
     test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
 };
@@ -38,6 +40,7 @@ use ruma::{
 use serde_json::json;
 use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
+use tokio::time::timeout;
 
 #[async_test]
 async fn test_receive_room_encryption_event_via_sync() {
@@ -2680,4 +2683,30 @@ async fn test_cached_active_service_members_updates_on_sync_members() {
     // We got some computed values after sync_members
     assert!(room.active_service_members_count().is_some());
     assert_eq!(room.active_service_members_count().unwrap(), 2);
+}
+
+#[async_test]
+async fn test_sync_loop_without_throttling() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // The server responds immediately to every sync request.
+    server.mock_sync().ok(|_| {}).mount().await;
+
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(0)).throttle_sync_loop(false);
+    let sync_stream = client.sync_stream(sync_settings).await;
+    pin_mut!(sync_stream);
+
+    // With throttling enabled, each sync after the first one would be delayed
+    // by one second, so receiving 5 responses would take at least 4
+    // seconds. Without throttling, they should all arrive (way) under 2
+    // seconds.
+    timeout(Duration::from_secs(2), async {
+        for _ in 0..5 {
+            sync_stream.next().await.expect("the sync stream should not end").unwrap();
+        }
+    })
+    .await
+    .expect("syncs should not have been throttled");
 }

@@ -424,7 +424,6 @@ mod tests {
     use serde_json::{from_value, json};
     use strass::assert_let;
     use stream_assert::{assert_next_eq, assert_next_matches, assert_pending, assert_ready};
-    use wiremock::ResponseTemplate;
 
     use crate::spaces::{
         SpaceRoom, SpaceRoomList, SpaceService, room_list::SpaceRoomListPaginationState,
@@ -819,7 +818,7 @@ mod tests {
 
         server
             .mock_get_hierarchy()
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            .ok_json(json!({
                 "rooms": [
                     {
                         "room_id": parent_space_id,
@@ -843,7 +842,7 @@ mod tests {
                         "children_state": []
                     },
                 ]
-            })))
+            }))
             .mount()
             .await;
 

@@ -130,7 +130,10 @@ impl LiveLocationsObserver {
         // Beacon infos are stored in the state store, not the event cache.
         let beacon_infos = room.get_state_events_static::<BeaconInfoEventContent>().await?;
         // Event cache is only needed for finding last location (optional).
-        let event_cache = room.event_cache().await.ok();
+        let maybe_room_event_cache = match room.client().event_cache() {
+            Some(event_cache) => event_cache.room(room.room_id()).await.ok(),
+            None => None,
+        };
         let mut shares = Vector::new();
         for raw_beacon_info in beacon_infos {
             let Ok(event) = raw_beacon_info.deserialize() else { continue };
@@ -138,8 +141,10 @@ impl LiveLocationsObserver {
             else {
                 continue;
             };
-            let last_location = match &event_cache {
-                Some((cache, _drop_handles)) => Self::find_last_location(cache, &event_id).await,
+            let last_location = match &maybe_room_event_cache {
+                Some((room_event_cache, _event_cache_drop_handles)) => {
+                    Self::find_last_location(room_event_cache, &event_id).await
+                }
                 None => None,
             };
             shares.push_back(LiveLocationShare {
@@ -245,8 +250,14 @@ impl LiveLocationsObserver {
             }
         }
         if event.content.is_live() {
-            let last_location = if let Ok((cache, _drop_handles)) = room.event_cache().await {
-                Self::find_last_location(&cache, &event.event_id).await
+            let maybe_room_event_cache = match room.client().event_cache() {
+                Some(event_cache) => event_cache.room(room.room_id()).await.ok(),
+                None => None,
+            };
+            let last_location = if let Some((room_event_cache, _event_cache_drop_handles)) =
+                maybe_room_event_cache
+            {
+                Self::find_last_location(&room_event_cache, &event.event_id).await
             } else {
                 None
             };

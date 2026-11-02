@@ -20,11 +20,18 @@ use ruma::events::secret_storage::default_key::SecretStorageDefaultKeyEventConte
 
 use super::{Result, SecretStorage, SecretStore};
 
+#[derive(Debug)]
+pub(crate) enum KeyOrPassphrase<'a> {
+    None,
+    Key(&'a SecretStorageKey),
+    Passphrase(&'a str),
+}
+
 /// Future returned by [`SecretStorage::create_secret_store()`].
 #[derive(Debug)]
 pub struct CreateStore<'a> {
     pub(super) secret_storage: &'a SecretStorage,
-    pub(super) passphrase: Option<&'a str>,
+    pub(super) key: KeyOrPassphrase<'a>,
 }
 
 impl<'a> CreateStore<'a> {
@@ -33,7 +40,17 @@ impl<'a> CreateStore<'a> {
     /// See the documentation for the [`SecretStorage::create_secret_store()`]
     /// method for more info.
     pub fn with_passphrase(mut self, passphrase: &'a str) -> Self {
-        self.passphrase = Some(passphrase);
+        self.key = KeyOrPassphrase::Passphrase(passphrase);
+
+        self
+    }
+
+    /// Set the key for the new [`SecretStore`].
+    ///
+    /// See the documentation for the [`SecretStorage::create_secret_store()`]
+    /// method for more info.
+    pub fn with_key(mut self, key: &'a SecretStorageKey) -> Self {
+        self.key = KeyOrPassphrase::Key(key);
 
         self
     }
@@ -47,7 +64,7 @@ impl<'a> IntoFuture for CreateStore<'a> {
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { secret_storage, passphrase } = self;
+        let Self { secret_storage, key } = self;
 
         Box::pin(async move {
             // Prevent multiple simultaneous calls to this method.
@@ -57,10 +74,10 @@ impl<'a> IntoFuture for CreateStore<'a> {
             let client_copy = secret_storage.client.to_owned();
             let _guard = client_copy.locks().open_secret_store_lock.lock().await;
 
-            let new_key = if let Some(passphrase) = passphrase {
-                SecretStorageKey::new_from_passphrase(passphrase)
-            } else {
-                SecretStorageKey::new()
+            let new_key = match key {
+                KeyOrPassphrase::None => SecretStorageKey::new(),
+                KeyOrPassphrase::Key(k) => k.clone(),
+                KeyOrPassphrase::Passphrase(p) => SecretStorageKey::new_from_passphrase(p),
             };
 
             let content = new_key.event_content().to_owned();

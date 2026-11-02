@@ -86,7 +86,6 @@ use zeroize::Zeroizing;
 
 use crate::{
     Client, HttpError,
-    client::WeakClient,
     encryption::{CryptoStoreError, secret_storage::SecretStore},
 };
 
@@ -665,7 +664,7 @@ impl DehydratedDevices {
             .expect("load_key(create_if_missing=true) always yields a key");
         self.create(None, &key).await?;
 
-        let weak_client = WeakClient::from_client(&self.client);
+        let weak_client = self.client.downgrade();
         let handle = self
             .client
             .task_monitor()

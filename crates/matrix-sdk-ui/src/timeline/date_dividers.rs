@@ -703,7 +703,7 @@ mod tests {
 
     fn test_metadata(client: &Client) -> TimelineMetadata {
         TimelineMetadata::new(
-            client.event_cache().clone(),
+            client.event_cache().unwrap().clone(),
             owned_user_id!("@a:b.c"),
             RoomVersionRules::V11,
             None,

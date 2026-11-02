@@ -51,7 +51,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
-use tracing::{error, instrument, trace};
+use tracing::{instrument, trace};
 
 use crate::{
     Client,
@@ -72,6 +72,7 @@ mod tasks;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
+pub(crate) use self::caches::room::RFindMapOutcome;
 pub use self::{
     back_pagination_queue::BackPaginationQueue,
     caches::{
@@ -453,6 +454,10 @@ impl EventCache {
     }
 
     /// Return a thread-specific view over the [`EventCache`].
+    ///
+    /// Note: it is impossible to know if `thread_id` represents a valid thread
+    /// identifier. It means it's possible to create a [`ThreadEventCache`] for
+    /// an event that is not a thread root.
     pub async fn thread(
         &self,
         room_id: &RoomId,
@@ -728,30 +733,22 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let Ok(caches) = self.all_caches_for_room(&room_id).await else {
-                error!(?room_id, "Room must exist");
-                continue;
-            };
+            trace!(?room_id, "Handling a `LeftRoomUpdate`");
 
-            if let Err(err) = caches.handle_left_room_update(left_room_update).await {
-                // Non-fatal error, try to continue to the next room.
-                error!("handling left room update: {err}");
-            }
+            self.all_caches_for_room(&room_id)
+                .await?
+                .handle_left_room_update(left_room_update)
+                .await?;
         }
 
         // Joined rooms.
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let Ok(caches) = self.all_caches_for_room(&room_id).await else {
-                error!(?room_id, "Room must exist");
-                continue;
-            };
-
-            if let Err(err) = caches.handle_joined_room_update(joined_room_update).await {
-                // Non-fatal error, try to continue to the next room.
-                error!(%room_id, "handling joined room update: {err}");
-            }
+            self.all_caches_for_room(&room_id)
+                .await?
+                .handle_joined_room_update(joined_room_update)
+                .await?;
         }
 
         // Invited rooms.
@@ -859,7 +856,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id2, RoomState::Joined);
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Insert two rooms with a few events.
         let f = EventFactory::new().room(room_id1).sender(user_id!("@ben:saucisse.bzh"));
@@ -895,9 +892,7 @@ mod tests {
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
         // We can find the events in a single room.
-        let room1 = client.get_room(room_id1).unwrap();
-
-        let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id1).await.unwrap();
 
         let found1 = room_event_cache.find_event(eid1).await.unwrap().unwrap();
         assert_event_matches_msg(&found1, "hey");
@@ -958,7 +953,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -1059,7 +1054,7 @@ mod tests {
             .build()
             .await;
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
@@ -1108,7 +1103,7 @@ mod tests {
         let client = logged_in_client(None).await;
         let room_id = room_id!("!raclette:patate.ch");
 
-        let event_cache = client.event_cache();
+        let event_cache = client.event_cache().unwrap();
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
@@ -1135,7 +1130,7 @@ mod tests {
         // Wait for the init tasks to die.
         sleep(Duration::from_secs(1)).await;
 
-        let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
+        let event_cache_weak = Arc::downgrade(&client.event_cache().unwrap().inner);
         assert_eq!(event_cache_weak.strong_count(), 2);
 
         {
@@ -1148,7 +1143,7 @@ mod tests {
             client.inner.base_client.receive_sync_response(response).await.unwrap();
 
             let (_room_event_cache, _drop_handles) =
-                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+                client.event_cache().unwrap().room(room_id).await.unwrap();
         }
 
         drop(client);
@@ -1163,5 +1158,43 @@ mod tests {
             "Too many strong references to the event cache {}",
             event_cache_weak.strong_count()
         );
+    }
+
+    /// Dropping the future creating a room's caches must not leave the room
+    /// state half-created, which would make every later attempt fail.
+    #[async_test]
+    async fn test_cancelled_caches_creation_can_be_retried() {
+        let client = logged_in_client(None).await;
+        let room_id_a = room_id!("!a:saucisse.bzh");
+        let room_id_b = room_id!("!b:saucisse.bzh");
+
+        client.base_client().get_or_create_room(room_id_a, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id_b, RoomState::Joined);
+
+        let event_cache = client.event_cache().unwrap();
+
+        let (room_a, _drop_handles) = event_cache.room(room_id_a).await.unwrap();
+
+        // Hold the state write lock so that creating room B's caches waits on
+        // it.
+        let guard = room_a.state().write().await.unwrap();
+
+        let mut create_b = Box::pin(event_cache.room(room_id_b));
+        assert!(create_b.as_mut().now_or_never().is_none());
+
+        // Queue another writer behind room B's creation.
+        let mut other_writer = Box::pin(room_a.state().write());
+        assert!(other_writer.as_mut().now_or_never().is_none());
+
+        // Room B's creation gets the lock and inserts its state. If anything
+        // still has to wait after that (behind the other writer), cancel it
+        // there.
+        drop(guard);
+        let _ = create_b.as_mut().now_or_never();
+        drop(create_b);
+        drop(other_writer);
+
+        // Creating room B's caches again works.
+        event_cache.room(room_id_b).await.unwrap();
     }
 }

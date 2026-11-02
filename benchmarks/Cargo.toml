@@ -12,6 +12,9 @@ release = false
 
 [features]
 codspeed = []
+# The search benchmark needs the search index, which shouldn't run in the other
+# benchmarks.
+search = ["matrix-sdk/experimental-search"]
 
 [dependencies]
 assert_matches.workspace = true
@@ -57,6 +60,11 @@ harness = false
 [[bench]]
 name = "room_list"
 harness = false
+
+[[bench]]
+name = "search"
+harness = false
+required-features = ["search"]
 
 [lints]
 workspace = true

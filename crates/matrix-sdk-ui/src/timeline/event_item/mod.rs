@@ -92,6 +92,10 @@ pub struct EventTimelineItem {
     pub(super) unredacted_item: Option<UnredactedEventTimelineItem>,
     /// Send state of our own pending redaction of this event, if any.
     pub(super) redaction_send_state: Option<EventSendState>,
+    /// The reason given with the redaction of this event, if any. Taken from
+    /// the redaction event, so it is known for our own redaction as soon as it
+    /// is queued, before the server's `redacted_because` arrives.
+    pub(super) redaction_reason: Option<String>,
     /// Send state of our own pending edits of this event, if any.
     pub(super) edit_send_state: Option<EventSendState>,
     /// The reactions of the event, grouped by key and then by sender.
@@ -184,6 +188,7 @@ impl EventTimelineItem {
             content,
             unredacted_item: None,
             redaction_send_state: None,
+            redaction_reason: None,
             edit_send_state: None,
             reactions: Default::default(),
             unedited_kind: None,
@@ -253,6 +258,13 @@ impl EventTimelineItem {
     /// when the event isn't redacted or the redaction came from the server.
     pub fn redaction_send_state(&self) -> Option<&EventSendState> {
         self.redaction_send_state.as_ref()
+    }
+
+    /// The reason given with the redaction of this event, if any: from the
+    /// server's `redacted_because`, or from our own redaction while it is still
+    /// pending. `None` when the event isn't redacted or no reason was given.
+    pub fn redaction_reason(&self) -> Option<&str> {
+        self.redaction_reason.as_deref()
     }
 
     /// Send state of our own pending edits of this event: a failed edit wins
@@ -610,6 +622,7 @@ impl EventTimelineItem {
             content,
             unredacted_item,
             redaction_send_state: None,
+            redaction_reason: None,
             edit_send_state: None,
             reactions: Default::default(),
             unedited_kind: None,
@@ -642,6 +655,7 @@ impl EventTimelineItem {
             content: unredacted_item.content.clone(),
             unredacted_item: None,
             redaction_send_state: None,
+            redaction_reason: None,
             edit_send_state: None,
             reactions: unredacted_item.reactions.clone(),
             unedited_kind: None,

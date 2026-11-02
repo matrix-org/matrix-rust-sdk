@@ -133,8 +133,6 @@ impl LeaveSpaceHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{
         InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder, async_test,
@@ -165,10 +163,6 @@ mod tests {
         let invited_room_id = room_id!("!invited_room:example.org");
 
         let some_non_admin_id = owned_user_id!("@some_non_admin:a.b");
-        let mut power_levels = BTreeMap::from([
-            (user_id.to_owned(), 100.into()),
-            (some_non_admin_id.clone(), 50.into()),
-        ]);
 
         server
             .sync_room(
@@ -180,18 +174,18 @@ mod tests {
                             .space_parent(parent_space_id.to_owned(), child_space_id_1.to_owned()),
                     )
                     .add_state_event(
-                        factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+                        factory.power_levels().set_users([
+                            (user_id.to_owned(), 100),
+                            (some_non_admin_id.clone(), 50),
+                        ]),
                     )
-                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
-                    .add_state_event(
-                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
-                    )
+                    .add_state_event(factory.member(user_id))
+                    .add_state_event(factory.member(&some_non_admin_id))
                     .set_joined_members_count(2),
             )
             .await;
 
         let other_admin_user_id = owned_user_id!("@some_other_admin:a.b");
-        power_levels.insert(other_admin_user_id.clone(), 100.into());
 
         server
             .sync_room(
@@ -203,26 +197,16 @@ mod tests {
                             .space_parent(parent_space_id.to_owned(), child_space_id_2.to_owned()),
                     )
                     .add_state_event(
-                        factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+                        factory.power_levels().set_users([(other_admin_user_id.clone(), 100)]),
                     )
-                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
-                    .add_state_event(
-                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
-                    )
-                    .add_state_event(
-                        factory
-                            .member(&other_admin_user_id)
-                            .state_key(other_admin_user_id.to_string()),
-                    )
+                    .add_state_event(factory.member(user_id))
+                    .add_state_event(factory.member(&some_non_admin_id))
+                    .add_state_event(factory.member(&other_admin_user_id))
                     .set_joined_members_count(3),
             )
             .await;
 
         // The creator is not supposed to be in the power levels on v12
-        let mut power_levels = BTreeMap::from([
-            (some_non_admin_id.clone(), 50.into()),
-            (other_admin_user_id.clone(), 100.into()),
-        ]);
         server
             .sync_room(
                 &client,
@@ -234,24 +218,18 @@ mod tests {
                             child_space_v12_id_1.to_owned(),
                         ),
                     )
-                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
-                    .add_state_event(
-                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
-                    )
-                    .add_state_event(
-                        factory
-                            .member(&other_admin_user_id)
-                            .state_key(other_admin_user_id.to_string()),
-                    )
-                    .add_state_event(
-                        factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-                    )
+                    .add_state_event(factory.member(user_id))
+                    .add_state_event(factory.member(&some_non_admin_id))
+                    .add_state_event(factory.member(&other_admin_user_id))
+                    .add_state_event(factory.power_levels().set_users([
+                        (some_non_admin_id.clone(), 50),
+                        (other_admin_user_id.clone(), 100),
+                    ]))
                     .set_joined_members_count(3),
             )
             .await;
 
         let other_owner_user_id = owned_user_id!("@some_other_owner:a.b");
-        power_levels.insert(other_owner_user_id.clone(), 150.into());
         server
             .sync_room(
                 &client,
@@ -263,22 +241,12 @@ mod tests {
                             child_space_v12_id_2.to_owned(),
                         ),
                     )
-                    .add_state_event(factory.member(user_id).state_key(user_id.to_string()))
+                    .add_state_event(factory.member(user_id))
+                    .add_state_event(factory.member(&some_non_admin_id))
+                    .add_state_event(factory.member(&other_admin_user_id))
+                    .add_state_event(factory.member(&other_owner_user_id))
                     .add_state_event(
-                        factory.member(&some_non_admin_id).state_key(some_non_admin_id.to_string()),
-                    )
-                    .add_state_event(
-                        factory
-                            .member(&other_admin_user_id)
-                            .state_key(other_admin_user_id.to_string()),
-                    )
-                    .add_state_event(
-                        factory
-                            .member(&other_owner_user_id)
-                            .state_key(other_owner_user_id.to_string()),
-                    )
-                    .add_state_event(
-                        factory.power_levels(&mut power_levels).state_key("").sender(user_id),
+                        factory.power_levels().set_users([(other_owner_user_id.clone(), 150)]),
                     )
                     .set_joined_members_count(4),
             )

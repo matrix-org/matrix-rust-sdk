@@ -461,7 +461,8 @@ pub(super) mod test {
         ) -> Self {
             let content: Arc<Mutex<Option<String>>> = Mutex::default().into();
             let created: Arc<Mutex<Option<Instant>>> = Mutex::default().into();
-            let etag = Arc::new(AtomicU8::new(0));
+            // Matches the ETag returned when the session is created.
+            let etag = Arc::new(AtomicU8::new(1));
 
             let homeserver_url = Url::parse(&server.uri())
                 .expect("We should be able to parse the example homeserver");
@@ -507,10 +508,10 @@ pub(super) mod test {
 
                             *content.lock().unwrap() =
                                 Some(String::from_utf8(request.body.clone()).unwrap());
-                            let current_etag = etag.fetch_add(1, Ordering::SeqCst);
+                            let new_etag = etag.fetch_add(1, Ordering::SeqCst) + 1;
 
                             ResponseTemplate::new(200)
-                                .append_header("ETag", (current_etag + 2).to_string())
+                                .append_header("ETag", new_etag.to_string())
                                 .append_header("Expires", "Wed, 07 Sep 2022 14:28:51 GMT")
                                 .append_header("Last-Modified", "Wed, 07 Sep 2022 14:27:51 GMT")
                         }
@@ -542,21 +543,19 @@ pub(super) mod test {
                             let mut content = content.lock().unwrap();
                             let current_etag = etag.load(Ordering::SeqCst);
 
-                            if requested_etag == Some(current_etag) || requested_etag.is_none() {
-                                let content = content.take();
-
-                                ResponseTemplate::new(200)
-                                    .append_header("ETag", (current_etag).to_string())
-                                    .append_header("Expires", "Wed, 07 Sep 2022 14:28:51 GMT")
-                                    .append_header("Last-Modified", "Wed, 07 Sep 2022 14:27:51 GMT")
-                                    .set_body_string(content.unwrap_or_default())
-                            } else {
-                                let etag = requested_etag.unwrap_or_default();
-
+                            // As on a real server: 304 if nothing changed
+                            // since the given ETag, otherwise the content.
+                            if requested_etag == Some(current_etag) {
                                 ResponseTemplate::new(304)
-                                    .append_header("ETag", etag.to_string())
+                                    .append_header("ETag", current_etag.to_string())
                                     .append_header("Expires", "Wed, 07 Sep 2022 14:28:51 GMT")
                                     .append_header("Last-Modified", "Wed, 07 Sep 2022 14:27:51 GMT")
+                            } else {
+                                ResponseTemplate::new(200)
+                                    .append_header("ETag", current_etag.to_string())
+                                    .append_header("Expires", "Wed, 07 Sep 2022 14:28:51 GMT")
+                                    .append_header("Last-Modified", "Wed, 07 Sep 2022 14:27:51 GMT")
+                                    .set_body_string(content.take().unwrap_or_default())
                             }
                         }
                     }),

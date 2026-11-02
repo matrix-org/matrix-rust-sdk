@@ -46,6 +46,7 @@ pub mod event_handler;
 mod http_client;
 pub mod latest_events;
 pub mod media;
+mod media_metrics;
 pub mod notification_settings;
 pub mod paginators;
 pub mod pusher;
@@ -74,7 +75,7 @@ pub use client::homeserver_capabilities::HomeserverCapabilities;
 pub mod search_index;
 pub use client::{
     Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange, StoreSizes,
-    TileServerInfo, ToDeviceMessage, sanitize_server_name,
+    TileServerInfo, ToDeviceMessage, WeakClient, sanitize_server_name,
 };
 pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
@@ -85,10 +86,11 @@ pub use http_client::{SupportedAuthScheme, SupportedPathBuilder, TransmissionPro
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
 pub use matrix_sdk_sqlite::{
-    STATE_STORE_DATABASE_NAME, SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore,
-    SqliteStoreConfig, Synchronous,
+    EVENT_CACHE_STORE_DATABASE_NAME, MEDIA_STORE_DATABASE_NAME, STATE_STORE_DATABASE_NAME,
+    SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore, SqliteStoreConfig, Synchronous,
 };
 pub use media::Media;
+pub use media_metrics::{MediaMetrics, MediaType, MediaUsage};
 pub use pusher::Pusher;
 pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};

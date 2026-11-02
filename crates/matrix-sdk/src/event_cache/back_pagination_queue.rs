@@ -44,7 +44,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use matrix_sdk_base::{locks::Mutex, task_monitor::TaskMonitor};
+use matrix_sdk_base::{RoomState, locks::Mutex, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::OwnedRoomId;
 use tokio::sync::{mpsc, oneshot};
@@ -124,6 +124,9 @@ pub(crate) enum BackPaginationStopReason {
     Failed,
     /// The request was cancelled.
     Cancelled,
+    /// The room isn't worth back-paginating: it's a space, which has no
+    /// messages to load, or the user isn't joined to it.
+    Skipped,
 }
 
 /// The result of running a single [`BackPaginationRequest`] to completion.
@@ -542,17 +545,37 @@ async fn run_request(
 
     // Grab an owned `RoomPagination`, dropping the caches guard immediately so
     // we don't hold the room lock across network paginations.
-    let pagination = {
+    //
+    // Also keep a subscription to the room for the whole run: dropping it when
+    // this function returns triggers an auto-shrink of the room's linked chunk
+    // if nobody else is subscribed, so backfilled events don't linger in
+    // memory.
+    let (pagination, _subscriber) = {
         let Some(inner) = event_cache.upgrade() else {
             return BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled };
         };
-        match inner.all_caches_for_room(&request.room_id).await {
-            Ok(caches) => caches.room().pagination(),
+        if let Ok(client) = inner.client()
+            && let Some(room) = client.get_room(&request.room_id)
+            && (room.is_space() || room.state() != RoomState::Joined)
+        {
+            debug!("skipping back-pagination for a space or a non-joined room");
+            return BackPaginationRunResult { reason: BackPaginationStopReason::Skipped };
+        }
+        let room = match inner.all_caches_for_room(&request.room_id).await {
+            Ok(caches) => caches.room().clone(),
             Err(err) => {
                 warn!("no caches for room while back-paginating: {err}");
                 return BackPaginationRunResult { reason: BackPaginationStopReason::Failed };
             }
-        }
+        };
+        let subscriber = match room.subscribe().await {
+            Ok((_events, subscriber)) => subscriber,
+            Err(err) => {
+                warn!("couldn't subscribe to the room while back-paginating: {err}");
+                return BackPaginationRunResult { reason: BackPaginationStopReason::Failed };
+            }
+        };
+        (room.pagination(), subscriber)
     };
 
     let mut batches = 0usize;

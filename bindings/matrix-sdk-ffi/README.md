@@ -22,6 +22,7 @@ Given the number of platforms targeted, we have broken out a number of features
 
 - `unstable-msc4274`: Adds support for gallery message types, which contain
   multiple media elements.
+- `unstable-msc4546`: Adds support for circle videos.
 
 ## Platforms
 

@@ -22,9 +22,7 @@ use matrix_sdk::{
     room::Receipts,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
-use matrix_sdk_test::{
-    ALICE, BOB, CAROL, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus, TimelineReadReceiptTracking};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId,
@@ -284,10 +282,12 @@ async fn test_read_receipts_updates_on_filtered_events() {
                     f.text_msg("is dancing").sender(own_user_id).event_id(event_a_id),
                 )
                 // Event B
-                .add_timeline_event(f.notice("I'm dancing too").sender(*BOB).event_id(event_b_id))
+                .add_timeline_event(
+                    f.notice("I'm dancing too").sender(User::Bob).event_id(event_b_id),
+                )
                 // Event C
                 .add_timeline_event(
-                    f.text_msg("Viva la macarena!").sender(*ALICE).event_id(event_c_id),
+                    f.text_msg("Viva la macarena!").sender(User::Alice).event_id(event_c_id),
                 ),
         )
         .await;
@@ -361,7 +361,7 @@ async fn test_read_receipts_updates_on_filtered_events() {
             &client,
             JoinedRoomBuilder::new(room_id).add_receipt(
                 f.read_receipts()
-                    .add(event_c_id, *BOB, EventReceiptType::Read, ReceiptThread::Unthreaded)
+                    .add(event_c_id, User::Bob, EventReceiptType::Read, ReceiptThread::Unthreaded)
                     .into_event(),
             ),
         )
@@ -465,10 +465,12 @@ async fn test_read_receipts_updates_on_message_like_events() {
                     f.text_msg("is dancing").sender(own_user_id).event_id(event_a_id),
                 )
                 // Event B
-                .add_timeline_event(f.room_name("Party Room").sender(*BOB).event_id(event_b_id))
+                .add_timeline_event(
+                    f.room_name("Party Room").sender(User::Bob).event_id(event_b_id),
+                )
                 // Event C
                 .add_timeline_event(
-                    f.text_msg("Viva la macarena!").sender(*ALICE).event_id(event_c_id),
+                    f.text_msg("Viva la macarena!").sender(User::Alice).event_id(event_c_id),
                 ),
         )
         .await;
@@ -546,7 +548,7 @@ async fn test_read_receipts_updates_on_message_like_events() {
             &client,
             JoinedRoomBuilder::new(room_id).add_receipt(
                 f.read_receipts()
-                    .add(event_c_id, *BOB, EventReceiptType::Read, ReceiptThread::Unthreaded)
+                    .add(event_c_id, User::Bob, EventReceiptType::Read, ReceiptThread::Unthreaded)
                     .into_event(),
             ),
         )
@@ -1448,7 +1450,7 @@ async fn test_mark_as_read_after_threaded_edit() {
     let (initial_events, mut stream) = timeline.subscribe().await;
     assert!(initial_events.is_empty());
 
-    let f = EventFactory::new().sender(*BOB);
+    let f = EventFactory::new().sender(User::Bob);
     let thread_root = event_id!("$thread_root");
     let threaded_reply = event_id!("$threaded_reply");
 
@@ -1974,14 +1976,14 @@ async fn test_no_duplicate_receipt_after_backpagination() {
     let ev3 = f
         .text_msg("* I am Alice.")
         .edit(eid1, RoomMessageEventContent::text_plain("I am Alice.").into())
-        .sender(*ALICE)
+        .sender(User::Alice)
         .event_id(eid3)
         .into_raw_sync();
 
     // Carol has a read receipt on the edit.
     let read_receipt_event = f
         .read_receipts()
-        .add(eid3, *CAROL, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
+        .add(eid3, User::Carol, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
         .into_event();
 
     let prev_batch_token = "prev-batch-token";
@@ -2004,8 +2006,8 @@ async fn test_no_duplicate_receipt_after_backpagination() {
         .match_from(prev_batch_token)
         .ok(RoomMessagesResponseTemplate::default().events(vec![
             // In reverse order!
-            f.text_msg("I am Bob.").sender(*BOB).event_id(eid2),
-            f.text_msg("I am the destroyer of worlds.").sender(*ALICE).event_id(eid1),
+            f.text_msg("I am Bob.").sender(User::Bob).event_id(eid2),
+            f.text_msg("I am the destroyer of worlds.").sender(User::Alice).event_id(eid1),
         ]))
         .mock_once()
         .mount()
@@ -2117,7 +2119,7 @@ async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events
     // …and Carol has a read receipt on that (hidden) edit.
     let read_receipt_event = f
         .read_receipts()
-        .add(eid4, *CAROL, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
+        .add(eid4, User::Carol, ruma::events::receipt::ReceiptType::Read, ReceiptThread::Unthreaded)
         .into_event();
 
     let prev_batch_token = "prev-batch-token";
@@ -2146,8 +2148,8 @@ async fn test_no_duplicate_receipt_after_backpagination_with_message_like_events
         .ok(RoomMessagesResponseTemplate::default().events(vec![
             // In reverse order!
             f.text_msg("I am me.").sender(&own_user_id).event_id(eid3).into_raw_timeline(),
-            f.room_name("Party Room").sender(*BOB).event_id(eid2).into_raw_timeline(),
-            f.text_msg("I am Alice.").sender(*ALICE).event_id(eid1).into_raw_timeline(),
+            f.room_name("Party Room").sender(User::Bob).event_id(eid2).into_raw_timeline(),
+            f.text_msg("I am Alice.").sender(User::Alice).event_id(eid1).into_raw_timeline(),
         ]))
         .mock_once()
         .mount()

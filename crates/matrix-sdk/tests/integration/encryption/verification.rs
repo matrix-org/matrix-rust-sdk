@@ -33,6 +33,11 @@ async fn test_own_verification() {
     let mut verification_state_subscriber = alice.encryption().verification_state();
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unknown);
 
+    // We don't know our own identity yet, so the state stays unknown rather
+    // than flashing unverified.
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unknown);
+
     // Have Alice bootstrap cross-signing.
     bootstrap_cross_signing(&alice).await;
 
@@ -42,12 +47,13 @@ async fn test_own_verification() {
     assert!(own_device.is_verified());
     assert!(!own_device.is_deleted());
 
-    // The device is not considered cross signed yet
+    // Bootstrapping re-queries our own keys, so the device is cross-signed
+    // straight away.
     assert_eq!(
         verification_state_subscriber.next().now_or_never().flatten().unwrap(),
-        VerificationState::Unverified
+        VerificationState::Verified
     );
-    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
 
     // Manually re-verifying doesn't change the outcome.
     own_device.verify().await.unwrap();
@@ -67,20 +73,42 @@ async fn test_own_verification() {
     // Manually re-verifying doesn't change the outcome.
     user_identity.verify().await.unwrap();
     assert!(user_identity.is_verified());
+}
 
-    // Force a keys query to pick up the cross-signing state
+#[async_test]
+async fn test_bootstrap_cross_signing_succeeds_when_querying_own_keys_fails() {
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
+    // Only the keys query made by the bootstrap fails, later ones reach the
+    // preset.
+    server
+        .mock_query_keys()
+        .expect_any_access_token()
+        .error500()
+        .with_priority(1)
+        .up_to_n_times(1)
+        .mount()
+        .await;
+
+    let user_id = owned_user_id!("@alice:example.org");
+    let device_id = owned_device_id!("4L1C3");
+    let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    // The signatures were uploaded, so failing to query our own keys afterwards
+    // doesn't fail the bootstrap. The state isn't recomputed, so it stays
+    // unknown.
+    bootstrap_cross_signing(&alice).await;
+    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unknown);
+
+    // A later keys query, triggered by a sync, still picks up the cross-signing
+    // state.
     server
         .mock_sync()
         .ok_and_run(&alice, |builder| {
             builder.add_change_device(&user_id);
         })
         .await;
-
-    // The device should now be cross-signed
-    assert_eq!(
-        verification_state_subscriber.next().now_or_never().unwrap().unwrap(),
-        VerificationState::Verified
-    );
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
 }
 
@@ -100,22 +128,7 @@ async fn test_reset_cross_signing_resets_verification() {
     // Have Alice bootstrap cross-signing.
     bootstrap_cross_signing(&alice).await;
 
-    // The device is not considered cross signed yet
-    assert_eq!(
-        verification_state_subscriber.next().await.unwrap_or(VerificationState::Unknown),
-        VerificationState::Unverified
-    );
-    assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
-
-    // Force a keys query to pick up the cross-signing state
-    server
-        .mock_sync()
-        .ok_and_run(&alice, |builder| {
-            builder.add_change_device(&user_id);
-        })
-        .await;
-
-    // The device should now be cross-signed
+    // The device is cross-signed straight away.
     assert_eq!(
         verification_state_subscriber.next().now_or_never().unwrap().unwrap(),
         VerificationState::Verified

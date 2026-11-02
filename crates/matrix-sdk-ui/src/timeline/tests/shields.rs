@@ -6,7 +6,7 @@ use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationState,
 };
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -109,7 +109,7 @@ async fn test_local_sent_in_clear_shield() {
         .handle_live_event(
             EventFactory::new()
                 .text_msg("Local message")
-                .sender(*ALICE)
+                .sender(User::Alice)
                 .event_id(event_id)
                 .server_ts(timestamp)
                 .into_event(),
@@ -151,7 +151,7 @@ async fn test_live_location_no_sent_in_clear_shield() {
         .factory
         .beacon_info(None, Duration::from_secs(3600), true, None)
         .sender(User::Alice)
-        .state_key(&**ALICE)
+        .state_key(User::Alice)
         .event_id(beacon_id);
     timeline.handle_live_event(event).await;
 
@@ -177,11 +177,11 @@ async fn test_live_location_no_sent_in_clear_shield() {
         .factory
         .beacon(beacon_id.to_owned(), 48.8566, 2.3522, 20, Some(ts_enc))
         .sender(User::Alice)
-        .room(&DEFAULT_TEST_ROOM_ID)
+        .default_room()
         .into_raw_timeline();
 
     let encryption_info = Arc::new(EncryptionInfo {
-        sender: (*ALICE).into(),
+        sender: User::Alice.into(),
         sender_device: None,
         forwarder: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {

@@ -781,11 +781,13 @@ pub enum GrantQrLoginProgress {
     WaitingForAuth {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
-        /// A sender to confirm that the authorization using the verification
-        /// URI has been started in the browser and that the application is
-        /// ready to proceed. This allows applications that suspend or navigate
-        /// away while the verification URI is open to resume the process
-        /// explicitly.
+        /// A sender to confirm that the verification URI has been opened in
+        /// the browser and the application is ready to proceed, or to cancel.
+        ///
+        /// The new device has already been told to proceed when this state is
+        /// emitted, so confirming only resumes this side of the process. This
+        /// allows applications that suspend or navigate away while the
+        /// verification URI is open to resume explicitly.
         continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
@@ -842,11 +844,13 @@ pub enum GrantGeneratedQrLoginProgress {
     WaitingForAuth {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
-        /// A sender to confirm that the authorization using the verification
-        /// URI has been started in the browser and that the application is
-        /// ready to proceed. This allows applications that suspend or navigate
-        /// away while the verification URI is open to resume the process
-        /// explicitly.
+        /// A sender to confirm that the verification URI has been opened in
+        /// the browser and the application is ready to proceed, or to cancel.
+        ///
+        /// The new device has already been told to proceed when this state is
+        /// emitted, so confirming only resumes this side of the process. This
+        /// allows applications that suspend or navigate away while the
+        /// verification URI is open to resume explicitly.
         continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.

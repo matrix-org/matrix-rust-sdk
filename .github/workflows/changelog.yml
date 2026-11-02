@@ -1,0 +1,30 @@
+name: Changelog Checks
+
+on: [pull_request]
+
+permissions: {}
+
+jobs:
+  check-changelog-fragments:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Check Changelog Fragments
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        fragments=$(git ls-files '*/changelog.d/*' | grep -v '/\.gitkeep$' || true)
+
+        # The types configured in towncrier.toml: each type's `directory`, or
+        # its lowercased `name` if it has none.
+        types=$(python3 -c 'import tomllib; types = tomllib.load(open("towncrier.toml", "rb"))["tool"]["towncrier"]["type"]; print("|".join(t.get("directory", t["name"].lower()) for t in types))')
+
+        invalid=$(echo "$fragments" | grep -Ev "/[0-9]+\.($types)(\.[0-9]+)?\.md$" || true)
+        if [ -n "$invalid" ]; then
+          echo "Name changelog fragments <pull request number>.<type>.md, e.g. $PR_NUMBER.added.md, with <type> one of the towncrier.toml types (${types//|/, }):"
+          echo "$invalid"
+          exit 1
+        fi

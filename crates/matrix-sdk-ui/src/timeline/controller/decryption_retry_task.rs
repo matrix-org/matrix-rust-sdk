@@ -64,8 +64,11 @@ pub(super) fn compute_redecryption_candidates(
 }
 
 async fn redecryption_report_task(timeline_controller: TimelineController) {
-    let client = timeline_controller.room().client();
-    let stream = client.event_cache().subscribe_to_decryption_reports();
+    let stream = {
+        let state = timeline_controller.state.read().await;
+
+        state.meta.event_cache.subscribe_to_decryption_reports()
+    };
 
     let mut stream = pin!(stream);
 

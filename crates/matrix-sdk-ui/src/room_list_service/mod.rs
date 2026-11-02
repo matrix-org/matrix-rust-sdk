@@ -532,12 +532,12 @@ impl RoomListService {
     }
 
     async fn listen_to_latest_events(&self, room_ids: &[&RoomId]) {
-        let latest_events = self.client.latest_events().await;
-
-        for room_id in room_ids {
-            if let Err(error) = latest_events.listen_to_room(room_id).await {
-                // A failure here must not fail the room subscription.
-                error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+        if let Some(latest_events) = self.client.latest_events().await {
+            for room_id in room_ids {
+                if let Err(error) = latest_events.listen_to_room(room_id).await {
+                    // A failure here must not fail the room subscription.
+                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+                }
             }
         }
     }

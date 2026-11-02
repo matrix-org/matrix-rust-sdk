@@ -30,6 +30,7 @@ use ruma::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::UpdateAction},
         filter::RoomEventFilter,
+        rtc::livekit::{delegate_delayed_leave, get_token},
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
     assign,
@@ -50,7 +51,13 @@ use tokio::sync::{
 };
 use tracing::{error, trace, warn};
 
-use super::{StateKeySelector, machine::SendEventResponse};
+use super::{
+    StateKeySelector,
+    machine::{
+        RtcLivekitDelegateDelayedLeaveRequest, RtcLivekitDelegateDelayedLeaveResponse,
+        RtcLivekitGetTokenRequest, RtcLivekitGetTokenResponse, SendEventResponse,
+    },
+};
 use crate::{
     Error, Result, Room, client::is_internal_to_device_type, event_handler::EventHandlerDropGuard,
     room::MessagesOptions, sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
@@ -104,6 +111,55 @@ impl MatrixDriver {
             .ok_or_else(|| {
                 Error::UnknownError("the homeserver does not advertise any RTC transport".into())
             })
+    }
+
+    /// Obtains a token to authenticate with a LiveKit SFU on the widget's
+    /// behalf, by calling the homeserver's `/rtc/livekit/get_token` endpoint
+    /// ([MSC4195]).
+    ///
+    /// Errors are forwarded as-is, so that Matrix API errors reach the widget
+    /// as `matrix_api_error` details.
+    ///
+    /// [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
+    pub(crate) async fn get_rtc_livekit_token(
+        &self,
+        req: RtcLivekitGetTokenRequest,
+    ) -> Result<RtcLivekitGetTokenResponse> {
+        let RtcLivekitGetTokenRequest { server_name, url, room_id, slot_id, member_id } = req;
+        let request =
+            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
+
+        self.room
+            .client
+            .send(request)
+            .await
+            .map(Into::into)
+            .map_err(|error| Error::Http(Box::new(error)))
+    }
+
+    /// Hands the delayed leave event of a MatrixRTC session over to the
+    /// homeserver on the widget's behalf, by calling the homeserver's
+    /// `/rtc/livekit/delegate_delayed_leave` endpoint ([MSC4195]).
+    ///
+    /// Errors are forwarded as-is, so that the widget can detect homeservers
+    /// without support for the endpoint (`M_UNRECOGNIZED`).
+    ///
+    /// [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
+    pub(crate) async fn delegate_rtc_livekit_delayed_leave(
+        &self,
+        req: RtcLivekitDelegateDelayedLeaveRequest,
+    ) -> Result<RtcLivekitDelegateDelayedLeaveResponse> {
+        let RtcLivekitDelegateDelayedLeaveRequest { url, room_id, slot_id, member_id, delay_id } =
+            req;
+        let request =
+            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
+
+        self.room
+            .client
+            .send(request)
+            .await
+            .map(Into::into)
+            .map_err(|error| Error::Http(Box::new(error)))
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room's

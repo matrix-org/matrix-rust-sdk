@@ -84,7 +84,7 @@ rmp-serde.workspace = true
 ruma = { workspace = true, features = ["rand", "unstable-msc3814"] }
 rustls = { workspace = true, optional = true, default-features = false, features = ["std", "ring"] }
 rustls-pki-types = { version = "1.15.1", optional = true, default-features = false, features = ["alloc", "web"] }
-rustls-webpki = { version = "0.103.15", default-features = false, optional = true }
+rustls-webpki = { version = "0.103.16", default-features = false, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha2.workspace = true

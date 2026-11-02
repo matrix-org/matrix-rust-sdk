@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -21,6 +21,7 @@ use matrix_sdk::{
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHeroWithProfile as SdkRoomHeroWithProfile,
     RoomMemberships, RoomState, SuccessorRoom as SdkSuccessorRoom,
+    config::RequestConfig,
     deserialized_responses::{RawAnySyncOrStrippedState, TimelineEvent as SdkTimelineEvent},
     encryption::LocalTrust,
     room::{
@@ -462,11 +463,16 @@ impl Room {
     ///
     /// * `content` - The content of the event to send encoded as JSON string.
     ///
+    /// * `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
     /// Returns the event ID of the newly sent event.
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn send_raw(
         &self,
         event_type: String,
         content: String,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| ClientError::Generic {
@@ -474,7 +480,13 @@ impl Room {
                 details: Some(format!("{e:?}")),
             })?;
 
-        let response = self.inner.send_raw(&event_type, content_json).await?;
+        let mut request = self.inner.send_raw(&event_type, content_json);
+        if let Some(request_config_override) = request_config_override {
+            request = request.with_request_config(
+                request_config_override.apply_to(self.inner.client().request_config()),
+            );
+        }
+        let response = request.await?;
 
         Ok(response.response.event_id.to_string())
     }
@@ -491,12 +503,17 @@ impl Room {
     ///
     /// - `content` - The content of the state event encoded as a JSON string.
     ///
+    /// - `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
     /// Returns the event ID of the newly created state event.
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn send_state_event_raw(
         &self,
         event_type: String,
         state_key: String,
         content: String,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(|e| ClientError::Generic {
@@ -504,8 +521,13 @@ impl Room {
                 details: Some(format!("{e:?}")),
             })?;
 
-        let response =
-            self.inner.send_state_event_raw(&event_type, &state_key, content_json).await?;
+        let mut request = self.inner.send_state_event_raw(&event_type, &state_key, content_json);
+        if let Some(request_config_override) = request_config_override {
+            request = request.with_request_config(
+                request_config_override.apply_to(self.inner.client().request_config()),
+            );
+        }
+        let response = request.await?;
 
         Ok(response.event_id.to_string())
     }
@@ -1107,13 +1129,6 @@ impl Room {
         Ok(handle)
     }
 
-    /// Return a debug representation for the internal room events data
-    /// structure, one line per entry in the resulting vector.
-    pub async fn room_events_debug_string(&self) -> Result<Vec<String>, ClientError> {
-        let (cache, _drop_guards) = self.inner.event_cache().await?;
-        Ok(cache.debug_string().await)
-    }
-
     /// Update the canonical alias of the room.
     ///
     /// Note that publishing the alias in the room directory is done separately.
@@ -1465,6 +1480,30 @@ impl From<RelationType> for RumaRelationType {
             RelationType::Replacement => Self::Replacement,
             RelationType::Thread => Self::Thread,
         }
+    }
+}
+
+/// Overrides of the client's request config for a single request.
+///
+/// Fields that are not set keep the values of the client's request config.
+#[derive(Clone, uniffi::Record)]
+pub struct RequestConfigOverride {
+    /// Max number of retries. `0` disables retries.
+    pub retry_limit: Option<u64>,
+    /// Timeout for a single attempt of the request, in milliseconds.
+    pub timeout: Option<u64>,
+}
+
+impl RequestConfigOverride {
+    /// Apply the fields that are set in this override on top of `config`.
+    pub(crate) fn apply_to(self, mut config: RequestConfig) -> RequestConfig {
+        if let Some(retry_limit) = self.retry_limit {
+            config = config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
+        }
+        if let Some(timeout) = self.timeout {
+            config = config.timeout(Duration::from_millis(timeout));
+        }
+        config
     }
 }
 
@@ -1867,6 +1906,8 @@ impl From<SdkDraftAttachment> for DraftAttachment {
                         thumbnail_info,
                         thumbnail_source: None,
                         blurhash,
+                        #[cfg(feature = "unstable-msc4546")]
+                        circle: false,
                     },
                     source: UploadSource::Data { bytes: data, filename: value.filename },
                     thumbnail_source,

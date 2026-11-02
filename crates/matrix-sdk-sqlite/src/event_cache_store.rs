@@ -54,7 +54,10 @@ use tracing::{debug, error, instrument, trace};
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    connection::{
+        self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections,
+        SqliteConnectionsInner,
+    },
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -69,7 +72,7 @@ mod keys {
 }
 
 /// The database name.
-const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
+pub const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -163,7 +166,7 @@ pub struct SqliteEventCacheStore {
     encryption: Arc<Encryption>,
 
     /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    connections: Arc<SqliteConnections>,
 
     /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
@@ -248,7 +251,7 @@ impl SqliteEventCacheStore {
             None => None,
         };
 
-        let connections = SqliteConnections {
+        let connections = SqliteConnectionsInner {
             pool,
             // Use `conn` as our selected write connection.
             write_connection: Arc::new(Mutex::new(conn)),
@@ -256,7 +259,7 @@ impl SqliteEventCacheStore {
 
         Ok(Self {
             encryption: Arc::new(Encryption { cipher }),
-            connections: Arc::new(Mutex::new(Some(connections))),
+            connections: Arc::new(SqliteConnections::new(connections).await),
             db_path,
             pool_config,
             runtime_config,
@@ -2065,7 +2068,7 @@ mod tests {
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
-    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
+    use matrix_sdk_test::{TestRoom, async_test};
     use ruma::{OwnedEventId, event_id};
     use tempfile::{TempDir, tempdir};
 
@@ -2150,10 +2153,10 @@ mod tests {
         // Run corresponding integration test
         store.clone().into_event_cache_store().test_linked_chunk_remove_item().await;
 
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let hashed_linked_chunk_id = store
-            .encryption
-            .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
+        let hashed_linked_chunk_id = store.encryption.encode_linked_chunk(
+            keys::LINKED_CHUNKS,
+            &LinkedChunkId::Room(TestRoom::Default.into()),
+        );
 
         // Make sure the position have been updated for the remaining events.
         let num_rows: u64 = store
@@ -2205,8 +2208,7 @@ mod tests {
     async fn test_linked_chunk_update_is_a_transaction() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(TestRoom::Default.into());
 
         // Trigger a violation of the unique constraint on the (room id, chunk
         // id) couple.
@@ -2356,7 +2358,7 @@ mod close_reopen_tests {
     };
 
     use matrix_sdk_base::{event_cache::store::EventCacheStore, linked_chunk::LinkedChunkId};
-    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
+    use matrix_sdk_test::{TestRoom, async_test};
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -2436,7 +2438,7 @@ mod close_reopen_tests {
         let store = new_store().await;
         store.close().await.unwrap();
 
-        let err = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let err = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
         assert!(err.is_err(), "read should fail when closed");
 
         let err_msg = err.unwrap_err().to_string();
@@ -2481,7 +2483,7 @@ mod close_reopen_tests {
             store.reopen().await.unwrap();
 
             // After each cycle, the store should be fully operational.
-            let result = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+            let result = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
             assert!(result.is_ok(), "store should work after close/reopen cycle");
         }
     }
@@ -2491,8 +2493,8 @@ mod close_reopen_tests {
         let store = new_store().await;
 
         // Do a few reads to exercise the pool.
-        let _ = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
-        let _ = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let _ = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
+        let _ = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
 
         store.close().await.unwrap();
 
@@ -2510,7 +2512,7 @@ mod close_reopen_tests {
         store.reopen().await.unwrap();
 
         // Read should work immediately after reopen.
-        let result = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let result = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
         assert!(result.is_ok(), "read should succeed immediately after reopen");
 
         // Write should work immediately after reopen.

@@ -27,7 +27,13 @@ impl Widget for &mut EventsView<'_> {
             Some(room) => {
                 let events = tokio::task::block_in_place(|| {
                     Handle::current().block_on(async {
-                        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+                        let (room_event_cache, _drop_handles) = room
+                            .client()
+                            .event_cache()
+                            .unwrap()
+                            .room(room.room_id())
+                            .await
+                            .unwrap();
                         room_event_cache
                             .events()
                             .await

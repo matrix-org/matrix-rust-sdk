@@ -2669,7 +2669,7 @@ pub(crate) mod tests {
 
         // We create an `IdentityManager` that uses the "current" X.509 signer
         let manager = {
-            let account = Account::with_device_id(&user_id, device_id);
+            let account = Account::with_device_id(user_id, device_id);
             let identity =
                 PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
                     .await
@@ -2749,7 +2749,7 @@ pub(crate) mod tests {
             crate::x509::tests::signers_with_different_validity();
 
         // We create a cross-signing identity signed with the current signer.
-        let account = Account::with_device_id(&user_id, device_id);
+        let account = Account::with_device_id(user_id, device_id);
         let identity =
             PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
                 .await

@@ -83,7 +83,7 @@ impl AutomaticCallStatus {
                 on_event(&rooms, event, room, client);
             },
         );
-        let weak_client = WeakClient::from_client(client);
+        let weak_client = client.downgrade();
         Self { handle, client: weak_client }
     }
 }
