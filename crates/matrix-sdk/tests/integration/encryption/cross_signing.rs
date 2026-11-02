@@ -35,8 +35,12 @@ async fn test_reset_legacy_auth() {
     server.mock_upload_keys().ok().mock_once().mount().await;
 
     let reset_handle = {
-        let _guard =
-            server.mock_upload_cross_signing_keys().uiaa().expect(1).mount_as_scoped().await;
+        let _guard = server
+            .mock_upload_cross_signing_keys()
+            .error_uiaa_password()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
 
         client
             .encryption()
@@ -76,8 +80,12 @@ async fn test_reset_legacy_auth_invalid_password() {
     server.mock_upload_keys().ok().mock_once().mount().await;
 
     let reset_handle = {
-        let _guard =
-            server.mock_upload_cross_signing_keys().uiaa().expect(1).mount_as_scoped().await;
+        let _guard = server
+            .mock_upload_cross_signing_keys()
+            .error_uiaa_password()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
 
         client
             .encryption()
