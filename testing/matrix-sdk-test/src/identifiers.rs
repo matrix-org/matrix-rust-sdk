@@ -200,6 +200,12 @@ pub enum TestRoom {
     /// A room with an ID using the format introduced in room version 12,
     /// `!2n76rSaCoTdcb1-zm9dcLm0laKJnuPyE80mopRnYgmg`.
     V12,
+
+    /// An ID for an invited room, `!invited:matrix.local`.
+    Invited,
+
+    /// An ID for a room that was left, `!left:matrix.local`.
+    Left,
 }
 
 /// Default room ID.
@@ -208,6 +214,11 @@ static DEFAULT_ROOM_ID: LazyLock<OwnedRoomId> =
 /// V12 room ID.
 static V12_ROOM_ID: LazyLock<OwnedRoomId> =
     LazyLock::new(|| owned_room_id!("!2n76rSaCoTdcb1-zm9dcLm0laKJnuPyE80mopRnYgmg"));
+/// Invited room ID.
+static INVITED_ROOM_ID: LazyLock<OwnedRoomId> =
+    LazyLock::new(|| owned_room_id!("!invited:matrix.local"));
+/// Left room ID.
+static LEFT_ROOM_ID: LazyLock<OwnedRoomId> = LazyLock::new(|| owned_room_id!("!left:matrix.local"));
 
 impl TestRoom {
     /// The room's ID.
@@ -218,6 +229,8 @@ impl TestRoom {
         match self {
             Self::Default => &DEFAULT_ROOM_ID,
             Self::V12 => &V12_ROOM_ID,
+            Self::Invited => &INVITED_ROOM_ID,
+            Self::Left => &LEFT_ROOM_ID,
         }
     }
 
