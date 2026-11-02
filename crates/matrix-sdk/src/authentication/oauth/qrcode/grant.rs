@@ -393,8 +393,8 @@ impl IntoFuture for GrantLoginWithScannedQrCode {
 
             // Determine which login protocols we can offer, so that we can
             // abort before involving the other device if there are none.
-            let msc_4388 =
-                matches!(self.qr_code_data.intent_data(), QrCodeIntentData::Msc4388 { .. });
+            let msc_4388 = cfg!(feature = "unstable-msc4388")
+                && matches!(self.qr_code_data.intent_data(), QrCodeIntentData::Msc4388 { .. });
             let available_protocols = available_login_protocols(&self.client, msc_4388).await?;
 
             // Export the secrets bundle and establish the secure channel.
