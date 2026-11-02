@@ -2371,12 +2371,13 @@ impl Client {
     }
 
     /// Get the room invite permission stored in the cache.
-    pub async fn get_invite_permission(
-        &self,
-    ) -> Result<Option<InvitePermissionState>, ClientError> {
+    ///
+    /// A missing configuration is treated as unrestricted.
+    pub async fn get_invite_permission(&self) -> Result<InvitePermissionState, ClientError> {
         let config = self.inner.account().get_invite_permission_config().await?;
 
-        Ok(config.map(|config| config.default_action.into()))
+        Ok(config
+            .map_or(InvitePermissionState::Unrestricted, |config| config.default_action.into()))
     }
 
     /// Subscribe to changes in the media preview configuration.
