@@ -19,16 +19,9 @@ use matrix_sdk::{
 use matrix_sdk_base::{RoomState, read_receipts::ReadReceipts, sync::RoomUpdates};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, User,
-    async_test,
-    event_factory::EventFactory,
-    test_json::{
-        self,
-        sync::{
-            MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
-            MIXED_SYNC,
-        },
-    },
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder,
+    LeftRoomBuilder, SyncResponseBuilder, TestRoom, User, async_test, event_factory::EventFactory,
+    test_json,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
@@ -62,7 +55,7 @@ use ruma::{
     uint, user_id,
 };
 use serde_json::{Value as JsonValue, json};
-use strass::assert_let;
+use strass::{assert_let, assert_variant_eq};
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
 #[cfg(feature = "sqlite")]
@@ -305,13 +298,32 @@ async fn test_whoami() {
 
 #[async_test]
 async fn test_room_update_channel() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new().sender(User::Alice);
 
-    let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
+    let prev_batch = "t392-516_47314_0_7_1_1_1_11444_1";
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    client.sync_once(sync_settings).await.unwrap();
+    let mut rx = client.subscribe_to_room_updates(TestRoom::Default.into());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .add_account_data(f.marked_unread(false))
+                .add_typing(f.typing(vec![User::Bob.into()]))
+                .add_state_bulk([
+                    f.create(User::Alice, RoomVersionId::V11).into(),
+                    f.member(User::Alice).into(),
+                    f.room_join_rules(JoinRule::Public).into(),
+                    f.member(User::Bob).sender(User::Bob).into(),
+                ])
+                .add_timeline_event(f.text_msg("That was funny!"))
+                .set_timeline_limited()
+                .set_timeline_prev_batch(prev_batch)
+                .set_unread_notifications_count(json!({ "notification_count": 11 })),
+        )
+        .await;
 
     let update = rx.recv().now_or_never().unwrap().unwrap();
     assert_let!(RoomUpdate::Joined { updates, .. } = update);
@@ -319,11 +331,11 @@ async fn test_room_update_channel() {
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);
     assert_let!(State::Before(state_events) = updates.state);
-    assert_eq!(state_events.len(), 9);
+    assert_eq!(state_events.len(), 4);
 
     assert!(updates.timeline.limited);
     assert_eq!(updates.timeline.events.len(), 1);
-    assert_eq!(updates.timeline.prev_batch, Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned()));
+    assert_variant_eq!(updates.timeline.prev_batch, Some(prev_batch));
 
     assert_eq!(updates.unread_notifications.highlight_count, 0);
     assert_eq!(updates.unread_notifications.notification_count, 11);
@@ -331,13 +343,48 @@ async fn test_room_update_channel() {
 
 #[async_test]
 async fn test_subscribe_all_room_updates() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new().sender(User::Alice);
+
+    let left_room_id = TestRoom::Left;
+    let joined_room_id = TestRoom::Default;
+    let joined_room_prev_batch = "t392-516_47314_0_7_1_1_1_11444_1";
+    let invited_room_id = TestRoom::Invited;
+    let knocked_room_id = TestRoom::V12;
 
     let mut rx = client.subscribe_to_all_room_updates();
 
-    mock_sync(&server, &*MIXED_SYNC, None).await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    client.sync_once(sync_settings).await.unwrap();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder
+                .add_left_room(
+                    LeftRoomBuilder::new(left_room_id.into())
+                        .add_timeline_event(f.text_msg("Goodbye!")),
+                )
+                .add_joined_room(
+                    JoinedRoomBuilder::default()
+                        .add_account_data(f.marked_unread(false))
+                        .add_typing(f.typing(vec![User::Bob.into()]))
+                        .add_state_event(f.member(User::Bob).sender(User::Bob))
+                        .add_timeline_event(f.text_msg("Hello Bob!"))
+                        .set_timeline_limited()
+                        .set_timeline_prev_batch(joined_room_prev_batch)
+                        .set_unread_notifications_count(json!({ "notification_count": 11 })),
+                )
+                .add_invited_room(InvitedRoomBuilder::new(invited_room_id.into()).add_state_bulk([
+                    f.create(User::Carol, RoomVersionId::V11).sender(User::Carol).into(),
+                    f.member(User::Carol).sender(User::Carol).into(),
+                ]))
+                .add_knocked_room(KnockedRoomBuilder::new(knocked_room_id.into()).add_state_bulk(
+                    [
+                        f.create(User::Bob, RoomVersionId::V12).sender(User::Bob).into(),
+                        f.member(User::Bob).sender(User::Carol).into(),
+                    ],
+                ));
+        })
+        .await;
 
     let room_updates = rx.recv().now_or_never().unwrap().unwrap();
     assert_let!(RoomUpdates { left, joined, invited, knocked } = room_updates);
@@ -348,7 +395,7 @@ async fn test_subscribe_all_room_updates() {
 
         let (room_id, update) = left.iter().next().unwrap();
 
-        assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
+        assert_eq!(room_id, left_room_id);
         assert_let!(State::Before(state_events) = &update.state);
         assert!(state_events.is_empty());
         assert_eq!(update.timeline.events.len(), 1);
@@ -361,7 +408,7 @@ async fn test_subscribe_all_room_updates() {
 
         let (room_id, update) = joined.iter().next().unwrap();
 
-        assert_eq!(room_id, *MIXED_JOINED_ROOM_ID);
+        assert_eq!(room_id, joined_room_id);
 
         assert_eq!(update.account_data.len(), 1);
         assert_eq!(update.ephemeral.len(), 1);
@@ -370,7 +417,7 @@ async fn test_subscribe_all_room_updates() {
 
         assert!(update.timeline.limited);
         assert_eq!(update.timeline.events.len(), 1);
-        assert_eq!(update.timeline.prev_batch, Some("t392-516_47314_0_7_1_1_1_11444_1".to_owned()));
+        assert_variant_eq!(update.timeline.prev_batch, Some(joined_room_prev_batch));
 
         assert_eq!(update.unread_notifications.highlight_count, 0);
         assert_eq!(update.unread_notifications.notification_count, 11);
@@ -382,7 +429,7 @@ async fn test_subscribe_all_room_updates() {
 
         let (room_id, update) = invited.iter().next().unwrap();
 
-        assert_eq!(room_id, *MIXED_INVITED_ROOM_ID);
+        assert_eq!(room_id, invited_room_id);
         assert_eq!(update.invite_state.events.len(), 2);
     }
 
@@ -392,7 +439,7 @@ async fn test_subscribe_all_room_updates() {
 
         let (room_id, update) = knocked.iter().next().unwrap();
 
-        assert_eq!(room_id, *MIXED_KNOCKED_ROOM_ID);
+        assert_eq!(room_id, knocked_room_id);
         assert_eq!(update.knock_state.events.len(), 2);
     }
 }
