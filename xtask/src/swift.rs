@@ -164,12 +164,15 @@ impl Platform {
 const STRIPPED_PROFILE: &str = "small-release-stripped";
 
 fn ffi_library_name() -> String {
-    let ffi_crate_cleaned = workspace::xtask_metadata()
+    let ffi_crate_cleaned = ffi_crate().replace("-", "_");
+    format!("lib{ffi_crate_cleaned}.a")
+}
+
+fn ffi_crate() -> String {
+    workspace::xtask_metadata()
         .expect("parsing workspace.metadata.xtask in Cargo.toml failed")
         .ffi_crate
         .unwrap_or_else(|| "matrix-sdk-ffi".to_string())
-        .replace("-", "_");
-    format!("lib{ffi_crate_cleaned}.a")
 }
 
 fn ffi_features() -> String {
@@ -254,8 +257,7 @@ fn build_library() -> Result<()> {
     println!("Running debug library build.");
     let ffi_library_name = ffi_library_name();
     let ffi_features = ffi_features();
-    let ffi_crate =
-        workspace::xtask_metadata()?.ffi_crate.unwrap_or_else(|| "matrix_sdk_ffi".to_string());
+    let ffi_crate = ffi_crate();
 
     let root_directory = workspace::root_path()?;
     let target_directory = workspace::target_path()?;
@@ -411,8 +413,7 @@ fn build_targets(
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
 
-    let crate_name =
-        workspace::xtask_metadata()?.ffi_crate.unwrap_or_else(|| "matrix_sdk_ffi".to_string());
+    let crate_name = ffi_crate();
 
     // Note: `push_env` stores environment variables and returns a RAII guard
     // that will restore the environment variable to its previous value when
@@ -477,8 +478,7 @@ fn localize_private_symbols(
     strip_debug_info: bool,
 ) -> Result<()> {
     let sh = sh();
-    let crate_name =
-        workspace::xtask_metadata()?.ffi_crate.unwrap_or_else(|| "matrix_sdk_ffi".to_string());
+    let crate_name = ffi_crate();
     let directory = library.parent().expect("the library lives in a directory");
     let symbols_list = directory.join("private_symbols.txt");
     let merged_object = directory.join(format!("lib{crate_name}merged.o"));
