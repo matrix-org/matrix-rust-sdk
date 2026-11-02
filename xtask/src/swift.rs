@@ -419,6 +419,9 @@ fn build_targets(
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
 
+    let crate_name =
+        workspace::xtask_metadata()?.ffi_crate.unwrap_or_else(|| "matrix_sdk_ffi".to_string());
+
     // Note: `push_env` stores environment variables and returns a RAII guard
     // that will restore the environment variable to its previous value when
     // dropped.
@@ -439,10 +442,10 @@ fn build_targets(
 
             println!("-- Building for {}", target.description);
             if target.status == TargetStatus::TopTier {
-                cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {ffi_features}")
+                cmd!(sh, "rustup run stable cargo build -p {crate_name} --target {triple} --profile {profile} --features {ffi_features}")
                     .run()?;
             } else {
-                cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std --target {triple} --profile {profile} --features {ffi_features}")
+                cmd!(sh, "rustup run nightly cargo build -p {crate_name} -Zbuild-std --target {triple} --profile {profile} --features {ffi_features}")
                     .run()?;
             }
         }
@@ -452,7 +455,7 @@ fn build_targets(
 
         if !stable_targets.is_empty() {
             let triples = stable_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi");
+            let mut cmd = cmd!(sh, "rustup run stable cargo build -p {crate_name}");
             for triple in &triples {
                 cmd = cmd.arg("--target").arg(triple);
             }
@@ -464,7 +467,7 @@ fn build_targets(
 
         if !tier3_targets.is_empty() {
             let triples = tier3_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std");
+            let mut cmd = cmd!(sh, "rustup run nightly cargo build -p {crate_name} -Zbuild-std");
             for triple in &triples {
                 cmd = cmd.arg("--target").arg(triple);
             }
