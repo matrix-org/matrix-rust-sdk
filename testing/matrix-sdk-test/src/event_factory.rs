@@ -432,12 +432,12 @@ where
         TimelineEvent::from_plaintext(self.into_raw_sync())
     }
 
-    /// Returns just the event content as a JSON value.
+    /// Returns just the event content.
     ///
     /// This is useful when you need only the content portion of an event,
     /// for example when mocking HTTP responses that return event content.
-    pub fn into_content(self) -> serde_json::Value {
-        json!(self.content)
+    pub fn into_content(self) -> E {
+        self.content
     }
 }
 
