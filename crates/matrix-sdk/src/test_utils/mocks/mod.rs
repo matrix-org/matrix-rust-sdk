@@ -765,6 +765,12 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, RemoveRoomAliasEndpoint)
     }
 
+    /// Create a prebuilt mock for listing all public rooms.
+    pub fn mock_get_all_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/publicRooms"));
+        self.mock_endpoint(mock, PublicRoomsEndpoint)
+    }
+
     /// Create a prebuilt mock for listing filtered public rooms.
     ///
     /// # Examples
