@@ -29,7 +29,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, event_factory::EventFactory, test_json,
+    SyncResponseBuilder, User, event_factory::EventFactory, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
@@ -64,7 +64,6 @@ use ruma::{
     push::RuleKind,
     serde::{JsonObject, Raw},
     time::Duration,
-    user_id,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, from_value, json};
@@ -1180,8 +1179,7 @@ impl MatrixMockServer {
     /// If no access token is provided, the access token to match is `"1234"`,
     /// which matches the default value in the mock data.
     pub fn mock_who_am_i(&self) -> MockEndpoint<'_, WhoAmIEndpoint> {
-        let mock =
-            Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v3/account/whoami"));
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/account/whoami"));
         self.mock_endpoint(mock, WhoAmIEndpoint).expect_default_access_token()
     }
 
@@ -4111,25 +4109,29 @@ pub struct WhoAmIEndpoint;
 impl<'a> MockEndpoint<'a, WhoAmIEndpoint> {
     /// Returns a successful response with the default user ID and device ID.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_with_ids(user_id!("@joe:example.org"), device_id!("D3V1C31D"))
+        self.ok_with_ids(User::Alice, device_id!("D3V1C31D"))
     }
 
     /// Returns a successful response with the given user ID, and the default
     /// device ID.
-    pub fn ok_with_user_id(self, user_id: &UserId) -> MatrixMock<'a> {
+    pub fn ok_with_user_id<'b>(self, user_id: impl Into<&'b UserId>) -> MatrixMock<'a> {
         self.ok_with_ids(user_id, device_id!("D3V1C31D"))
     }
 
     /// Returns a successful response with the given device ID, and the default
     /// user ID.
     pub fn ok_with_device_id(self, device_id: &DeviceId) -> MatrixMock<'a> {
-        self.ok_with_ids(user_id!("@joe:example.org"), device_id)
+        self.ok_with_ids(User::Alice, device_id)
     }
 
     /// Returns a successful response with the given user ID and device ID.
-    fn ok_with_ids(self, user_id: &UserId, device_id: &DeviceId) -> MatrixMock<'a> {
+    fn ok_with_ids<'b>(
+        self,
+        user_id: impl Into<&'b UserId>,
+        device_id: &DeviceId,
+    ) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "user_id": user_id,
+            "user_id": user_id.into(),
             "device_id": device_id,
         }))
     }
