@@ -24,7 +24,7 @@ use matrix_sdk_test::{
     test_json,
 };
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
+    EventId, MilliSecondsSinceUnixEpoch, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -40,12 +40,9 @@ use ruma::{
     directory::Filter,
     event_id,
     events::{
-        AnyInitialStateEvent, AnyRoomAccountDataEvent, GlobalAccountDataEventType,
+        AnyRoomAccountDataEvent, GlobalAccountDataEventType,
         direct::DirectEventContent,
-        room::{
-            encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
-            member::MembershipState,
-        },
+        room::{history_visibility::HistoryVisibility, member::MembershipState},
         tag::{TagInfo, TagName, Tags},
     },
     owned_device_id, owned_event_id, owned_mxc_uri, owned_room_id, owned_user_id,
@@ -54,42 +51,41 @@ use ruma::{
     serde::Raw,
     uint, user_id,
 };
-use serde_json::{Value as JsonValue, json};
+use serde_json::json;
 use strass::{assert_let, assert_variant_eq};
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
 #[cfg(feature = "sqlite")]
 use tokio::time::timeout;
 use tokio_stream::wrappers::BroadcastStream;
-use wiremock::{
-    Mock, Request, ResponseTemplate,
-    matchers::{header, method, path, path_regex},
-};
 
 use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn test_sync() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    server
+        .mock_sync()
+        .ok(|builder| {
+            builder.add_joined_room(JoinedRoomBuilder::default());
+        })
+        .expect(1)
+        .mount()
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let response = client.sync_once(sync_settings).await.unwrap();
+    let response = client.sync_once(Default::default()).await.unwrap();
 
     assert_ne!(response.next_batch, "");
 }
 
 #[async_test]
 async fn test_devices() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/devices"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::DEVICES))
-        .mount(&server)
-        .await;
+    server.mock_devices().ok().expect(1).mount().await;
 
     client.devices().await.unwrap();
 }
@@ -125,12 +121,14 @@ async fn test_delete_devices() {
 
 #[async_test]
 async fn test_resolve_room_alias() {
-    let (client, server) = no_retry_test_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/directory/room/%23alias:example.org"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::GET_ALIAS))
-        .mount(&server)
+    server
+        .mock_room_directory_resolve_alias()
+        .ok(TestRoom::Default.as_str(), vec![])
+        .expect(1)
+        .mount()
         .await;
 
     let alias = ruma::room_alias_id!("#alias:example.org");
@@ -139,69 +137,57 @@ async fn test_resolve_room_alias() {
 
 #[async_test]
 async fn test_join_leave_room() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID);
+    let room = client.get_room(TestRoom::Default.into());
     assert!(room.is_none());
 
-    let sync_token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    // Sync the room as joined.
+    let room = server.sync_default_joined_room(&client).await;
     assert_eq!(room.state(), RoomState::Joined);
 
-    mock_sync(&server, &*test_json::LEAVE_SYNC_EVENT, Some(sync_token.clone())).await;
-
-    client.sync_once(SyncSettings::default().token(sync_token)).await.unwrap();
+    // Sync the room as left.
+    server.sync_room(&client, LeftRoomBuilder::default()).await;
 
     assert_eq!(room.state(), RoomState::Left);
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = client.get_room(TestRoom::Default.into()).unwrap();
     assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]
 async fn test_join_room_by_id() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = TestRoom::Default;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/join"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
-        .mount(&server)
-        .await;
+    server.mock_room_join(room_id.into()).ok().expect(1).mount().await;
 
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we
         // check the RoomId field
-        client.join_room_by_id(&DEFAULT_TEST_ROOM_ID).await.unwrap().room_id(),
-        *DEFAULT_TEST_ROOM_ID
+        client.join_room_by_id(room_id.into()).await.unwrap().room_id(),
+        room_id
     );
 }
 
 #[async_test]
 async fn test_join_room_by_id_or_alias() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = TestRoom::Default;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/join/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::ROOM_ID))
-        .mount(&server)
-        .await;
+    server.mock_room_join_by_id_or_alias(room_id).ok(room_id).expect(1).mount().await;
 
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we
         // check the RoomId field
         client
-            .join_room_by_id_or_alias(
-                (&**DEFAULT_TEST_ROOM_ID).into(),
-                &["server.com".try_into().unwrap()]
-            )
+            .join_room_by_id_or_alias(room_id.into(), &["server.com".try_into().unwrap()])
             .await
             .unwrap()
             .room_id(),
-        *DEFAULT_TEST_ROOM_ID
+        room_id
     );
 }
 
@@ -235,55 +221,53 @@ async fn test_room_search_filtered() {
 
 #[async_test]
 async fn test_invited_rooms() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
-
-    let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let room = server.sync_room(&client, InvitedRoomBuilder::default()).await;
+    assert_eq!(room.state(), RoomState::Invited);
 
     assert!(client.joined_rooms().is_empty());
     assert!(client.left_rooms().is_empty());
     assert!(!client.invited_rooms().is_empty());
     assert!(client.joined_space_rooms().is_empty());
-
-    let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
-    assert_eq!(room.state(), RoomState::Invited);
 }
 
 #[async_test]
 async fn test_left_rooms() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::LEAVE_SYNC, None).await;
-
-    let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let room = server.sync_room(&client, LeftRoomBuilder::default()).await;
+    assert_eq!(room.state(), RoomState::Left);
 
     assert!(client.joined_rooms().is_empty());
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
     assert!(client.joined_space_rooms().is_empty());
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    assert_eq!(room.state(), RoomState::Left);
 }
 
 #[async_test]
 async fn test_joined_space_rooms() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new();
 
-    mock_sync(&server, &*test_json::JOIN_SPACE_SYNC, None).await;
-
-    let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .add_state_event(f.create(User::Alice, RoomVersionId::V10).with_space_type()),
+        )
+        .await;
+    assert_eq!(room.state(), RoomState::Joined);
+    assert!(room.is_space());
 
     assert!(!client.joined_rooms().is_empty());
     assert!(!client.joined_space_rooms().is_empty());
 
     assert!(client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    assert_eq!(room.state(), RoomState::Joined);
-    assert!(room.is_space());
 }
 
 #[async_test]
@@ -450,37 +434,24 @@ async fn test_subscribe_all_room_updates() {
 #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 #[async_test]
 async fn test_request_encryption_event_before_sending() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    client
-        .sync_once(SyncSettings::default())
-        .await
-        .expect("We should be able to performs an initial sync");
+    let room = server.sync_default_joined_room(&client).await;
 
-    let room =
-        client.get_room(&DEFAULT_TEST_ROOM_ID).expect("We should know about our default room");
-
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.encryption/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "algorithm": "m.megolm.v1.aes-sha2",
-                    "rotation_period_ms": 604800000,
-                    "rotation_period_msgs": 100
-                }))
-                // Introduce a delay so the first `latest_encryption_state()`
-                // doesn't finish before we make the second call.
-                .set_delay(Duration::from_millis(50)),
-        )
-        .mount(&server)
+    server
+        .mock_room_state_encryption()
+        // Introduce a delay so the first `latest_encryption_state()`
+        // doesn't finish before we make the second call.
+        .with_delay(Duration::from_millis(50))
+        .encrypted()
+        .expect(1)
+        .mount()
         .await;
 
     let first_handle = spawn({
-        let room = room.to_owned();
-        async move { room.to_owned().latest_encryption_state().await.map(|state| state.is_encrypted()) }
+        let room = room.clone();
+        async move { room.latest_encryption_state().await.map(|state| state.is_encrypted()) }
     });
 
     let second_handle =
@@ -588,7 +559,9 @@ async fn test_marking_room_as_dm_fails_if_undeserializable() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_get_own_device() {
-    let (client, _) = logged_in_client_with_server().await;
+    use matrix_sdk::test_utils::client::MockClientBuilder;
+
+    let client = MockClientBuilder::new(None).build().await;
 
     let device = client
         .encryption()
@@ -611,30 +584,14 @@ async fn test_get_own_device() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_cross_signing_status() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_upload_cross_signing_keys().ok().expect(1).mount().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/unstable/keys/signatures/upload"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "failures": {}
-        })))
-        .mount(&server)
-        .await;
+    server.mock_upload_cross_signing_signatures().ok().expect(1).mount().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/keys/upload"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "one_time_key_counts": {}
-        })))
-        .mount(&server)
-        .await;
+    server.mock_upload_keys().ok().expect(1).mount().await;
 
     let status = client
         .encryption()
@@ -661,49 +618,22 @@ async fn test_cross_signing_status() {
         .await
         .expect("We should have the private cross-signing keys after the bootstrap process");
     assert!(status.is_complete(), "We should have all the private cross-signing keys locally");
-
-    server.verify().await;
 }
 
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_encrypt_room_event() {
-    use std::sync::Arc;
+    use ruma::events::{MessageLikeEventType, room::encrypted::OriginalSyncRoomEncryptedEvent};
 
-    use ruma::events::room::encrypted::RoomEncryptedEventContent;
-
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let user_id = client.user_id().unwrap();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/keys/query"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "device_keys": {
-                user_id: {}
-            }
-        })))
-        .mount(&server)
-        .await;
+    server.mock_query_keys().ok().expect(1..).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    client
-        .sync_once(SyncSettings::default())
-        .await
-        .expect("We should be able to performs an initial sync");
+    let room = server.sync_default_joined_room(&client).await;
 
-    let room =
-        client.get_room(&DEFAULT_TEST_ROOM_ID).expect("We should know about our default room");
-
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.encryption/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "algorithm": "m.megolm.v1.aes-sha2",
-            "rotation_period_ms": 604800000,
-            "rotation_period_msgs": 100
-        })))
-        .mount(&server)
-        .await;
+    server.mock_room_state_encryption().encrypted().expect(1).mount().await;
 
     assert!(
         room.latest_encryption_state()
@@ -713,77 +643,26 @@ async fn test_encrypt_room_event() {
         "The room should be encrypted"
     );
 
-    Mock::given(method("GET"))
-        .and(path_regex("/_matrix/client/r0/rooms/!SVkFJHzfwvuaIEawgC:localhost/members"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "chunk": []})))
-        .mount(&server)
-        .await;
+    server.mock_get_members().ok(vec![]).expect(1).mount().await;
 
-    let event_content = Arc::new(std::sync::Mutex::new(None));
-
-    let event_content_matcher = {
-        let event_content = event_content.to_owned();
-        move |request: &Request| {
-            let mut path_segments =
-                request.url.path_segments().expect("The URL should be able to be a base");
-
-            let event_type = path_segments
-                .nth_back(1)
-                .expect("The path should have a event type as the last segment")
-                .to_owned();
-
-            assert_eq!(
-                event_type, "m.room.encrypted",
-                "The event type should be the `m.room.encrypted` event type"
-            );
-
-            let content: RoomEncryptedEventContent = request
-                .body_json()
-                .expect("The uploaded content should be a valid `m.room.encrypted` event content");
-
-            *event_content.lock().unwrap() = Some(content);
-
-            true
-        }
-    };
-
-    Mock::given(method("PUT"))
-        .and(path(
-            "/_matrix/client/r0/rooms/!SVkFJHzfwvuaIEawgC:localhost/send/m.room.encrypted/foobar",
-        ))
-        .and(event_content_matcher)
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "event_id": "$foobar"
-        })))
-        .mount(&server)
-        .await;
+    let (event_receiver, mock) = server
+        .mock_room_send()
+        .for_type(MessageLikeEventType::RoomEncrypted)
+        .ok_with_capture(owned_event_id!("$foobar"), user_id);
+    mock.expect(1).mount().await;
 
     room.send_raw("m.room.message", json!({"body": "Hello", "msgtype": "m.text"}))
         .with_transaction_id("foobar".into())
         .await
         .expect("We should be able to send a message to the encrypted room");
 
-    let content = event_content
-        .lock()
-        .unwrap()
-        .take()
-        .expect("We should have intercepted an `m.room.encrypted` event content");
-
-    let event: Raw<OriginalSyncRoomEncryptedEvent> = Raw::new(&json!({
-        "room_id": room.room_id(),
-        "event_id": "$foobar",
-        "origin_server_ts": 1600000u64,
-        "sender": user_id,
-        "content": content,
-    }))
-    .expect("We should be able to construct a full event from the encrypted event content")
-    .cast_unchecked();
+    let encrypted_event =
+        event_receiver.await.unwrap().cast_unchecked::<OriginalSyncRoomEncryptedEvent>();
 
     let push_ctx =
         room.push_context().await.expect("We should be able to get the push action context");
     let timeline_event = room
-        .decrypt_event(&event, push_ctx.as_ref())
+        .decrypt_event(&encrypted_event, push_ctx.as_ref())
         .await
         .expect("We should be able to decrypt an event that we ourselves have encrypted");
 
@@ -811,122 +690,62 @@ async fn test_encrypt_room_event() {
 #[cfg(not(feature = "e2e-encryption"))]
 #[async_test]
 async fn test_create_dm_non_encrypted() {
-    let (client, server) = logged_in_client_with_server().await;
-    let user_id = user_id!("@invitee:localhost");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = User::Carol;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/createRoom"))
-        .and(|request: &Request| {
-            // The body is JSON.
-            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
-                return false;
-            };
-
-            // The body's `direct` field is set to `true`.
-            if !body.get_field::<bool>("is_direct").is_ok_and(|b| b == Some(true)) {
-                return false;
-            }
-
-            // The body's `preset` field is set to `trusted_private_chat`.
-            if !body
-                .get_field::<String>("preset")
-                .is_ok_and(|s| s.as_deref() == Some("trusted_private_chat"))
-            {
-                return false;
-            }
-
-            // The body's `invite` field is set to an array with the user ID.
-            if !body
-                .get_field::<Vec<OwnedUserId>>("invite")
-                .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
-            {
-                return false;
-            }
-
-            // There is no initial state.
-            body.get_field::<Vec<Raw<AnyInitialStateEvent>>>("initial_state")
-                .is_ok_and(|v| v.is_none())
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "room_id": "!sefiuhWgwghwWgh:example.com"
-        })))
+    server
+        .mock_create_room()
+        .body_json(json!({
+            "is_direct": true,
+            "preset": "trusted_private_chat",
+            "invite": [user_id],
+        }))
+        .ok()
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
-    client.create_dm(user_id).await.unwrap();
+    client.create_dm(user_id.into()).await.unwrap();
 }
 
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_create_dm_encrypted() {
-    let (client, server) = logged_in_client_with_server().await;
-    let user_id = user_id!("@invitee:localhost");
+    use ruma::events::room::encryption::RoomEncryptionEventContent;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/createRoom"))
-        .and(|request: &Request| {
-            // The body is JSON.
-            let Ok(body) = request.body_json::<Raw<JsonValue>>() else {
-                return false;
-            };
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = User::Carol;
 
-            // The body's `direct` field is set to `true`.
-            if !body.get_field::<bool>("is_direct").is_ok_and(|b| b == Some(true)) {
-                return false;
-            }
-
-            // The body's `preset` field is set to `trusted_private_chat`.
-            if !body
-                .get_field::<String>("preset")
-                .is_ok_and(|s| s.as_deref() == Some("trusted_private_chat"))
-            {
-                return false;
-            }
-
-            // The body's `invite` field is set to an array with the user ID.
-            if !body
-                .get_field::<Vec<OwnedUserId>>("invite")
-                .is_ok_and(|v| v.as_deref() == Some(&[user_id.to_owned()]))
-            {
-                return false;
-            }
-
-            // The body's `initial_state` field is set to an array with an
-            // `m.room.encryption` event.
-            body.get_field::<Vec<Raw<AnyInitialStateEvent>>>("initial_state").is_ok_and(|v| {
-                let Some(v) = v else {
-                    return false;
-                };
-
-                if v.len() != 1 {
-                    return false;
-                }
-
-                let initial_event = &v[0];
-
-                initial_event
-                    .get_field::<String>("type")
-                    .is_ok_and(|s| s.as_deref() == Some("m.room.encryption"))
-            })
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "room_id": "!sefiuhWgwghwWgh:example.com"
-        })))
+    server
+        .mock_create_room()
+        .body_json(json!({
+            "is_direct": true,
+            "preset": "trusted_private_chat",
+            "invite": [user_id],
+            "initial_state": [{
+                "type": "m.room.encryption",
+                "state_key": "",
+                "content": RoomEncryptionEventContent::with_recommended_defaults(),
+            }]
+        }))
+        .ok()
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
-    client.create_dm(user_id).await.unwrap();
+    client.create_dm(user_id.into()).await.unwrap();
 }
 
 #[async_test]
 async fn test_create_dm_error() {
-    let (client, _server) = logged_in_client_with_server().await;
-    let user_id = user_id!("@invitee:localhost");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = User::Carol;
 
     // The endpoint is not mocked so we encounter a 404.
-    let error = client.create_dm(user_id).await.unwrap_err();
+    let error = client.create_dm(user_id.into()).await.unwrap_err();
     let client_api_error = error.as_client_api_error().unwrap();
 
     assert_eq!(client_api_error.status_code, 404);

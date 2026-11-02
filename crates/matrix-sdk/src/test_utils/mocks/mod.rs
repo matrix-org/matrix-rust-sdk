@@ -2168,6 +2168,18 @@ impl<'a, T> MockEndpoint<'a, T> {
         self
     }
 
+    /// Ensures that the body of the request is a superset of the provided
+    /// `body` parameter.
+    pub fn body_matches_partial_json(self, body: impl Serialize) -> Self {
+        Self { mock: self.mock.and(body_partial_json(body)), ..self }
+    }
+
+    /// Ensures that the body of the request is the exact provided `body`
+    /// parameter.
+    pub fn body_json(self, body: impl Serialize) -> Self {
+        Self { mock: self.mock.and(body_json(body)), ..self }
+    }
+
     /// Specify how to respond to a query (viz., like
     /// [`MockBuilder::respond_with`] does), when other predefined responses
     /// aren't sufficient.
@@ -2470,53 +2482,6 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
             mock: self.mock.and(query_param_is_missing("org.matrix.msc4354.sticky_duration_ms")),
             ..self
         }
-    }
-
-    /// Ensures that the body of the request is a superset of the provided
-    /// `body` parameter.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # tokio_test::block_on(async {
-    /// use matrix_sdk::{
-    ///     ruma::{room_id, event_id, events::room::message::RoomMessageEventContent},
-    ///     test_utils::mocks::MatrixMockServer
-    /// };
-    /// use serde_json::json;
-    ///
-    /// let mock_server = MatrixMockServer::new().await;
-    /// let client = mock_server.client_builder().build().await;
-    ///
-    /// mock_server.mock_room_state_encryption().plain().mount().await;
-    ///
-    /// let room = mock_server
-    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
-    ///     .await;
-    ///
-    /// let event_id = event_id!("$some_id");
-    /// mock_server
-    ///     .mock_room_send()
-    ///     .body_matches_partial_json(json!({
-    ///         "body": "Hello world",
-    ///     }))
-    ///     .ok(event_id)
-    ///     .expect(1)
-    ///     .mount()
-    ///     .await;
-    ///
-    /// let content = RoomMessageEventContent::text_plain("Hello world");
-    /// let result = room.send(content).await?;
-    ///
-    /// assert_eq!(
-    ///     event_id,
-    ///     result.response.event_id,
-    ///     "The event ID we mocked should match the one we received when we sent the event"
-    /// );
-    /// # anyhow::Ok(()) });
-    /// ```
-    pub fn body_matches_partial_json(self, body: Value) -> Self {
-        Self { mock: self.mock.and(body_partial_json(body)), ..self }
     }
 
     /// Ensures that the send endpoint request uses a specific event type.
@@ -2861,61 +2826,6 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
             endpoint.event_type.as_ref().map_or_else(|| ".*".to_owned(), |t| t.to_string()),
             endpoint.state_key.as_ref().map_or_else(|| ".*".to_owned(), |k| k.to_string())
         )
-    }
-
-    /// Ensures that the body of the request is a superset of the provided
-    /// `body` parameter.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # tokio_test::block_on(async {
-    /// use matrix_sdk::{
-    ///     ruma::{
-    ///         room_id, event_id,
-    ///         events::room::power_levels::RoomPowerLevelsEventContent,
-    ///         room_version_rules::AuthorizationRules
-    ///     },
-    ///     test_utils::mocks::MatrixMockServer
-    /// };
-    /// use serde_json::json;
-    ///
-    /// let mock_server = MatrixMockServer::new().await;
-    /// let client = mock_server.client_builder().build().await;
-    ///
-    /// mock_server.mock_room_state_encryption().plain().mount().await;
-    ///
-    /// let room = mock_server
-    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
-    ///     .await;
-    ///
-    /// let event_id = event_id!("$some_id");
-    /// mock_server
-    ///     .mock_room_send_state()
-    ///     .body_matches_partial_json(json!({
-    ///         "redact": 51,
-    ///     }))
-    ///     .ok(event_id)
-    ///     .expect(1)
-    ///     .mount()
-    ///     .await;
-    ///
-    /// let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
-    /// // Update the power level to a non default value.
-    /// // Otherwise it will be skipped from serialization.
-    /// content.redact = 51.into();
-    ///
-    /// let response = room.send_state_event(content).await?;
-    ///
-    /// assert_eq!(
-    ///     event_id,
-    ///     response.event_id,
-    ///     "The event ID we mocked should match the one we received when we sent the event"
-    /// );
-    /// # anyhow::Ok(()) });
-    /// ```
-    pub fn body_matches_partial_json(self, body: Value) -> Self {
-        Self { mock: self.mock.and(body_partial_json(body)), ..self }
     }
 
     /// Ensures that the send endpoint request uses a specific event type.
@@ -4762,18 +4672,6 @@ impl<'a> MockEndpoint<'a, ReceiptEndpoint> {
         self.ok_empty_json()
     }
 
-    /// Ensures that the body of the request is a superset of the provided
-    /// `body` parameter.
-    pub fn body_matches_partial_json(self, body: Value) -> Self {
-        Self { mock: self.mock.and(body_partial_json(body)), ..self }
-    }
-
-    /// Ensures that the body of the request is the exact provided `body`
-    /// parameter.
-    pub fn body_json(self, body: Value) -> Self {
-        Self { mock: self.mock.and(body_json(body)), ..self }
-    }
-
     /// Ensures that the request matches a specific receipt thread.
     pub fn match_thread(self, thread: ReceiptThread) -> Self {
         if let Some(thread_str) = thread.as_str() {
@@ -4934,12 +4832,6 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
                 })
             }),
         }))
-    }
-
-    /// Ensures that the body of the request is a superset of the provided
-    /// `body` parameter.
-    pub fn body_matches_partial_json(self, body: Value) -> Self {
-        Self { mock: self.mock.and(body_partial_json(body)), ..self }
     }
 }
 
@@ -5797,11 +5689,10 @@ pub struct SetGlobalAccountDataEndpoint;
 impl<'a> MockEndpoint<'a, SetGlobalAccountDataEndpoint> {
     /// Expect the request body to contain the given account data.
     pub fn expect_account_data(
-        mut self,
+        self,
         account_data: impl Into<AnyGlobalAccountDataEventContent>,
     ) -> Self {
-        self.mock = self.mock.and(body_json(account_data.into()));
-        self
+        self.body_json(account_data.into())
     }
 
     /// Returns a successful empty response.
