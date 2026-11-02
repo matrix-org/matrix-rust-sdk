@@ -329,63 +329,62 @@ async fn test_refresh_token_handled_success() {
 
 #[async_test]
 async fn test_refresh_token_handled_failure() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
-        .build()
-        .await
-        .unwrap();
-    let auth = client.matrix_auth();
+    for (access_soft_logout, refresh_soft_logout) in [(false, true), (true, false)] {
+        let (builder, server) = test_client_builder_with_server().await;
+        let client = builder
+            .request_config(RequestConfig::new().disable_retry())
+            .server_versions([MatrixVersion::V1_3])
+            .handle_refresh_tokens()
+            .build()
+            .await
+            .unwrap();
+        let auth = client.matrix_auth();
 
-    let session = session();
-    auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
+        let session = session();
+        auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-    let mut session_changes = client.subscribe_to_session_changes();
+        let mut session_changes = client.subscribe_to_session_changes();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
-        .expect(1)
-        .named("`POST /refresh`")
-        .mount(&server)
-        .await;
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/refresh"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "errcode": "M_UNKNOWN_TOKEN", "error": "rejected",
+                "soft_logout": refresh_soft_logout
+            })))
+            .expect(1)
+            .named("`POST /refresh`")
+            .mount(&server)
+            .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
-        .expect(1)
-        .named("`GET /whoami` wrong token")
-        .mount(&server)
-        .await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/v3/account/whoami"))
+            .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "errcode": "M_UNKNOWN_TOKEN", "error": "expired", "soft_logout": access_soft_logout
+            })))
+            .expect(1)
+            .named("`GET /whoami` wrong token")
+            .mount(&server)
+            .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
-        .expect(0)
-        .named("`GET /whoami` good token")
-        .mount(&server)
-        .await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/v3/account/whoami"))
+            .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+            .expect(0)
+            .named("`GET /whoami` good token")
+            .mount(&server)
+            .await;
 
-    let res = client.whoami().await;
-    assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
-    assert_matches!(
-        http_err.client_api_error_kind(),
-        Some(ErrorKind::UnknownToken(UnknownTokenErrorData { soft_logout: true, .. }))
-    );
+        let res = client.whoami().await;
+        assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(http_err))) = res);
+        assert_let!(Some(ErrorKind::UnknownToken(data)) = http_err.client_api_error_kind());
+        assert_eq!(data.soft_logout, refresh_soft_logout);
 
-    assert_matches!(
-        session_changes.try_recv(),
-        Ok(SessionChange::UnknownToken(UnknownTokenErrorData { soft_logout: true, .. }))
-    );
-    assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+        assert_let!(Ok(SessionChange::UnknownToken(data)) = session_changes.try_recv());
+        assert_eq!(data.soft_logout, refresh_soft_logout);
+        assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+    }
 }
 
 #[async_test]
@@ -428,6 +427,61 @@ async fn test_refresh_token_transient_failure_is_not_a_logout() {
 
     // The refresh never reached a verdict, so the session is not over.
     assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[async_test]
+async fn test_refresh_token_rate_limit_preserves_session_and_recovers() {
+    let (builder, server) = test_client_builder_with_server().await;
+    let client = builder
+        .request_config(RequestConfig::new().disable_retry())
+        .server_versions([MatrixVersion::V1_3])
+        .handle_refresh_tokens()
+        .build()
+        .await
+        .unwrap();
+    client.matrix_auth().restore_session(session(), RoomLoadSettings::default()).await.unwrap();
+    let mut changes = client.subscribe_to_session_changes();
+
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/v3/account/whoami"))
+        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+    let limited = Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/refresh"))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "errcode": "M_LIMIT_EXCEEDED", "error": "try later"
+        })))
+        .expect(1)
+        .mount_as_scoped(&server)
+        .await;
+
+    assert_matches!(client.whoami().await, Err(HttpError::RefreshToken(_)));
+    assert_eq!(changes.try_recv(), Err(TryRecvError::Empty));
+    assert_eq!(client.session_tokens(), Some(session().tokens));
+    drop(limited);
+
+    Mock::given(method("POST"))
+        .and(path("/_matrix/client/v3/refresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/v3/account/whoami"))
+        .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client.whoami().await.unwrap();
+    assert_eq!(changes.try_recv(), Ok(SessionChange::TokensRefreshed));
+    assert_eq!(changes.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[async_test]
@@ -668,7 +722,7 @@ async fn test_oauth_refresh_token_handled_failure() {
     server
         .mock_who_am_i()
         .expect_access_token("prev-access-token")
-        .error_unknown_token(false)
+        .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
         .mount()
