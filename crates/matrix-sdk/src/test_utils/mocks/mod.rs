@@ -765,7 +765,7 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, RemoveRoomAliasEndpoint)
     }
 
-    /// Create a prebuilt mock for listing public rooms.
+    /// Create a prebuilt mock for listing filtered public rooms.
     ///
     /// # Examples
     ///
@@ -791,7 +791,7 @@ impl MatrixMockServer {
     ///     guest_can_join: true,
     /// }.into()];
     ///
-    /// mock_server.mock_public_rooms().ok(chunk, None, None, Some(20)).mock_once().mount().await;
+    /// mock_server.mock_get_filtered_public_rooms().ok(chunk, None, None, Some(20)).mock_once().mount().await;
     /// let mut room_directory_search = RoomDirectorySearch::new(client);
     ///
     /// room_directory_search.search(Some("some-alias".to_owned()), 100, None)
@@ -803,8 +803,8 @@ impl MatrixMockServer {
     /// assert_eq!(results.get(0).unwrap().room_id, room_id.to_owned());
     /// # });
     /// ```
-    pub fn mock_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
-        let mock = Mock::given(method("POST")).and(path_regex(r"/_matrix/client/v3/publicRooms"));
+    pub fn mock_get_filtered_public_rooms(&self) -> MockEndpoint<'_, PublicRoomsEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/publicRooms"));
         self.mock_endpoint(mock, PublicRoomsEndpoint)
     }
 
@@ -3742,6 +3742,11 @@ impl<'a> MockEndpoint<'a, PublicRoomsEndpoint> {
                 "total_room_count_estimate": chunk.len(),
             }))
         })
+    }
+
+    /// Returns an endpoint with a default successful response.
+    pub fn ok_default(self) -> MatrixMock<'a> {
+        self.ok_json(&*test_json::PUBLIC_ROOMS)
     }
 }
 
