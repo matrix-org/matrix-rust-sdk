@@ -57,9 +57,11 @@ pub struct BaseVideoInfo {
     pub size: Option<UInt>,
     /// The [BlurHash](https://blurha.sh/) for this video.
     pub blurhash: Option<String>,
-    /// Whether this video should be displayed as a circle video.
+    /// Whether this video should be displayed as a circle video
+    /// ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546)).
     ///
     /// Defaults to `false`.
+    #[cfg(feature = "unstable-msc4546")]
     pub circle: bool,
 }
 

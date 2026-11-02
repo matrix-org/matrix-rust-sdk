@@ -671,6 +671,7 @@ async fn test_room_attachment_send_is_animated() {
 }
 
 #[async_test]
+#[cfg(feature = "unstable-msc4546")]
 async fn test_room_attachment_send_circle_video() {
     let mock = MatrixMockServer::new().await;
 

@@ -704,9 +704,11 @@ pub struct VideoMessageContent {
     pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<VideoInfo>,
-    /// Whether this video should be displayed as a circle video.
+    /// Whether this video should be displayed as a circle video
+    /// ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546)).
     ///
     /// Defaults to `false`.
+    #[cfg(feature = "unstable-msc4546")]
     #[uniffi(default = false)]
     pub circle: bool,
 }
@@ -718,7 +720,10 @@ impl From<VideoMessageContent> for RumaVideoMessageEventContent {
             .info(value.info.map(Into::into).map(Box::new));
         event_content.formatted = value.formatted_caption.map(Into::into);
         event_content.filename = filename;
-        event_content.circle = value.circle;
+        #[cfg(feature = "unstable-msc4546")]
+        {
+            event_content.circle = value.circle;
+        }
         event_content
     }
 }
@@ -733,6 +738,7 @@ impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
+            #[cfg(feature = "unstable-msc4546")]
             circle: value.circle,
         })
     }
@@ -912,9 +918,11 @@ pub struct VideoInfo {
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
     pub blurhash: Option<String>,
-    /// Whether this video should be displayed as a circle video.
+    /// Whether this video should be displayed as a circle video
+    /// ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546)).
     ///
     /// Defaults to `false`.
+    #[cfg(feature = "unstable-msc4546")]
     #[uniffi(default = false)]
     pub circle: bool,
 }
@@ -956,6 +964,7 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
                 .transpose()
                 .map_err(|_| MediaInfoError::InvalidField)?,
             blurhash: value.blurhash.clone(),
+            #[cfg(feature = "unstable-msc4546")]
             circle: value.circle,
         })
     }
@@ -1170,6 +1179,7 @@ impl TryFrom<&RumaVideoInfo> for VideoInfo {
                 .transpose()?
                 .map(Arc::new),
             blurhash: info.blurhash.clone(),
+            #[cfg(feature = "unstable-msc4546")]
             circle: false,
         })
     }
