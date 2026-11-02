@@ -379,7 +379,7 @@ impl OAuth {
     /// 403 FORBIDDEN HTTP response, otherwise an error is returned.
     ///
     /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(feature = "unstable-msc4388")]
     pub async fn msc_4388_rendezvous_server_supported(&self) -> Result<bool, crate::HttpError> {
         use http::StatusCode;
         use ruma::api::client::rendezvous::discover_rendezvous;
