@@ -2337,6 +2337,25 @@ impl<'a, T> MockEndpoint<'a, T> {
             }),
         )
     }
+
+    /// Returns a mocked endpoint that emulates a User-Interactive
+    /// Authentication with a password stage.
+    pub fn error_uiaa_password(self) -> MatrixMock<'a> {
+        self.respond_with_code_and_json(
+            401,
+            json!({
+                "flows": [
+                    {
+                        "stages": [
+                            "m.login.password"
+                        ]
+                    }
+                ],
+                "params": {},
+                "session": "oFIJVvtEOCKmRUTYKTYIIPHL"
+            }),
+        )
+    }
 }
 
 /// The access token to expect on an endpoint.
@@ -4183,24 +4202,6 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
             json!({
                 "errcode": "M_FORBIDDEN",
                 "error": "Invalid password",
-                "flows": [
-                    {
-                        "stages": [
-                            "m.login.password"
-                        ]
-                    }
-                ],
-                "params": {},
-                "session": "oFIJVvtEOCKmRUTYKTYIIPHL"
-            }),
-        )
-    }
-
-    /// Returns an error response with a UIAA stage.
-    pub fn uiaa(self) -> MatrixMock<'a> {
-        self.respond_with_code_and_json(
-            401,
-            json!({
                 "flows": [
                     {
                         "stages": [
