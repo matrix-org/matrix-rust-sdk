@@ -68,7 +68,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v 2.87.32
         with:
           tool: nextest
 
@@ -106,7 +106,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v 2.87.32
         with:
           tool: nextest
 
@@ -150,7 +150,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v 2.87.32
         with:
           tool: nextest
 
@@ -192,7 +192,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
           tool: protoc@3.20.3
 
@@ -214,7 +214,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v 2.87.32
         with:
           tool: nextest
 
@@ -294,7 +294,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v 2.87.32
         with:
           tool: nextest
 
@@ -339,7 +339,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
           tool: protoc@3.20.3
 
@@ -417,7 +417,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v 2.87.32
         with:
           tool: nextest
 
