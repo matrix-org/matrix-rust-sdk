@@ -1045,7 +1045,12 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only() {
         }
         .into(),
     ];
-    server.mock_public_rooms().ok(chunks, None, None, Some(1)).mock_once().mount().await;
+    server
+        .mock_get_filtered_public_rooms()
+        .ok(chunks, None, None, Some(1))
+        .mock_once()
+        .mount()
+        .await;
 
     // The room preview is found
     let preview = client
@@ -1105,7 +1110,7 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only_in_sev
         ),
     ]);
     server
-        .mock_public_rooms()
+        .mock_get_filtered_public_rooms()
         .ok_with_via_params(via_map)
         // Expect this to be called once for every server in the `via_map`
         .expect(2)

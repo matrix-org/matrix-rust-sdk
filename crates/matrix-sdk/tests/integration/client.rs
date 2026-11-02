@@ -229,14 +229,10 @@ async fn test_room_search_all() {
 
 #[async_test]
 async fn test_room_search_filtered() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/publicRooms"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
-        .mount(&server)
-        .await;
+    server.mock_get_filtered_public_rooms().ok_default().expect(1).mount().await;
 
     let generic_search_term = Some("cheese".to_owned());
     let filter = assign!(Filter::new(), { generic_search_term });
