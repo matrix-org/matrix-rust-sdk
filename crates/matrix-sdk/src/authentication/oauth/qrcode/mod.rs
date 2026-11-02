@@ -469,7 +469,7 @@ pub enum SenderError {
     CannotSend,
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(all(test, not(target_family = "wasm"), feature = "unstable-msc4388"))]
 mod tests {
     use matrix_sdk_test::async_test;
     use serde_json::json;
