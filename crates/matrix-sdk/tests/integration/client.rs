@@ -214,13 +214,10 @@ async fn test_join_room_by_id_or_alias() {
 
 #[async_test]
 async fn test_room_search_all() {
-    let (client, server) = no_retry_test_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/publicRooms"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::PUBLIC_ROOMS))
-        .mount(&server)
-        .await;
+    server.mock_get_all_public_rooms().ok_default().expect(1).mount().await;
 
     let get_public_rooms::v3::Response { chunk, .. } =
         client.public_rooms(Some(10), None, None).await.unwrap();
