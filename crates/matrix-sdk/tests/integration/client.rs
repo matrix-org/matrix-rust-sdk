@@ -295,18 +295,12 @@ async fn test_joined_space_rooms() {
 
 #[async_test]
 async fn test_whoami() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/account/whoami"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
-        .mount(&server)
-        .await;
+    server.mock_who_am_i().ok().expect(1).mount().await;
 
-    let user_id = user_id!("@joe:example.org");
-
-    assert_eq!(client.whoami().await.unwrap().user_id, user_id);
+    assert_eq!(client.whoami().await.unwrap().user_id, User::Alice);
 }
 
 #[async_test]
