@@ -40,8 +40,8 @@ use ruma::{
     directory::Filter,
     event_id,
     events::{
-        AnyInitialStateEvent, AnyRoomAccountDataEvent,
-        direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        AnyInitialStateEvent, AnyRoomAccountDataEvent, GlobalAccountDataEventType,
+        direct::DirectEventContent,
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
             member::MembershipState,
@@ -504,13 +504,10 @@ async fn test_request_encryption_event_before_sending() {
 // a DM.
 #[async_test]
 async fn test_marking_room_as_dm() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    client
-        .sync_once(SyncSettings::default())
-        .await
-        .expect("We should be able to perform an initial sync");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().expect("user is logged in");
+    let f = EventFactory::new();
 
     let account_data = client
         .account()
@@ -520,58 +517,40 @@ async fn test_marking_room_as_dm() {
 
     assert!(account_data.is_none(), "We should not have any account data initially");
 
-    let bob = user_id!("@bob:example.com");
-    let users = vec![bob.to_owned()];
-
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/user/@example:localhost/account_data/m.direct"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "@bob:example.com": [
-                "!abcdefgh:example.com",
-                "!hgfedcba:example.com"
-            ],
-            "@alice:example.com": [
-                "!abcdefgh:example.com",
-            ]
-        })))
+    server
+        .mock_get_global_account_data(user_id, &GlobalAccountDataEventType::Direct)
+        .ok(f
+            .direct()
+            .add_user(User::Bob, TestRoom::Left)
+            .add_user(User::Bob, TestRoom::V12)
+            .add_user(User::Carol, TestRoom::V12)
+            .into_content())
         .expect(1..)
         .named("m.direct account data GET")
-        .mount(&server)
+        .mount()
         .await;
 
-    let put_direct_content_matcher = |request: &Request| {
-        let content: DirectEventContent = request.body_json().expect(
-            "The body of the PUT /account_data request should be a valid DirectEventContent",
-        );
-
-        let bob_entry = content
-            .get(&OwnedDirectUserIdentifier::from(bob.to_owned()))
-            .expect("We should have bob in the direct event content");
-
-        assert_eq!(content.len(), 2, "We should have entries for bob and foo");
-        assert_eq!(bob_entry.len(), 3, "Bob should have 3 direct rooms");
-
-        content.len() == 2 && bob_entry.len() == 3
-    };
-
-    Mock::given(method("PUT"))
-        .and(path("_matrix/client/r0/user/@example:localhost/account_data/m.direct"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(put_direct_content_matcher)
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    server
+        .mock_set_global_account_data(user_id, &GlobalAccountDataEventType::Direct)
+        .expect_account_data(
+            f.direct()
+                .add_user(User::Bob, TestRoom::Left)
+                .add_user(User::Bob, TestRoom::V12)
+                .add_user(User::Bob, TestRoom::Default)
+                .add_user(User::Carol, TestRoom::V12)
+                .into_content(),
+        )
+        .ok()
         .expect(1..)
         .named("m.direct account data PUT")
-        .mount(&server)
+        .mount()
         .await;
 
     client
         .account()
-        .mark_as_dm(&DEFAULT_TEST_ROOM_ID, &users)
+        .mark_as_dm(TestRoom::Default.into(), &[User::Bob.into()])
         .await
         .expect("We should be able to mark the room as a DM");
-
-    server.verify().await;
 }
 
 // Check that we're fetching account data from the server when marking a room as
@@ -579,13 +558,9 @@ async fn test_marking_room_as_dm() {
 // deserialize.
 #[async_test]
 async fn test_marking_room_as_dm_fails_if_undeserializable() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    client
-        .sync_once(SyncSettings::default())
-        .await
-        .expect("We should be able to perform an initial sync");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().expect("client is logged in");
 
     let account_data = client
         .account()
@@ -595,25 +570,19 @@ async fn test_marking_room_as_dm_fails_if_undeserializable() {
 
     assert!(account_data.is_none(), "We should not have any account data initially");
 
-    let bob = user_id!("@bob:example.com");
-    let users = vec![bob.to_owned()];
-
     // The response must be valid JSON, but not a valid `DirectEventContent`
     // representation.
-    Mock::given(method("GET"))
-        .and(path("_matrix/client/r0/user/@example:localhost/account_data/m.direct"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!(["hey", null, true, 42])))
+    server
+        .mock_get_global_account_data(user_id, &GlobalAccountDataEventType::Direct)
+        .ok_json(json!(["hey", null, true, 42]))
         .expect(1)
         .named("m.direct account data GET")
-        .mount(&server)
+        .mount()
         .await;
 
-    let result = client.account().mark_as_dm(&DEFAULT_TEST_ROOM_ID, &users).await;
+    let result = client.account().mark_as_dm(TestRoom::Default.into(), &[User::Bob.into()]).await;
 
     assert_matches!(result, Err(Error::SerdeJson(_)));
-
-    server.verify().await;
 }
 
 #[cfg(feature = "e2e-encryption")]

@@ -52,8 +52,8 @@ use ruma::{
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
-        AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, GlobalAccountDataEventType,
-        MessageLikeEventType, RoomAccountDataEventType, StateEventType,
+        AnyGlobalAccountDataEventContent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+        GlobalAccountDataEventType, MessageLikeEventType, RoomAccountDataEventType, StateEventType,
         receipt::ReceiptThread,
         room::member::{MembershipState, RoomMemberEvent},
         tag::TagName,
@@ -1897,6 +1897,30 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET"))
             .and(path("/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"));
         self.mock_endpoint(mock, GetRtcTransportsEndpoint)
+    }
+
+    /// Creates a prebuilt mock for getting global account data.
+    pub fn mock_get_global_account_data(
+        &self,
+        user_id: &UserId,
+        account_data_type: &GlobalAccountDataEventType,
+    ) -> MockEndpoint<'_, GetGlobalAccountDataEndpoint> {
+        let mock = Mock::given(method("GET")).and(path(format!(
+            "/_matrix/client/v3/user/{user_id}/account_data/{account_data_type}"
+        )));
+        self.mock_endpoint(mock, GetGlobalAccountDataEndpoint).expect_default_access_token()
+    }
+
+    /// Creates a prebuilt mock for setting global account data.
+    pub fn mock_set_global_account_data(
+        &self,
+        user_id: &UserId,
+        account_data_type: &GlobalAccountDataEventType,
+    ) -> MockEndpoint<'_, SetGlobalAccountDataEndpoint> {
+        let mock = Mock::given(method("PUT")).and(path(format!(
+            "/_matrix/client/v3/user/{user_id}/account_data/{account_data_type}"
+        )));
+        self.mock_endpoint(mock, SetGlobalAccountDataEndpoint).expect_default_access_token()
     }
 }
 
@@ -5752,5 +5776,36 @@ impl<'a> MockEndpoint<'a, GetRtcTransportsEndpoint> {
                 { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
             ]
         })))
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /_matrix/client/v3/user/{userId}/account_data/{type}`.
+pub struct GetGlobalAccountDataEndpoint;
+
+impl<'a> MockEndpoint<'a, GetGlobalAccountDataEndpoint> {
+    /// Returns a successful response with the given account data.
+    pub fn ok(self, account_data: impl Into<AnyGlobalAccountDataEventContent>) -> MatrixMock<'a> {
+        self.ok_json(account_data.into())
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/user/{userId}/account_data/{type}`.
+pub struct SetGlobalAccountDataEndpoint;
+
+impl<'a> MockEndpoint<'a, SetGlobalAccountDataEndpoint> {
+    /// Expect the request body to contain the given account data.
+    pub fn expect_account_data(
+        mut self,
+        account_data: impl Into<AnyGlobalAccountDataEventContent>,
+    ) -> Self {
+        self.mock = self.mock.and(body_json(account_data.into()));
+        self
+    }
+
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
     }
 }
