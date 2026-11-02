@@ -39,7 +39,7 @@ TBD
 
 ## Extending the FFI
 
-This FFI is not publsihed yet, but you can build can extend it by depending on
+This FFI is not published yet, but you can build can extend it by depending on
 this crate via a git dependency. To be able to get access to the actual inner/
 rust types, make sure to enabled the experimental `experimental-preludes` feature:
 ```toml

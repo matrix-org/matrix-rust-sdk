@@ -32,7 +32,6 @@ fn load_metadata() -> Result<Metadata> {
 /// to allow downstream implementors to configure xtask parameters
 /// see README.md of the xtask crate for more information
 fn load_xtask_metadata() -> Result<XtaskMetadata> {
-    // Xtask can be configured usin
     #[derive(Deserialize, Default)]
     struct WorkspaceMetadata {
         #[serde(default)]
