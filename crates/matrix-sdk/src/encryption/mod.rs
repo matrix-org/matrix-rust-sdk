@@ -2334,7 +2334,7 @@ impl Encryption {
     /// event.
     ///
     /// This handler listens for changes to the room membership, and discards
-    /// the current room key if the event is a `leave` event.
+    /// the current room key if the event is not a `join` or `invite` event.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
@@ -2361,12 +2361,12 @@ impl Encryption {
                 MembershipChange::KnockAccepted |
                 MembershipChange::InvitationAccepted |
                 MembershipChange::ProfileChanged { .. }
-            ) || ev.sender == user_id {
-                // We can ignore events that did not remove us, and those that we sent.
+            ) || ev.state_key == user_id {
+                // We can ignore events that did not remove the user, and those that involve us.
                 return;
             }
 
-            debug!(room_id = ?room.room_id(), member_id = ?ev.sender, "Discarding session as a user left the room");
+            debug!(room_id = ?room.room_id(), member_id = ?ev.state_key, "Discarding session as a user left the room");
 
             // Attempt to discard the current room key. This won't do anything
             // if we don't have one, but that's fine since we will create a new
