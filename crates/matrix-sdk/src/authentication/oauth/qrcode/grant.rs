@@ -24,12 +24,7 @@ use matrix_sdk_base::{
     },
 };
 use oauth2::VerificationUriComplete;
-use ruma::{
-    api::client::discovery::get_authorization_server_metadata::v1::{
-        AuthorizationServerMetadata, GrantType,
-    },
-    time::Instant,
-};
+use ruma::time::Instant;
 use tracing::warn;
 use url::Url;
 #[cfg(doc)]
@@ -41,11 +36,14 @@ use super::{
 };
 use crate::{
     Client,
-    authentication::oauth::qrcode::{
-        CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
-        GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
-        SecureChannelError, messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
-        use_msc_4388_for_generated_qr_code,
+    authentication::oauth::{
+        qrcode::{
+            CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
+            GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
+            SecureChannelError, messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
+            use_msc_4388_for_generated_qr_code,
+        },
+        supports_device_authorization_grant,
     },
 };
 
@@ -59,15 +57,6 @@ async fn export_secrets_bundle(client: &Client) -> Result<SecretsBundle, QRCodeG
         .export_secrets_bundle()
         .await?;
     Ok(secrets_bundle)
-}
-
-/// Whether the authorization server supports the device authorization grant.
-///
-/// It needs to advertise the grant type, and the endpoint that the new device
-/// uses to start the grant.
-fn supports_device_authorization_grant(metadata: &AuthorizationServerMetadata) -> bool {
-    metadata.grant_types_supported.contains(&GrantType::DeviceCode)
-        && metadata.device_authorization_endpoint.is_some()
 }
 
 /// Get the login protocols we can offer to the new device in the
@@ -617,27 +606,8 @@ mod test {
             messages::AuthorizationGrant,
             secure_channel::{EstablishedSecureChannel, test::MockedRendezvousServer},
         },
-        test_utils::mocks::{MatrixMockServer, oauth::MockServerMetadataBuilder},
+        test_utils::mocks::MatrixMockServer,
     };
-
-    #[test]
-    fn test_supports_device_authorization_grant() {
-        let metadata = MockServerMetadataBuilder::new("https://auth.local/")
-            .build()
-            .deserialize()
-            .expect("The server metadata should deserialize");
-        assert!(supports_device_authorization_grant(&metadata));
-
-        // The grant type isn't advertised.
-        let mut without_grant_type = metadata.clone();
-        without_grant_type.grant_types_supported.remove(&GrantType::DeviceCode);
-        assert!(!supports_device_authorization_grant(&without_grant_type));
-
-        // The device authorization endpoint is missing.
-        let mut without_endpoint = metadata;
-        without_endpoint.device_authorization_endpoint = None;
-        assert!(!supports_device_authorization_grant(&without_endpoint));
-    }
 
     enum BobBehaviour {
         HappyPath,
