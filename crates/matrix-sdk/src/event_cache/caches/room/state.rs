@@ -650,6 +650,29 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             return Ok((false, Vec::new()));
         }
 
+        // All the events are already loaded, typically our own events eagerly
+        // inserted by the send queue. Replace them in place with their copy
+        // from sync instead of moving them to the back, which would reorder
+        // the timeline.
+        if prev_batch_token.is_none() && in_memory_duplicated_event_ids.len() == events.len() {
+            for (event_id, position) in in_memory_duplicated_event_ids {
+                let event = events
+                    .iter()
+                    .find(|event| event.event_id() == Some(&event_id))
+                    .expect("a duplicated event must come from the batch");
+
+                self.state
+                    .room_linked_chunk
+                    .replace_event_at(position, event.clone())
+                    .expect("a duplicated event must exist at its position");
+            }
+
+            self.propagate_changes().await?;
+            self.post_process_upserted_events(events.iter(), read_receipt_event.as_ref()).await?;
+
+            return Ok((false, self.room_linked_chunk.updates_as_vector_diffs()));
+        }
+
         let has_new_gap = prev_batch_token.is_some();
 
         // If we've never waited for an initial previous-batch token, and we've

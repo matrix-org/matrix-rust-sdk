@@ -809,7 +809,7 @@ mod timed_tests {
     use matrix_sdk_base::{
         RoomState,
         event_cache::{
-            Gap,
+            Event, Gap,
             store::{ControlledMemoryStore, EventCacheStore as _, MemoryStore},
         },
         linked_chunk::{
@@ -1373,6 +1373,60 @@ mod timed_tests {
         let raw_chunks =
             event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap();
         assert!(raw_chunks.is_empty());
+    }
+
+    async fn sync_events(room_event_cache: &RoomEventCache, events: Vec<Event>) {
+        room_event_cache
+            .handle_joined_room_update(
+                Timeline { limited: false, prev_batch: None, events },
+                MaybeReceiptEventContent::none(),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn event_ids(room_event_cache: &RoomEventCache) -> Vec<String> {
+        let events = room_event_cache.events().await.unwrap();
+        events.iter().map(|event| event.event_id().unwrap().to_string()).collect()
+    }
+
+    #[async_test]
+    async fn test_sync_of_sent_events_keeps_them_in_place() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let client = MockClientBuilder::new(None).build().await;
+        let own_user_id = client.user_id().unwrap().to_owned();
+
+        let event_cache = client.event_cache().unwrap();
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+        let f = EventFactory::new().room(room_id);
+        let ev_x = f.text_msg("x").sender(User::Alice).event_id(event_id!("$x")).into_event();
+        let ev_a = f.text_msg("a").sender(&own_user_id).event_id(event_id!("$a")).into_event();
+        let ev_b = f.text_msg("b").sender(&own_user_id).event_id(event_id!("$b")).into_event();
+
+        sync_events(&room_event_cache, vec![ev_x]).await;
+
+        // The send queue eagerly inserts our sent events.
+        room_event_cache.insert_sent_event_from_send_queue(ev_a.clone()).await.unwrap();
+        room_event_cache.insert_sent_event_from_send_queue(ev_b).await.unwrap();
+
+        let (_, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+        // Sync lags behind, and only returns `$a`: it's replaced in place.
+        sync_events(&room_event_cache, vec![ev_a]).await;
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Set { index: 1, .. } = &diffs[0]);
+
+        assert_eq!(event_ids(&room_event_cache).await, ["$x", "$a", "$b"]);
     }
 
     #[async_test]
