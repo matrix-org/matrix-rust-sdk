@@ -45,6 +45,7 @@ use crate::{
         CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
         GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
         SecureChannelError, messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
+        use_msc_4388_for_generated_qr_code,
     },
 };
 
@@ -470,7 +471,6 @@ pub struct GrantLoginWithGeneratedQrCode {
     client: Client,
     device_creation_timeout: Duration,
     state: SharedObservable<GrantLoginProgress<GeneratedQrProgress>>,
-    msc_4388_support: bool,
 }
 
 impl GrantLoginWithGeneratedQrCode {
@@ -482,7 +482,6 @@ impl GrantLoginWithGeneratedQrCode {
             client: client.clone(),
             device_creation_timeout,
             state: Default::default(),
-            msc_4388_support: false,
         }
     }
 }
@@ -499,15 +498,6 @@ impl GrantLoginWithGeneratedQrCode {
     ) -> impl Stream<Item = GrantLoginProgress<GeneratedQrProgress>> + use<> {
         self.state.subscribe()
     }
-
-    /// Enable and generate a QR code which supports [MSC4388].
-    ///
-    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
-    #[cfg(feature = "unstable-msc4388")]
-    pub fn with_msc4388_support(&mut self) -> &mut Self {
-        self.msc_4388_support = true;
-        self
-    }
 }
 
 impl IntoFuture for GrantLoginWithGeneratedQrCode {
@@ -516,18 +506,21 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            // Determine which login protocols we can offer, so that we can
-            // abort before generating a QR code if there are none.
+            // Determine which variant of the rendezvous server to use, and
+            // which login protocols we can offer, so that we can abort before
+            // generating a QR code if there are none.
+            let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client)
+                .await
+                .map_err(SecureChannelError::from)?;
             #[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
-            let available_protocols =
-                available_login_protocols(&self.client, self.msc_4388_support).await?;
+            let available_protocols = available_login_protocols(&self.client, msc_4388).await?;
 
             // Create a new ephemeral key pair and a rendezvous session to grant
             // a login with.
             //
             // -- MSC4108 Secure channel setup steps 1 & 2
             let secrets_bundle = export_secrets_bundle(&self.client).await?;
-            let channel = SecureChannel::reciprocate(&self.client, self.msc_4388_support).await?;
+            let channel = SecureChannel::reciprocate(&self.client, msc_4388).await?;
 
             // Extract the QR code data and emit an update so that the caller
             // can present the QR code for scanning by the new device.
@@ -1272,16 +1265,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        #[allow(unused_mut)]
-        let mut grant = oauth
+        let grant = oauth
             .grant_login_with_qr_code()
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            grant.with_msc4388_support();
-        }
 
         let secrets_bundle = export_secrets_bundle(&alice)
             .await
@@ -2202,16 +2189,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        #[allow(unused_mut)]
-        let mut grant = oauth
+        let grant = oauth
             .grant_login_with_qr_code()
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            grant.with_msc4388_support();
-        }
 
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -2309,6 +2290,8 @@ mod test {
     #[cfg(feature = "unstable-msc4388")]
     async fn test_grant_login_with_generated_qr_code_no_supported_protocols_msc_4388() {
         let server = MatrixMockServer::new().await;
+        let _rendezvous_server =
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, true).await;
 
         server
             .oauth()
@@ -2329,11 +2312,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        let mut grant = oauth
+        let grant = oauth
             .grant_login_with_qr_code()
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
-        grant.with_msc4388_support();
         let state = grant.state.clone();
 
         assert_matches!(grant.await, Err(QRCodeGrantLoginError::NoSupportedProtocols));

@@ -62,7 +62,52 @@ pub use self::{
 use super::CrossProcessRefreshLockError;
 #[cfg(doc)]
 use super::OAuth;
-use crate::HttpError;
+use crate::{Client, HttpError};
+
+/// Check whether we should use [MSC4388] rather than [MSC4108] to create the
+/// rendezvous session for a QR code that we generate.
+///
+/// We use MSC4388 if the `unstable-msc4388` feature is enabled and the
+/// homeserver supports it. Otherwise, we use MSC4108.
+///
+/// If we can't find out whether the homeserver supports MSC4388, we only fall
+/// back to MSC4108 if the homeserver advertises support for it. Otherwise, we
+/// return the error, because creating an MSC4108 rendezvous session would fail
+/// with an unrelated error, and the caller can retry later.
+///
+/// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+/// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+#[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
+async fn use_msc_4388_for_generated_qr_code(client: &Client) -> Result<bool, HttpError> {
+    #[cfg(feature = "unstable-msc4388")]
+    match client.oauth().msc_4388_rendezvous_server_supported().await {
+        Ok(supported) => return Ok(supported),
+        Err(error) => {
+            let unstable_features = match client.unstable_features().await {
+                Ok(unstable_features) => unstable_features,
+                Err(versions_error) => {
+                    // We can only return one error, so log the one from the
+                    // MSC4388 check.
+                    tracing::warn!(
+                        "Could not check whether the homeserver supports MSC4388: {error}"
+                    );
+                    return Err(versions_error);
+                }
+            };
+
+            if !unstable_features.contains(&ruma::api::FeatureFlag::Msc4108) {
+                return Err(error);
+            }
+
+            tracing::warn!(
+                "Could not check whether the homeserver supports MSC4388, falling back to \
+                 MSC4108: {error}"
+            );
+        }
+    }
+
+    Ok(false)
+}
 
 /// The error type for failures while trying to log in a new device using a QR
 /// code.
@@ -479,7 +524,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use wiremock::ResponseTemplate;
 
-    use crate::test_utils::mocks::MatrixMockServer;
+    use crate::{HttpError, test_utils::mocks::MatrixMockServer};
 
     #[async_test]
     async fn test_msc_4388_rendezvous_server_supported() {
@@ -555,6 +600,30 @@ mod tests {
             );
         }
 
+        for status in [400, 405] {
+            let _discover_guard = server
+                .mock_rendezvous_discovery()
+                .respond_with(ResponseTemplate::new(status).set_body_json(serde_json::json!({
+                    "errcode": "M_UNRECOGNIZED",
+                    "error": "Unrecognized request",
+                })))
+                .expect(1)
+                .mount_as_scoped()
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported if we receive an M_UNRECOGNIZED \
+                 error with a {status} response"
+            );
+        }
+
         {
             let _discover_guard =
                 server.mock_rendezvous_discovery().error500().expect(1).mount_as_scoped().await;
@@ -565,5 +634,62 @@ mod tests {
                 .await
                 .expect_err("We should return an error if the homeserver can't tell us if the endpoint is supported or not");
         }
+    }
+
+    /// Check whether a client would use MSC4388 to generate a QR code, when
+    /// the MSC4388 rendezvous discovery endpoint responds with the given
+    /// response, and the homeserver advertises support for MSC4108 or not.
+    async fn use_msc_4388_with_discovery_response(
+        discovery_response: ResponseTemplate,
+        msc_4108: bool,
+    ) -> Result<bool, HttpError> {
+        let server = MatrixMockServer::new().await;
+
+        let versions = server.mock_versions();
+        let versions =
+            if msc_4108 { versions.with_feature("org.matrix.msc4108", true) } else { versions };
+        versions.ok().mount().await;
+
+        server.mock_rendezvous_discovery().respond_with(discovery_response).mount().await;
+
+        let client =
+            server.client_builder().no_server_versions().logged_in_with_oauth().build().await;
+        super::use_msc_4388_for_generated_qr_code(&client).await
+    }
+
+    #[async_test]
+    async fn test_use_msc_4388_for_generated_qr_code_fallback() {
+        let create_available = |create_available: bool| {
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "create_available": create_available }))
+        };
+
+        let use_msc_4388 = use_msc_4388_with_discovery_response(create_available(true), false)
+            .await
+            .expect("We should use MSC4388 when it's supported");
+        assert!(use_msc_4388, "MSC4388 is used when it's supported, even without MSC4108");
+
+        let use_msc_4388 = use_msc_4388_with_discovery_response(create_available(false), true)
+            .await
+            .expect("We should use MSC4108 when creating MSC4388 sessions isn't available");
+        assert!(!use_msc_4388, "MSC4108 is used when creating MSC4388 sessions isn't available");
+
+        let use_msc_4388 = use_msc_4388_with_discovery_response(ResponseTemplate::new(404), false)
+            .await
+            .expect("We should try MSC4108 when MSC4388 isn't supported");
+        assert!(!use_msc_4388, "MSC4108 is still tried when neither variant is supported");
+
+        let use_msc_4388 = use_msc_4388_with_discovery_response(ResponseTemplate::new(500), true)
+            .await
+            .expect("We should fall back to MSC4108 when it's supported");
+        assert!(
+            !use_msc_4388,
+            "MSC4108 is used when the MSC4388 support can't be fetched and MSC4108 is supported"
+        );
+
+        use_msc_4388_with_discovery_response(ResponseTemplate::new(500), false).await.expect_err(
+            "We can't fall back to MSC4108 when the MSC4388 support can't be fetched and MSC4108 \
+             isn't supported",
+        );
     }
 }

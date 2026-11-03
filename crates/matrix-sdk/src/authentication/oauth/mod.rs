@@ -376,20 +376,27 @@ impl OAuth {
     ///
     /// Returns `Ok(true)` if the rendezvous discovery endpoint returns a 200 OK
     /// HTTP response, `Ok(false)` if the endpoint returns a 404 NOT_FOUND or
-    /// 403 FORBIDDEN HTTP response, otherwise an error is returned.
+    /// 403 FORBIDDEN HTTP response or an `M_UNRECOGNIZED` error code, otherwise
+    /// an error is returned.
     ///
     /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
     #[cfg(feature = "unstable-msc4388")]
     pub async fn msc_4388_rendezvous_server_supported(&self) -> Result<bool, crate::HttpError> {
         use http::StatusCode;
-        use ruma::api::client::rendezvous::discover_rendezvous;
+        use ruma::api::{client::rendezvous::discover_rendezvous, error::ErrorKind};
 
         match self.client.send(discover_rendezvous::unstable::Request::new()).await {
             Ok(response) => Ok(response.create_available),
             Err(e) => {
+                // A homeserver that doesn't implement the endpoint responds
+                // with a 404 or an `M_UNRECOGNIZED` error code, which some
+                // servers or reverse proxies send with another status code
+                // like 400 or 405. A 403 means that the homeserver doesn't let
+                // us use the endpoint, which isn't a failure to check either.
                 if e.as_client_api_error().is_some_and(|err| {
                     matches!(err.status_code, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
-                }) {
+                }) || matches!(e.client_api_error_kind(), Some(ErrorKind::Unrecognized))
+                {
                     Ok(false)
                 } else {
                     Err(e)
