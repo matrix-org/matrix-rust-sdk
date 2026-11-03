@@ -441,6 +441,7 @@ pub(super) mod test {
         post_guard: MockGuard,
         put_guard: MockGuard,
         get_guard: MockGuard,
+        discovery_guard: Option<MockGuard>,
     }
 
     impl MockedRendezvousServer {
@@ -451,7 +452,7 @@ pub(super) mod test {
             msc_4388: bool,
         ) -> Self {
             if msc_4388 {
-                Self::new_msc4388(server.server(), expiration).await
+                Self::new_msc4388(server, expiration).await
             } else {
                 Self::new_msc4108(server.server(), location, expiration).await
             }
@@ -573,12 +574,13 @@ pub(super) mod test {
                 post_guard,
                 put_guard,
                 get_guard,
+                discovery_guard: None,
                 homeserver_url,
                 rendezvous_url,
             }
         }
 
-        pub async fn new_msc4388(server: &MockServer, expiration: Duration) -> Self {
+        pub async fn new_msc4388(server: &MatrixMockServer, expiration: Duration) -> Self {
             #[derive(Debug, Deserialize)]
             struct PutContent {
                 #[allow(dead_code)]
@@ -601,6 +603,11 @@ pub(super) mod test {
             let rendezvous_url = homeserver_url
                 .join(RENDEZVOUS_ID)
                 .expect("We should be able to create a rendezvous URL");
+
+            let discovery_guard =
+                server.mock_rendezvous_discovery().ok(true).mount_as_scoped().await;
+
+            let server = server.server();
 
             let post_guard = server
                 .register_as_scoped(
@@ -720,6 +727,7 @@ pub(super) mod test {
                 post_guard,
                 put_guard,
                 get_guard,
+                discovery_guard: Some(discovery_guard),
                 homeserver_url,
                 rendezvous_url,
             }

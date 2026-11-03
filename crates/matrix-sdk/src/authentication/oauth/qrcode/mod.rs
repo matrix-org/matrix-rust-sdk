@@ -62,7 +62,30 @@ pub use self::{
 use super::CrossProcessRefreshLockError;
 #[cfg(doc)]
 use super::OAuth;
-use crate::HttpError;
+use crate::{Client, HttpError};
+
+/// Check whether we should use [MSC4388] rather than [MSC4108] to create the
+/// rendezvous session for a QR code that we generate.
+///
+/// We use MSC4388 if the `unstable-msc4388` feature is enabled and the
+/// homeserver supports it. Otherwise, or if we can't find out, we fall back to
+/// MSC4108.
+///
+/// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+/// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+#[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
+async fn use_msc_4388_for_generated_qr_code(client: &Client) -> bool {
+    #[cfg(feature = "unstable-msc4388")]
+    match client.oauth().msc_4388_rendezvous_server_supported().await {
+        Ok(supported) => return supported,
+        Err(error) => tracing::warn!(
+            "Could not check whether the homeserver supports MSC4388, falling back to MSC4108: \
+             {error}"
+        ),
+    }
+
+    false
+}
 
 /// The error type for failures while trying to log in a new device using a QR
 /// code.
