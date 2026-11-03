@@ -253,9 +253,10 @@ impl MatrixDriver {
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
 
-        if let Some(redacts) = from_raw_json_value::<Value, serde_json::Error>(&content)
-            .ok()
-            .and_then(|b| b["redacts"].as_str().and_then(|s| EventId::parse(s).ok()))
+        if event_type == TimelineEventType::RoomRedaction
+            && let Some(redacts) = from_raw_json_value::<Value, serde_json::Error>(&content)
+                .ok()
+                .and_then(|b| b["redacts"].as_str().and_then(|s| EventId::parse(s).ok()))
         {
             return Ok(SendEventResponse::from_event_id(
                 self.room.redact(&redacts, None, None).await?.event_id,
