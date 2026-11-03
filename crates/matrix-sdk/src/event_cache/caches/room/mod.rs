@@ -833,7 +833,10 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
+        super::{
+            super::{TimelineVectorDiffs, states::ReloadPreprocessing},
+            pagination::LoadMoreEventsBackwardsOutcome,
+        },
         MaybeReceiptEventContent, RoomEventCache, RoomEventCacheGenericUpdate,
         RoomEventCacheUpdate,
     };
@@ -1427,6 +1430,88 @@ mod timed_tests {
         assert_let!(VectorDiff::Set { index: 1, .. } = &diffs[0]);
 
         assert_eq!(event_ids(&room_event_cache).await, ["$x", "$a", "$b"]);
+    }
+
+    #[async_test]
+    async fn test_sync_inserts_new_events_before_unsynced_sent_events() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let client = MockClientBuilder::new(None).build().await;
+        let own_user_id = client.user_id().unwrap().to_owned();
+
+        let event_cache = client.event_cache().unwrap();
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+        let f = EventFactory::new().room(room_id);
+        let theirs = |id: &str| {
+            f.text_msg(id).sender(User::Alice).event_id(&EventId::parse(id).unwrap()).into_event()
+        };
+        let ours = |id: &str| {
+            f.text_msg(id).sender(&own_user_id).event_id(&EventId::parse(id).unwrap()).into_event()
+        };
+
+        sync_events(&room_event_cache, vec![theirs("$x")]).await;
+
+        // The send queue eagerly inserts our sent events.
+        for id in ["$a", "$b", "$d"] {
+            room_event_cache.insert_sent_event_from_send_queue(ours(id)).await.unwrap();
+        }
+
+        // A new event sent right before `$a` goes before it.
+        sync_events(&room_event_cache, vec![theirs("$m"), ours("$a")]).await;
+        assert_eq!(event_ids(&room_event_cache).await, ["$x", "$m", "$a", "$b", "$d"]);
+
+        // A new event sent right after `$b` goes before `$d`, not synced yet.
+        sync_events(&room_event_cache, vec![ours("$b"), theirs("$c")]).await;
+        assert_eq!(event_ids(&room_event_cache).await, ["$x", "$m", "$a", "$b", "$c", "$d"]);
+
+        // A new event without any of our sent events goes before `$d` too.
+        sync_events(&room_event_cache, vec![theirs("$n")]).await;
+        assert_eq!(event_ids(&room_event_cache).await, ["$x", "$m", "$a", "$b", "$c", "$n", "$d"]);
+
+        // `$d` is synced, and new events go to the back again.
+        sync_events(&room_event_cache, vec![ours("$d"), theirs("$o")]).await;
+        sync_events(&room_event_cache, vec![theirs("$p")]).await;
+        assert_eq!(
+            event_ids(&room_event_cache).await,
+            ["$x", "$m", "$a", "$b", "$c", "$n", "$d", "$o", "$p"]
+        );
+    }
+
+    #[async_test]
+    async fn test_reload_forgets_unsynced_sent_events() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let client = MockClientBuilder::new(None).build().await;
+        let own_user_id = client.user_id().unwrap().to_owned();
+
+        let event_cache = client.event_cache().unwrap();
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+        let f = EventFactory::new().room(room_id);
+        let ev_x = f.text_msg("x").sender(User::Alice).event_id(event_id!("$x")).into_event();
+        let ev_a = f.text_msg("a").sender(&own_user_id).event_id(event_id!("$a")).into_event();
+        let ev_c = f.text_msg("c").sender(User::Alice).event_id(event_id!("$c")).into_event();
+
+        sync_events(&room_event_cache, vec![ev_x.clone()]).await;
+        room_event_cache.insert_sent_event_from_send_queue(ev_a.clone()).await.unwrap();
+
+        // Everything is forgotten, and sync delivers `$a` again as a new event.
+        let _ = room_event_cache
+            .inner
+            .state
+            .write()
+            .await
+            .unwrap()
+            .reload(ReloadPreprocessing::ForgetAll)
+            .await
+            .unwrap();
+        sync_events(&room_event_cache, vec![ev_x, ev_a]).await;
+
+        // `$a` isn't one of our unsynced sent events anymore: it stays in
+        // place.
+        sync_events(&room_event_cache, vec![ev_c]).await;
+        assert_eq!(event_ids(&room_event_cache).await, ["$x", "$a", "$c"]);
     }
 
     #[async_test]
