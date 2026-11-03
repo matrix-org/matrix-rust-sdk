@@ -587,6 +587,14 @@ pub enum ErrorKind {
     /// The desired user name is not valid.
     InvalidUsername,
 
+    /// `M_INVITE_BLOCKED`
+    ///
+    /// The invite was rejected by the homeserver because of [invite blocking]
+    /// or other configured access controls.
+    ///
+    /// [invite blocking]: https://spec.matrix.org/latest/client-server-api/#invite-permission
+    InviteBlocked,
+
     /// `M_LIMIT_EXCEEDED`
     ///
     /// The request has been refused due to [rate limiting]: too many requests
@@ -841,6 +849,7 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::InvalidParam => Ok(ErrorKind::InvalidParam),
             RumaApiErrorKind::InvalidRoomState => Ok(ErrorKind::InvalidRoomState),
             RumaApiErrorKind::InvalidUsername => Ok(ErrorKind::InvalidUsername),
+            RumaApiErrorKind::InviteBlocked => Ok(ErrorKind::InviteBlocked),
             RumaApiErrorKind::LimitExceeded(limit_exceeded) => {
                 let retry_after_ms = match &limit_exceeded.retry_after {
                     Some(RetryAfter::Delay(duration)) => Some(duration.as_millis() as u64),
