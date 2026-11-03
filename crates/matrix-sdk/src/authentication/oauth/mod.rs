@@ -1886,6 +1886,18 @@ fn hash_str(x: &str) -> String {
     hex::encode(sha2::Sha256::new().chain_update(x).finalize())
 }
 
+/// Whether the authorization server supports the device authorization grant.
+///
+/// It needs to advertise the grant type, and the endpoint that the new device
+/// uses to start the grant.
+#[cfg(feature = "e2e-encryption")]
+fn supports_device_authorization_grant(metadata: &AuthorizationServerMetadata) -> bool {
+    use ruma::api::client::discovery::get_authorization_server_metadata::v1::GrantType;
+
+    metadata.grant_types_supported.contains(&GrantType::DeviceCode)
+        && metadata.device_authorization_endpoint.is_some()
+}
+
 /// Data to register or restore a client.
 #[derive(Debug, Clone)]
 pub struct ClientRegistrationData {
