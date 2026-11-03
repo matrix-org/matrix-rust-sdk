@@ -30,7 +30,7 @@ use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
 pub use crate::types::qr_login::msc_4388::{
-    InvalidLengthError, LimitedString, LimitedUrl, RendezvousId,
+    InvalidLengthError, LimitedString, LimitedUrl, LimitedUrlParseError, RendezvousId,
 };
 
 /// Error type for the decoding of the [`QrCodeData`].
@@ -85,10 +85,6 @@ pub enum LoginQrCodeDecodeError {
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum QrCodeCreationError {
-    /// The base URL of the homeserver needs to be at most [`u8::MAX`] bytes
-    /// long, otherwise it doesn't fit into the QR code.
-    #[error("The base URL of the homeserver is too long: {0}")]
-    TooLongBaseUrl(InvalidLengthError),
     /// The rendezvous ID of the channel needs to be at most [`u8::MAX`] bytes
     /// long, otherwise it doesn't fit into the QR code.
     #[error("The rendezvous ID is too long: {0}")]
@@ -199,16 +195,19 @@ impl QrCodeData {
     /// Create a new [`QrCodeData`] object which conforms to the data format
     /// specified in [MSC4388].
     ///
+    /// The `base_url` is encoded in the QR code exactly as
+    /// [`LimitedUrl::as_bytes`] returns it. The secure channel must use the
+    /// same bytes in its additional authenticated data.
+    ///
     /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
     pub fn new_msc4388(
         public_key: Curve25519PublicKey,
         rendezvous_id: String,
-        base_url: Url,
+        base_url: LimitedUrl,
         intent: QrCodeIntent,
     ) -> Result<Self, QrCodeCreationError> {
         let rendezvous_id =
             RendezvousId::new(rendezvous_id).map_err(QrCodeCreationError::TooLongRendezvousId)?;
-        let base_url = LimitedUrl::new(base_url).map_err(QrCodeCreationError::TooLongBaseUrl)?;
 
         Ok(Self {
             inner: QrCodeDataInner::Msc4388(msc_4388::QrCodeData {

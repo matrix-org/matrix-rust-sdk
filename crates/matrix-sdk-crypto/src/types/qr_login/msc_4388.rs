@@ -68,14 +68,30 @@ impl TryFrom<u8> for QrCodeIntent {
 
 /// Error returned when a value's length exceeds the allowed limit.
 #[derive(Debug, thiserror::Error)]
-#[error("value is too long: {got} characters, maximum is {max}")]
+#[error("value is too long: {got} bytes, maximum is {max}")]
 pub struct InvalidLengthError {
     got: usize,
     max: usize,
 }
 
+/// Error returned when a string can't be converted into a [`LimitedUrl`].
+#[derive(Debug, thiserror::Error)]
+pub enum LimitedUrlParseError {
+    /// The string is not a valid URL.
+    #[error(transparent)]
+    InvalidUrl(#[from] url::ParseError),
+    /// The string is too long to fit into the QR code.
+    #[error(transparent)]
+    TooLong(#[from] InvalidLengthError),
+}
+
 /// A wrapper type for a [`Url`] which limits the length of the URL to
 /// [`u8::MAX`].
+///
+/// It holds two forms of the URL: the bytes as they are, or will be, encoded in
+/// the QR code ([`LimitedUrl::as_bytes`]), and the parsed [`Url`]
+/// ([`LimitedUrl::as_url`], [`LimitedUrl::as_str`]). The parsed form is
+/// normalised, so the two can differ (e.g. by a trailing `/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LimitedUrl {
     parsed: Url,
@@ -88,7 +104,10 @@ impl LimitedUrl {
 
     /// Create a new [`LimitedUrl`] from a [`Url`].
     ///
-    /// Returns `None` if the [`Url`] is too long.
+    /// The bytes encoded in the QR code will be the normalised serialisation
+    /// of the [`Url`]. Use [`LimitedUrl::parse`] to keep a string as given.
+    ///
+    /// Returns an error if the [`Url`] is too long.
     pub fn new(s: Url) -> Result<Self, InvalidLengthError> {
         if s.as_str().len() <= Self::MAX_SIZE {
             let raw = s.as_str().as_bytes().to_vec();
@@ -99,11 +118,34 @@ impl LimitedUrl {
         }
     }
 
+    /// Create a new [`LimitedUrl`] from a string, keeping the string exactly
+    /// as given.
+    ///
+    /// The string is parsed to check that it is a valid URL, but unlike
+    /// [`LimitedUrl::new`] the bytes returned by [`LimitedUrl::as_bytes`] are
+    /// not normalised (e.g. no trailing `/` is added to a URL without a path).
+    /// [MSC4388] binds the secure channel to the exact base URL in the QR
+    /// code, so this matters when generating one.
+    ///
+    /// Returns an error if the string is not a valid URL or is too long.
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    pub fn parse(s: &str) -> Result<Self, LimitedUrlParseError> {
+        if s.len() > Self::MAX_SIZE {
+            return Err(InvalidLengthError { got: s.len(), max: Self::MAX_SIZE }.into());
+        }
+
+        let parsed = Url::parse(s)?;
+
+        Ok(Self { parsed, raw: s.as_bytes().to_vec() })
+    }
+
     fn new_unchecked(parsed: Url, raw: Vec<u8>) -> Self {
         Self { parsed, raw }
     }
 
-    /// Return the length of the URL.
+    /// Return the length in bytes of the URL as encoded in the QR code, i.e.
+    /// of [`LimitedUrl::as_bytes`].
     ///
     /// Is returned as an `u8` as it is guaranteed to be <= [`u8::MAX`].
     #[allow(clippy::len_without_is_empty)]
@@ -111,7 +153,12 @@ impl LimitedUrl {
         self.raw.len() as u8
     }
 
-    /// Get a reference to the byte representation of the string.
+    /// Get the URL exactly as it is, or will be, encoded in the QR code.
+    ///
+    /// This is the value to use in the [MSC4388] additional authenticated
+    /// data. It may differ from [`LimitedUrl::as_str`].
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
     pub fn as_bytes(&self) -> &[u8] {
         &self.raw
     }
@@ -121,12 +168,17 @@ impl LimitedUrl {
         &self.parsed
     }
 
-    /// Get a reference to the string representation of this URL.
+    /// Get the normalised serialisation of the underlying [`Url`].
+    ///
+    /// This may differ from the bytes encoded in the QR code, see
+    /// [`LimitedUrl::as_bytes`].
     pub fn as_str(&self) -> &str {
         self.parsed.as_str()
     }
 }
 
+/// Formats the normalised serialisation of the underlying [`Url`], the same as
+/// [`LimitedUrl::as_str`].
 impl fmt::Display for LimitedUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.parsed.fmt(f)
@@ -362,6 +414,29 @@ mod test {
     }
 
     #[test]
+    fn parsed_limited_url_keeps_the_string_as_given() {
+        let url = LimitedUrl::parse("http://example.org").unwrap();
+        assert_eq!(url.as_bytes(), b"http://example.org");
+
+        let url = LimitedUrl::parse("http://example.org/").unwrap();
+        assert_eq!(url.as_bytes(), b"http://example.org/");
+    }
+
+    #[test]
+    fn cant_parse_invalid_limited_url() {
+        assert!(
+            matches!(LimitedUrl::parse("not a url"), Err(LimitedUrlParseError::InvalidUrl(_))),
+            "An invalid URL should be rejected"
+        );
+
+        let too_long = "http://example.org".to_owned() + &"A".repeat(256);
+        assert!(
+            matches!(LimitedUrl::parse(&too_long), Err(LimitedUrlParseError::TooLong(_))),
+            "A URL that's too long should be rejected"
+        );
+    }
+
+    #[test]
     fn cant_create_too_long_limited_string() {
         let too_long = "A".repeat(256);
         LimitedString::new(too_long).expect_err("Can't create a limited string that's too long");
@@ -490,6 +565,28 @@ mod test {
         assert_eq!(
             QR_CODE_DATA_BASE64, &encoded,
             "Decoding and re-encoding the QR code data should yield the same base64 string"
+        );
+    }
+
+    #[test]
+    fn qr_code_encodes_base_url_as_given() {
+        let public_key =
+            Curve25519PublicKey::from_base64("2IZoarIZe3gOMAqdSiFHSAcA15KfOasxueUUNwJI7Ws")
+                .unwrap();
+        let base_url = LimitedUrl::parse("https://matrix-client.matrix.org").unwrap();
+
+        let data = crate::types::qr_login::QrCodeData::new_msc4388(
+            public_key,
+            "e8da6355-550b-4a32-a193-1619d9830668".to_owned(),
+            base_url,
+            crate::types::qr_login::QrCodeIntent::Reciprocate,
+        )
+        .unwrap();
+
+        assert_eq!(
+            QR_CODE_DATA_RECIPROCATE,
+            data.to_bytes(),
+            "The base URL should be encoded without a trailing slash being added"
         );
     }
 }
