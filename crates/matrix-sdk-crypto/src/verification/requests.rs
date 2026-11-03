@@ -38,9 +38,7 @@ use ruma::{
     time::Instant,
     to_device::DeviceIdOrAllDevices,
 };
-#[cfg(feature = "qrcode")]
-use tracing::debug;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 #[cfg(feature = "qrcode")]
 use super::qrcode::{QrVerification, QrVerificationState, ScanError};
@@ -555,6 +553,12 @@ impl VerificationRequest {
         let send_to_everyone = self.we_started() && matches!(*guard, InnerRequest::Created(_));
         let other_device = guard.other_device_id();
 
+        debug!(
+            other_user = self.other_user().as_str(),
+            flow_id = self.flow_id().as_str(),
+            "Cancelling verification request",
+        );
+
         if let Some(updated) = guard.cancel(true, &cancel_code) {
             ObservableWriteGuard::set(&mut guard, updated);
         }
@@ -852,9 +856,15 @@ impl VerificationRequest {
     }
 
     /// Transition from this verification request into a SAS verification flow.
+    #[instrument(skip(self), fields(flow_id=self.flow_id.as_str()))]
     pub async fn start_sas(
         &self,
     ) -> Result<Option<(Sas, OutgoingVerificationRequest)>, CryptoStoreError> {
+        debug!(
+            user_id = ?self.other_user_id,
+            flow_id = self.flow_id.as_str(),
+            "Choosing SAS verification for active VerificationRequest"
+        );
         let inner = self.inner.get();
         let other_device_id = inner.other_device_id();
 

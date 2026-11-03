@@ -21,7 +21,7 @@ use ruma::{
     TransactionId, UserId,
     events::key::verification::{ShortAuthenticationString, cancel::CancelCode},
 };
-use tracing::trace;
+use tracing::debug;
 
 use super::{
     FlowId,
@@ -241,7 +241,7 @@ impl InnerSas {
         let sas = s.into_we_accepted(methods);
         let content = sas.as_content();
 
-        trace!(
+        debug!(
             flow_id = sas.verification_flow_id.as_str(),
             accepted_protocols = ?sas.state.accepted_protocols,
             "Accepted a SAS verification"
