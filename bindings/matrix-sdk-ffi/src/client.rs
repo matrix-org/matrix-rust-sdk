@@ -103,7 +103,6 @@ use ruma::{
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
-        invite_permission_config::InvitePermissionConfigEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         push_rules::PushRulesEventContent,
