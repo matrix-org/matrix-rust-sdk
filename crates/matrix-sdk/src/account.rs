@@ -1188,7 +1188,7 @@ impl Account {
     /// Gets the invite permission configuration stored in the local state
     /// store.
     ///
-    /// Returns `None` if no configuration has been receceived yet.
+    /// Returns `None` if no configuration has been received yet.
     pub async fn get_invite_permission_config(
         &self,
     ) -> Result<Option<InvitePermissionConfigEventContent>> {
