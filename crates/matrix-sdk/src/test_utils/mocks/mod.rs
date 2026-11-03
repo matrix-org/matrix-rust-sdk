@@ -3272,6 +3272,59 @@ impl<'a> MockEndpoint<'a, SetEncryptionStateEndpoint> {
 pub struct RoomRedactEndpoint;
 
 impl<'a> MockEndpoint<'a, RoomRedactEndpoint> {
+    /// Only match a request that contains a specific `event_id` in its path.
+    ///
+    /// Without this, the mock would match the redaction of any event.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// let redacted = event_id!("$redacted");
+    /// let other = event_id!("$other");
+    ///
+    /// // This mock only answers redactions of `other`, so it's never hit.
+    /// mock_server
+    ///     .mock_room_redact()
+    ///     .match_event_id(other)
+    ///     .ok(event_id!("$other_redaction"))
+    ///     .never()
+    ///     .mount()
+    ///     .await;
+    /// mock_server
+    ///     .mock_room_redact()
+    ///     .match_event_id(redacted)
+    ///     .ok(event_id!("$redaction"))
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// let response = room.redact(redacted, None, None).await?;
+    /// assert_eq!(response.event_id, event_id!("$redaction"));
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn match_event_id(self, event_id: &EventId) -> Self {
+        Self {
+            mock: self.mock.and(path_regex(format!(
+                r"^/_matrix/client/v3/rooms/.*/redact/{}/",
+                regex::escape(event_id.as_str())
+            ))),
+            ..self
+        }
+    }
+
     /// Returns a redact endpoint that emulates success, i.e. the redaction
     /// event has been sent with the given event id.
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
