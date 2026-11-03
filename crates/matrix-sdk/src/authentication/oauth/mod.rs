@@ -405,6 +405,135 @@ impl OAuth {
         }
     }
 
+    /// Check which modes of QR code login this client supports to log in.
+    ///
+    /// This is meant for a new client that isn't logged in yet. For an
+    /// existing client that wants to grant a login to a new client, use
+    /// [`OAuth::grant_login_with_qr_code_support()`] instead.
+    ///
+    /// Call this before offering to log in with a QR code, to only offer the
+    /// supported modes to the user.
+    ///
+    /// - Scanning a QR code is always supported, because the homeserver to log
+    ///   in with and the rendezvous server are provided by the other client.
+    /// - Generating a QR code is supported if the homeserver supports creating
+    ///   rendezvous sessions with either [MSC4388] (only with the
+    ///   `unstable-msc4388` feature) or [MSC4108]. The other client provides
+    ///   the homeserver to log in with, so this homeserver doesn't need to
+    ///   support the OAuth 2.0 API.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the support for the rendezvous server can't be
+    /// fetched from the homeserver, so that the caller can distinguish it from
+    /// the rendezvous server not being supported, and retry later.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn login_with_qr_code_support(&self) -> Result<qrcode::QrCodeLoginSupport> {
+        Ok(self.qr_code_login_support_with_rendezvous_server().await?)
+    }
+
+    /// Check which modes of QR code login this client supports to grant a
+    /// login to a new client.
+    ///
+    /// This is meant for an existing client that is logged in. For a new
+    /// client that wants to log in, use
+    /// [`OAuth::login_with_qr_code_support()`] instead.
+    ///
+    /// Call this before offering to grant a login with a QR code, to only offer
+    /// the supported modes to the user. For example, this avoids the
+    /// [`QRCodeGrantLoginError::NoSupportedProtocols`] error when the
+    /// authorization server doesn't support the device authorization grant.
+    ///
+    /// No mode is supported unless this client is logged in with the OAuth 2.0
+    /// API, and the authorization server supports the device authorization
+    /// grant. Otherwise:
+    ///
+    /// - Scanning a QR code is supported, because the rendezvous server is
+    ///   provided by the other client.
+    /// - Generating a QR code is supported if the homeserver supports creating
+    ///   rendezvous sessions with either [MSC4388] (only with the
+    ///   `unstable-msc4388` feature) or [MSC4108].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the authorization server metadata or the support for
+    /// the rendezvous server can't be fetched, so that the caller can
+    /// distinguish it from the modes not being supported, and retry later.
+    ///
+    /// Granting a login also requires this device to have the private
+    /// cross-signing keys, to share them with the new client. This isn't
+    /// checked here, because it depends on the state of this device rather
+    /// than on what the servers support, and can change when this device is
+    /// verified. Use [`Encryption::cross_signing_status()`] to check it,
+    /// otherwise granting a login fails with
+    /// [`QRCodeGrantLoginError::MissingSecretsBackup`].
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    /// [`Encryption::cross_signing_status()`]: crate::encryption::Encryption::cross_signing_status
+    /// [`QRCodeGrantLoginError::MissingSecretsBackup`]: qrcode::QRCodeGrantLoginError::MissingSecretsBackup
+    /// [`QRCodeGrantLoginError::NoSupportedProtocols`]: qrcode::QRCodeGrantLoginError::NoSupportedProtocols
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn grant_login_with_qr_code_support(&self) -> Result<qrcode::QrCodeLoginSupport> {
+        // We need to be logged in with the OAuth 2.0 API. The auth data alone
+        // isn't enough, because it is also set when the client is registered
+        // with the authorization server but doesn't have a session yet.
+        if self.data().is_none() || self.client.session_meta().is_none() {
+            return Ok(Default::default());
+        }
+
+        // Fetch the authorization server metadata and check the support for the
+        // rendezvous server concurrently, since they are independent requests.
+        let (server_metadata, support) = futures_util::future::join(
+            self.cached_server_metadata(),
+            self.qr_code_login_support_with_rendezvous_server(),
+        )
+        .await;
+
+        // We need the authorization server to support the device authorization
+        // grant.
+        match server_metadata {
+            Ok(metadata) => {
+                if !supports_device_authorization_grant(&metadata) {
+                    return Ok(Default::default());
+                }
+            }
+            Err(error) if error.is_not_supported() => return Ok(Default::default()),
+            Err(error) => return Err(OAuthError::from(error).into()),
+        }
+
+        Ok(support?)
+    }
+
+    /// Check which modes of QR code login are supported, once the
+    /// requirements that are specific to logging in or granting a login are
+    /// met.
+    ///
+    /// Scanning a QR code is always supported, because the rendezvous server
+    /// is provided by the other client. Generating a QR code is supported if
+    /// the homeserver supports creating rendezvous sessions.
+    ///
+    /// This matches the variant used when generating a QR code: [MSC4388] if
+    /// it's supported (only with the `unstable-msc4388` feature), otherwise
+    /// [MSC4108]. Like the generation path, if the MSC4388 support check fails
+    /// we only fall back to MSC4108 if it's supported, otherwise we return the
+    /// error rather than reporting that generating a QR code isn't supported.
+    ///
+    /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    #[cfg(feature = "e2e-encryption")]
+    async fn qr_code_login_support_with_rendezvous_server(
+        &self,
+    ) -> Result<qrcode::QrCodeLoginSupport, crate::HttpError> {
+        let generate = qrcode::use_msc_4388_for_generated_qr_code(&self.client).await?
+            || self.client.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108);
+
+        Ok(qrcode::QrCodeLoginSupport { scan: true, generate })
+    }
+
     /// Log in this device using a QR code.
     ///
     /// # Arguments
