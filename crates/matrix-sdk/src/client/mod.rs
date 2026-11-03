@@ -5898,6 +5898,26 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_invite_permission_config_supported() {
+        let server = MatrixMockServer::new().await;
+
+        // Supported since Matrix v1.18.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_18]).build().await;
+        assert!(client.account().is_invite_permission_config_supported().await.unwrap());
+
+        // Later versions support it too.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_19]).build().await;
+        assert!(client.account().is_invite_permission_config_supported().await.unwrap());
+
+        // Older versions don't.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_17]).build().await;
+        assert!(!client.account().is_invite_permission_config_supported().await.unwrap());
+    }
+
+    #[async_test]
     async fn test_disable_room_invites() {
         use wiremock::{
             Mock, ResponseTemplate,
