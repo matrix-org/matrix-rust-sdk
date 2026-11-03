@@ -185,6 +185,9 @@ impl VerificationMachine {
         for old_verification in user_requests.values_mut() {
             if !old_verification.is_cancelled() {
                 warn!(
+                    user_id = ?request.other_user(),
+                    old_flow_id = old_verification.flow_id().as_str(),
+                    new_flow_id = request.flow_id().as_str(),
                     "Received a new verification request whilst another request \
                     with the same user is ongoing. Cancelling both requests."
                 );
