@@ -429,6 +429,7 @@ impl RoomEventCacheInner {
             read_receipts,
             ambiguity_changes,
             avatar_changes,
+            false,
         )
         .await
     }
@@ -451,6 +452,7 @@ impl RoomEventCacheInner {
                     MaybeReceiptEventContent::none(),
                     BTreeMap::new(),
                     None,
+                    true,
                 )
                 .await;
         }
@@ -465,6 +467,7 @@ impl RoomEventCacheInner {
         read_receipts: MaybeReceiptEventContent,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
         avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
+        from_send_queue: bool,
     ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
@@ -478,7 +481,7 @@ impl RoomEventCacheInner {
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
-            state.handle_sync(timeline, &read_receipts).await?;
+            state.handle_sync(timeline, &read_receipts, from_send_queue).await?;
 
         drop(state);
 

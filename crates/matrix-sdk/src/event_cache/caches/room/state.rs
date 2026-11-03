@@ -582,6 +582,9 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     /// It may send room event cache updates to the given sender, if it
     /// generated any of those.
     ///
+    /// `from_send_queue` is `true` when the events are our own sent events,
+    /// inserted by the send queue before sync returns them.
+    ///
     /// Returns `true` for the first part of the tuple if a new gap
     /// (previous-batch token) has been inserted, `false` otherwise.
     #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
@@ -589,6 +592,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         &mut self,
         mut timeline: Timeline,
         read_receipt_event: &MaybeReceiptEventContent,
+        from_send_queue: bool,
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
         let mut prev_batch_token = timeline.prev_batch.take();
 
@@ -605,6 +609,15 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             timeline.events,
         )
         .await?;
+
+        // Sync was faster than the send response: keep its copy, which is the
+        // authoritative one.
+        if from_send_queue
+            && (!in_memory_duplicated_event_ids.is_empty()
+                || !in_store_duplicated_event_ids.is_empty())
+        {
+            return Ok((false, Vec::new()));
+        }
 
         // If the timeline isn't limited, and we already knew about some past
         // events, then this definitely knows what the timeline head is (either
