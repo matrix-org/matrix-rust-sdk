@@ -72,6 +72,7 @@ impl VerificationMachine {
         &self.store.account.device_id
     }
 
+    #[instrument(skip(self), fields(flow_id))]
     pub(crate) fn request_to_device_verification(
         &self,
         user_id: &UserId,
@@ -79,6 +80,9 @@ impl VerificationMachine {
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(TransactionId::new());
+        Span::current().record("flow_id", flow_id.as_str());
+
+        info!("Creating new to-device VerificationRequest to track sent to-device message");
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
@@ -96,6 +100,7 @@ impl VerificationMachine {
         (verification, request.into())
     }
 
+    #[instrument(skip_all, fields(other_user_id=?identity.user_id(), flow_id, methods))]
     pub fn request_verification(
         &self,
         identity: &OtherUserIdentityData,
@@ -104,6 +109,9 @@ impl VerificationMachine {
         methods: Option<Vec<VerificationMethod>>,
     ) -> VerificationRequest {
         let flow_id = FlowId::InRoom(room_id.to_owned(), request_event_id.to_owned());
+        Span::current().record("flow_id", flow_id.as_str());
+
+        info!("Creating new in-room VerificationRequest to track sent event {request_event_id}");
 
         let request = VerificationRequest::new(
             self.verifications.clone(),
