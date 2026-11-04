@@ -299,7 +299,7 @@ async fn test_sync_service_offline_mode_stopping() {
 }
 
 #[async_test]
-async fn test_sync_service_offline_mode_unknown_token() {
+async fn test_sync_service_offline_mode_unknown_token_encryption() {
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
@@ -307,15 +307,89 @@ async fn test_sync_service_offline_mode_unknown_token() {
 
     let mut states = sync_service.state();
 
-    // Set revoked access token error.
-    mock_server.mock_sliding_sync().error_unknown_token(false).expect(1..).mount().await;
+    // Encryption fails with 401.
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(|request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+
+            match partial_request.conn_id.as_deref() {
+                Some("encryption") => ResponseTemplate::new(401).set_body_json(json!({
+                    "errcode": "M_UNKNOWN_TOKEN",
+                    "error": "Revoked token",
+                    "soft_logout": false,
+                })),
+
+                Some("room-list") => ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "1",
+                })),
+
+                _ => panic!("unexpected conn id"),
+            }
+        })
+        .mount(&mock_server)
+        .await;
 
     sync_service.start().await;
 
     assert_next_matches!(states, State::Running);
 
-    // Auth failures should terminate the sync service.
-    assert_next_matches_with_timeout!(states, 2000, State::Error(_));
+    assert_next_matches_with_timeout!(
+        states,
+        2000,
+        State::Error(error) => {
+            assert!(matches!(
+                error.as_ref(),
+                matrix_sdk_ui::sync_service::Error::EncryptionSync(_)
+            ));
+        }
+    );
+}
+
+#[async_test]
+async fn test_sync_service_offline_mode_unknown_token_room_list() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+
+    let mut states = sync_service.state();
+
+    // Room-list fails with 401.
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(|request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+
+            match partial_request.conn_id.as_deref() {
+                Some("room-list") => ResponseTemplate::new(401).set_body_json(json!({
+                    "errcode": "M_UNKNOWN_TOKEN",
+                    "error": "Revoked token",
+                    "soft_logout": false,
+                })),
+
+                Some("encryption") => ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "1",
+                })),
+
+                _ => panic!("unexpected conn id"),
+            }
+        })
+        .mount(&mock_server)
+        .await;
+
+    sync_service.start().await;
+
+    assert_next_matches!(states, State::Running);
+
+    assert_next_matches_with_timeout!(
+        states,
+        2000,
+        State::Error(error) => {
+            assert!(matches!(
+                error.as_ref(),
+                matrix_sdk_ui::sync_service::Error::RoomList(_)
+            ));
+        }
+    );
 }
 
 #[async_test]
