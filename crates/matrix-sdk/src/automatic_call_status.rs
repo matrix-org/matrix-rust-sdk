@@ -20,7 +20,6 @@
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
-    time::SystemTime,
 };
 
 use matrix_sdk_common::executor::spawn;
@@ -132,7 +131,7 @@ fn on_event(
     spawn(async move {
         let in_call = !active_call_rooms.lock().unwrap().is_empty();
         let result = if in_call {
-            let joined_ts = SecondsSinceUnixEpoch::from_system_time(SystemTime::now());
+            let joined_ts = Some(SecondsSinceUnixEpoch::now());
             client.account().set_call(joined_ts).await
         } else {
             client.account().clear_call().await
