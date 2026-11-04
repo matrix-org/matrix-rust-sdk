@@ -299,6 +299,26 @@ async fn test_sync_service_offline_mode_stopping() {
 }
 
 #[async_test]
+async fn test_sync_service_offline_mode_unknown_token() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+
+    let mut states = sync_service.state();
+
+    // Set revoked access token error.
+    mock_server.mock_sliding_sync().error_unknown_token(false).expect(1..).mount().await;
+
+    sync_service.start().await;
+
+    assert_next_matches!(states, State::Running);
+
+    // Auth failures should terminate the sync service.
+    assert_next_matches_with_timeout!(states, 2000, State::Error(_));
+}
+
+#[async_test]
 async fn test_sync_service_offline_mode_restarting() {
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
