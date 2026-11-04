@@ -17,7 +17,7 @@ mod builder;
 use std::ops::{Deref, DerefMut, Not};
 
 pub use builder::filter_timeline_event;
-use builder::{BufferOfValuesForLocalEvents, Builder, MAX_STORED_CHUNKS_TO_SCAN};
+use builder::{BufferOfValuesForLocalEvents, Builder};
 use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
@@ -29,8 +29,7 @@ use tracing::{error, info, instrument, trace, warn};
 use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
 /// Whether back-paginating a room could give its latest event a value it cannot
-/// compute from what's in memory or stored, i.e. whether a gap was reached
-/// first.
+/// compute from what's currently in memory.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum NeedMoreEvents {
     Yes,
@@ -100,7 +99,7 @@ impl LatestEvent {
     /// better user experience.
     ///
     /// Returns whether back-paginating the room could yield a value that can't
-    /// be computed from what's in memory or stored.
+    /// be computed from what's currently in memory.
     pub async fn update_with_event_cache(
         &mut self,
         room_event_cache: &RoomEventCache,
@@ -115,16 +114,15 @@ impl LatestEvent {
         }
 
         let current_event = self.current_value.get().await;
-        let (new_value, need_more_events) = Builder::new_remote(
-            room_event_cache,
-            current_event,
-            own_user_id,
-            power_levels,
-            MAX_STORED_CHUNKS_TO_SCAN,
-        )
-        .await;
+        let new_value =
+            Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels).await;
 
-        trace!(value = ?new_value, ?need_more_events, "Computed a remote `LatestEventValue`");
+        trace!(value = ?new_value, "Computed a remote `LatestEventValue`");
+
+        let need_more_events = match new_value {
+            Some(LatestEventValue::Remote(_)) => NeedMoreEvents::No,
+            _ => NeedMoreEvents::Yes,
+        };
 
         if let Some(new_value) = new_value {
             self.update(new_value).await;
@@ -343,26 +341,6 @@ impl<T, W> DerefMut for With<T, W> {
 }
 
 pub(super) type IsLatestEventValueNone = bool;
-
-/// Compute a remote [`LatestEventValue`] for a room, from scratch.
-///
-/// Only meant to benchmark [`Builder::new_remote`].
-#[cfg(feature = "testing")]
-#[doc(hidden)]
-pub async fn bench_new_remote(
-    room_event_cache: &RoomEventCache,
-    own_user_id: &UserId,
-) -> Option<LatestEventValue> {
-    Builder::new_remote(
-        room_event_cache,
-        LatestEventValue::None,
-        own_user_id,
-        None,
-        MAX_STORED_CHUNKS_TO_SCAN,
-    )
-    .await
-    .0
-}
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests_latest_event {

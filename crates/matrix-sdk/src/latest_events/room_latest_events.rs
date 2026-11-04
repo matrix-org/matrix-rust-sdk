@@ -189,9 +189,8 @@ impl RoomLatestEventsWriteGuard {
             }
         };
 
-        // A gap was reached without finding a latest event, so back-paginate
-        // the room's history in the background until a suitable event
-        // surfaces.
+        // The room is left without a latest event so back-paginate its history
+        // in the background until a suitable event surfaces.
         if matches!(
             for_the_room
                 .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
@@ -353,42 +352,20 @@ mod tests {
             Gap,
             store::{EventCacheStore, MemoryStore},
         },
-        linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
         store::StoreConfig,
     };
-    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-    use ruma::{
-        EventId, RoomId, event_id, events::room::message::RoomMessageEventContent, room_id, user_id,
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{RoomId, event_id, room_id, user_id};
     use tokio::time::timeout;
 
     use super::RoomLatestEvents;
     use crate::{
         Client, assert_let_timeout,
-        event_cache::{RFindMapOutcome, RoomEventCache},
         latest_events::LatestEventValue,
         room::WeakRoom,
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     };
-
-    /// A client with automatic back-pagination, on top of `event_cache_store`.
-    async fn client_with_store(
-        server: &MatrixMockServer,
-        event_cache_store: MemoryStore,
-    ) -> Client {
-        server
-            .client_builder()
-            .on_builder(|builder| {
-                builder.with_enable_automatic_back_pagination(true).store_config(
-                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
-                        holder_name: "foo".to_owned(),
-                    })
-                    .event_cache_store(event_cache_store),
-                )
-            })
-            .build()
-            .await
-    }
 
     /// A client with automatic back-pagination whose `room_id` has a single
     /// gap: no events in memory (so no candidate), but a token to paginate
@@ -412,67 +389,18 @@ mod tests {
             .await
             .unwrap();
 
-        client_with_store(server, event_cache_store).await
-    }
-
-    /// A client with automatic back-pagination whose `room_id` is stored as
-    /// two chunks: `older` then `last`. Only `last` gets loaded in memory.
-    async fn client_with_two_chunks(
-        server: &MatrixMockServer,
-        room_id: &RoomId,
-        older: Vec<matrix_sdk_base::event_cache::Event>,
-        last: Vec<matrix_sdk_base::event_cache::Event>,
-    ) -> Client {
-        let event_cache_store = MemoryStore::new();
-
-        event_cache_store
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id),
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(0),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: older,
-                    },
-                    Update::NewItemsChunk {
-                        previous: Some(ChunkIdentifier::new(0)),
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: last,
-                    },
-                ],
-            )
+        server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.with_enable_automatic_back_pagination(true).store_config(
+                    StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                        holder_name: "foo".to_owned(),
+                    })
+                    .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
             .await
-            .unwrap();
-
-        let client = client_with_store(server, event_cache_store).await;
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-
-        client
-    }
-
-    /// Wait until the room has shrunk enough for `event_id` to leave memory.
-    async fn wait_until_unloaded(room_event_cache: &RoomEventCache, event_id: &EventId) {
-        timeout(Duration::from_secs(1), async {
-            while room_event_cache
-                .events()
-                .await
-                .unwrap()
-                .iter()
-                .any(|event| event.event_id() == Some(event_id))
-            {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("the room should have shrunk");
     }
 
     /// When no latest-event candidate is present in memory, but one exists
@@ -523,193 +451,6 @@ mod tests {
         assert_matches!(
             room_latest_events.read().await.for_room().get().await,
             LatestEventValue::Remote(_)
-        );
-    }
-
-    /// The stored chunks read past the in-memory ones are capped.
-    #[async_test]
-    async fn test_rfind_map_event_until_gap_by_reads_at_most_max_stored_chunks() {
-        let room_id = room_id!("!r0");
-        let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
-
-        // Chunks: [$0 (candidate)] [$1] [$2], only the last one is in memory.
-        let event_cache_store = MemoryStore::new();
-        let mut updates = Vec::new();
-        for (i, event_id) in
-            [event_id!("$0"), event_id!("$1"), event_id!("$2")].into_iter().enumerate()
-        {
-            let chunk = ChunkIdentifier::new(i as u64);
-            updates.push(Update::NewItemsChunk {
-                previous: i.checked_sub(1).map(|p| ChunkIdentifier::new(p as u64)),
-                new: chunk,
-                next: None,
-            });
-            updates.push(Update::PushItems {
-                at: Position::new(chunk, 0),
-                items: vec![f.text_msg("hello").event_id(event_id).into_event()],
-            });
-        }
-        event_cache_store
-            .handle_linked_chunk_updates(LinkedChunkId::Room(room_id), updates)
-            .await
-            .unwrap();
-
-        let server = MatrixMockServer::new().await;
-        let client = client_with_store(&server, event_cache_store).await;
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let (room_event_cache, _drop_handles) =
-            client.event_cache().unwrap().room(room_id).await.unwrap();
-
-        let is_candidate = |event: &matrix_sdk_base::event_cache::Event| {
-            (event.event_id() == Some(event_id!("$0"))).then_some(())
-        };
-
-        for (max_stored_chunks, expected_found) in [(0, false), (1, false), (2, true)] {
-            let outcome = room_event_cache
-                .rfind_map_event_until_gap_by(max_stored_chunks, is_candidate)
-                .await
-                .unwrap();
-
-            if expected_found {
-                assert_matches!(outcome, RFindMapOutcome::Found(()));
-            } else {
-                assert_matches!(outcome, RFindMapOutcome::ReachedLimit);
-            }
-        }
-    }
-
-    /// A candidate in a stored chunk that's not in memory, as after a shrink,
-    /// is used as is: no backfill, which would otherwise be unloaded by the
-    /// next shrink and requested again, endlessly.
-    #[async_test]
-    async fn test_update_with_event_cache_uses_a_stored_candidate_without_backfilling() {
-        let room_id = room_id!("!r0");
-        let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
-
-        // A candidate in the older chunk, and only a reaction in the last one.
-        let server = MatrixMockServer::new().await;
-        let client = client_with_two_chunks(
-            &server,
-            room_id,
-            vec![f.text_msg("hello").event_id(event_id!("$1")).into_event()],
-            vec![f.reaction(event_id!("$1"), "+1").event_id(event_id!("$2")).into_event()],
-        )
-        .await;
-
-        let event_cache = client.event_cache().unwrap();
-        let (_room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
-
-        let weak_room = WeakRoom::new(client.downgrade(), room_id.to_owned());
-        let room_latest_events = RoomLatestEvents::new(weak_room, event_cache);
-
-        let mut updates = event_cache.subscribe_to_room_generic_updates();
-        room_latest_events.write().await.update_with_event_cache().await;
-
-        assert!(
-            timeout(Duration::from_millis(100), updates.recv()).await.is_err(),
-            "the latest event was backfilled despite a stored candidate"
-        );
-        assert_eq!(
-            room_latest_events.read().await.for_room().get().await.event_id().as_deref(),
-            Some(event_id!("$1"))
-        );
-    }
-
-    /// A newer event brought by a pagination into an older chunk becomes the
-    /// latest event, even if the room shrank before it was computed.
-    #[async_test]
-    async fn test_update_with_event_cache_finds_a_paginated_event_after_a_shrink() {
-        let room_id = room_id!("!r0");
-        let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
-
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-
-        server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(room_id)
-                    .add_timeline_event(f.text_msg("hello").event_id(event_id!("$1"))),
-            )
-            .await;
-
-        let event_cache = client.event_cache().unwrap();
-        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
-        let (_, subscriber) = room_event_cache.subscribe().await.unwrap();
-
-        let weak_room = WeakRoom::new(client.downgrade(), room_id.to_owned());
-        let room_latest_events = RoomLatestEvents::new(weak_room, event_cache);
-        room_latest_events.write().await.update_with_event_cache().await;
-
-        // A limited sync: a gap, then only a reaction. `$X`, newer than `$1`,
-        // is in the gap.
-        server
-            .mock_room_messages()
-            .match_from("gap")
-            .ok(RoomMessagesResponseTemplate::default()
-                .events(vec![f.text_msg("sent while away").event_id(event_id!("$X"))]))
-            .mount()
-            .await;
-        server
-            .sync_room(
-                &client,
-                JoinedRoomBuilder::new(room_id)
-                    .set_timeline_limited()
-                    .set_timeline_prev_batch("gap")
-                    .add_timeline_event(
-                        f.reaction(event_id!("$1"), "+1").event_id(event_id!("$r")),
-                    ),
-            )
-            .await;
-
-        // A pagination fills the gap, then the room shrinks before the latest
-        // event gets computed.
-        room_event_cache.pagination().run_backwards_once(30).await.unwrap();
-        drop(subscriber);
-        wait_until_unloaded(&room_event_cache, event_id!("$X")).await;
-
-        room_latest_events.write().await.update_with_event_cache().await;
-
-        assert_eq!(
-            room_latest_events.read().await.for_room().get().await.event_id().as_deref(),
-            Some(event_id!("$X")),
-            "the paginated event didn't become the latest event"
-        );
-    }
-
-    /// An edit of an event that's not in memory anymore still edits the latest
-    /// event, without a backfill.
-    #[async_test]
-    async fn test_update_with_event_cache_applies_an_edit_of_an_unloaded_event() {
-        let room_id = room_id!("!r0");
-        let f = EventFactory::new().room(room_id).sender(user_id!("@bob:example.org"));
-
-        // The original in the older chunk, and only its edit in the last one.
-        let server = MatrixMockServer::new().await;
-        let client = client_with_two_chunks(
-            &server,
-            room_id,
-            vec![f.text_msg("hello").event_id(event_id!("$1")).into_event()],
-            vec![
-                f.text_msg("* hello edited")
-                    .edit(
-                        event_id!("$1"),
-                        RoomMessageEventContent::text_plain("hello edited").into(),
-                    )
-                    .event_id(event_id!("$edit"))
-                    .into_event(),
-            ],
-        )
-        .await;
-
-        let weak_room = WeakRoom::new(client.downgrade(), room_id.to_owned());
-        let room_latest_events = RoomLatestEvents::new(weak_room, client.event_cache().unwrap());
-        room_latest_events.write().await.update_with_event_cache().await;
-
-        assert_eq!(
-            room_latest_events.read().await.for_room().get().await.event_id().as_deref(),
-            Some(event_id!("$edit")),
-            "the edit didn't become the latest event"
         );
     }
 
