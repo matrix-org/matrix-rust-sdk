@@ -20,11 +20,17 @@ use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::{
         SecretsBundle,
-        qr_login::{QrCodeData, QrCodeIntent},
+        qr_login::{QrCodeData, QrCodeIntent, QrCodeIntentData},
     },
 };
 use oauth2::VerificationUriComplete;
-use ruma::time::Instant;
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::v1::{
+        AuthorizationServerMetadata, GrantType,
+    },
+    time::Instant,
+};
+use tracing::warn;
 use url::Url;
 #[cfg(doc)]
 use vodozemac::ecies::CheckCode;
@@ -52,6 +58,59 @@ async fn export_secrets_bundle(client: &Client) -> Result<SecretsBundle, QRCodeG
         .export_secrets_bundle()
         .await?;
     Ok(secrets_bundle)
+}
+
+/// Whether the authorization server supports the device authorization grant.
+///
+/// It needs to advertise the grant type, and the endpoint that the new device
+/// uses to start the grant.
+fn supports_device_authorization_grant(metadata: &AuthorizationServerMetadata) -> bool {
+    metadata.grant_types_supported.contains(&GrantType::DeviceCode)
+        && metadata.device_authorization_endpoint.is_some()
+}
+
+/// Get the login protocols we can offer to the new device in the
+/// `m.login.protocols` message.
+///
+/// With the MSC4388 variant, the device authorization grant is only offered if
+/// the authorization server supports it. With the MSC4108 variant, it is
+/// always offered.
+///
+/// Returns [`QRCodeGrantLoginError::NoSupportedProtocols`] if there is no
+/// protocol we can offer, so that we can abort before involving the other
+/// device.
+async fn available_login_protocols(
+    client: &Client,
+    msc_4388: bool,
+) -> Result<Vec<LoginProtocolType>, QRCodeGrantLoginError> {
+    // For the MSC4108 variant, we always offer the device authorization grant
+    // without discovery. This is for compatibility with existing
+    // implementations
+    if !msc_4388 {
+        return Ok(vec![LoginProtocolType::DeviceAuthorizationGrant]);
+    }
+
+    // For the MSC4388 variant, we actually check whether the server supports
+    // the device authorization grant before offering it.
+    match client.oauth().cached_server_metadata().await {
+        Ok(metadata) if supports_device_authorization_grant(&metadata) => {
+            Ok(vec![LoginProtocolType::DeviceAuthorizationGrant])
+        }
+        Ok(_) => {
+            warn!("The authorization server doesn't support the device authorization grant");
+            Err(QRCodeGrantLoginError::NoSupportedProtocols)
+        }
+        Err(error) => {
+            // The new device checks the server metadata itself before starting
+            // the login, so let it decide.
+            warn!(
+                ?error,
+                "Could not get the authorization server metadata, offering the device \
+                 authorization grant anyway"
+            );
+            Ok(vec![LoginProtocolType::DeviceAuthorizationGrant])
+        }
+    }
 }
 
 async fn finish_login_grant<Q>(
@@ -83,8 +142,9 @@ async fn finish_login_grant<Q>(
         }
     };
 
-    // We verify the selected protocol, and that its data uses the layout of
-    // our channel variant.
+    // We verify the selected protocol. The device authorization grant is the
+    // only one we support, and its data needs to use the layout of our
+    // channel variant.
     //
     // -- MSC4108 OAuth 2.0 login step 4
     let device_authorization_grant = match channel.channel_variant() {
@@ -331,10 +391,16 @@ impl IntoFuture for GrantLoginWithScannedQrCode {
             //
             // -- MSC4108 Secure channel setup steps 1-3
 
-            // First things first, export the secrets bundle and establish the
-            // secure channel. Since we're the one that scanned the QR code,
-            // we're certain that the secure channel is secure, under the
-            // assumption that we didn't scan the wrong QR code.
+            // Determine which login protocols we can offer, so that we can
+            // abort before involving the other device if there are none.
+            let msc_4388 = cfg!(feature = "unstable-msc4388")
+                && matches!(self.qr_code_data.intent_data(), QrCodeIntentData::Msc4388 { .. });
+            let available_protocols = available_login_protocols(&self.client, msc_4388).await?;
+
+            // Export the secrets bundle and establish the secure channel.
+            // Since we're the one that scanned the QR code, we're certain that
+            // the secure channel is secure, under the assumption that we didn't
+            // scan the wrong QR code.
             //
             // -- MSC4108 Secure channel setup steps 3-5
             let secrets_bundle = export_secrets_bundle(&self.client).await?;
@@ -361,20 +427,21 @@ impl IntoFuture for GrantLoginWithScannedQrCode {
             // -- MSC4108 Secure channel setup step 7
 
             // Inform the other device about the available login protocols and
-            // the homeserver to use.
+            // the homeserver to use. With the MSC4388 variant we only offer
+            // the protocols the authorization server supports.
             //
             // -- MSC4108 OAuth 2.0 login step 1
             let message = match channel.channel_variant() {
                 ChannelVariant::Msc4108 => {
                     QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
-                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        protocols: available_protocols,
                         homeserver: self.client.homeserver(),
                     })
                 }
                 #[cfg(feature = "unstable-msc4388")]
                 ChannelVariant::Msc4388 => {
                     QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
-                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        protocols: available_protocols,
                         base_url: self.client.homeserver(),
                     })
                 }
@@ -449,6 +516,12 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
+            // Determine which login protocols we can offer, so that we can
+            // abort before generating a QR code if there are none.
+            #[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
+            let available_protocols =
+                available_login_protocols(&self.client, self.msc_4388_support).await?;
+
             // Create a new ephemeral key pair and a rendezvous session to grant
             // a login with.
             //
@@ -496,13 +569,16 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
             // QR code and doesn't expect this message, so we skip it to stay
             // compatible with existing implementations.
             //
+            // With the MSC4388 variant we only offer the protocols the
+            // authorization server supports.
+            //
             // -- MSC4108 OAuth 2.0 login step 1
             match channel.channel_variant() {
                 ChannelVariant::Msc4108 => {}
                 #[cfg(feature = "unstable-msc4388")]
                 ChannelVariant::Msc4388 => {
                     let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
-                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        protocols: available_protocols,
                         base_url: self.client.homeserver(),
                     });
                     channel.send_json(message).await?;
@@ -548,8 +624,27 @@ mod test {
             messages::AuthorizationGrant,
             secure_channel::{EstablishedSecureChannel, test::MockedRendezvousServer},
         },
-        test_utils::mocks::MatrixMockServer,
+        test_utils::mocks::{MatrixMockServer, oauth::MockServerMetadataBuilder},
     };
+
+    #[test]
+    fn test_supports_device_authorization_grant() {
+        let metadata = MockServerMetadataBuilder::new("https://auth.local/")
+            .build()
+            .deserialize()
+            .expect("The server metadata should deserialize");
+        assert!(supports_device_authorization_grant(&metadata));
+
+        // The grant type isn't advertised.
+        let mut without_grant_type = metadata.clone();
+        without_grant_type.grant_types_supported.remove(&GrantType::DeviceCode);
+        assert!(!supports_device_authorization_grant(&without_grant_type));
+
+        // The device authorization endpoint is missing.
+        let mut without_endpoint = metadata;
+        without_endpoint.device_authorization_endpoint = None;
+        assert!(!supports_device_authorization_grant(&without_endpoint));
+    }
 
     enum BobBehaviour {
         HappyPath,
@@ -1133,6 +1228,9 @@ mod test {
                 .await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
+        // The authorization server supports the device authorization grant.
+        server.oauth().mock_server_metadata().ok().named("server_metadata").mount().await;
+
         let device_authorization_grant = AuthorizationGrant {
             verification_uri_complete: Some(VerificationUriComplete::new(
                 "https://id.matrix.org/device/abcde".to_owned(),
@@ -1298,6 +1396,9 @@ mod test {
             MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
                 .await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        // The authorization server supports the device authorization grant.
+        server.oauth().mock_server_metadata().ok().named("server_metadata").mount().await;
 
         let device_authorization_grant = AuthorizationGrant {
             verification_uri_complete: Some(VerificationUriComplete::new(
@@ -2208,6 +2309,47 @@ mod test {
             "Alice should abort the login with expected error variant"
         );
         assert_eq!(protocol.as_str(), "m.unknown_protocol");
+    }
+
+    /// The authorization server doesn't support the device authorization grant,
+    /// so Alice should abort before generating a QR code.
+    #[async_test]
+    #[cfg(feature = "unstable-msc4388")]
+    async fn test_grant_login_with_generated_qr_code_no_supported_protocols_msc_4388() {
+        let server = MatrixMockServer::new().await;
+
+        server
+            .oauth()
+            .mock_server_metadata()
+            .ok_without_device_authorization()
+            .named("server_metadata")
+            .mount()
+            .await;
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+
+        // Prepare the login granting future.
+        let oauth = alice.oauth();
+        let mut grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
+        grant.with_msc4388_support();
+        let state = grant.state.clone();
+
+        assert_matches!(grant.await, Err(QRCodeGrantLoginError::NoSupportedProtocols));
+        assert_matches!(
+            state.get(),
+            GrantLoginProgress::Starting,
+            "Alice should abort before generating a QR code"
+        );
     }
 
     #[async_test]
@@ -3230,6 +3372,57 @@ mod test {
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
+    }
+
+    /// The authorization server doesn't support the device authorization grant,
+    /// so Alice should abort before connecting to the secure channel.
+    #[async_test]
+    #[cfg(feature = "unstable-msc4388")]
+    async fn test_grant_login_with_scanned_qr_code_no_supported_protocols_msc_4388() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, true).await;
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        server
+            .oauth()
+            .mock_server_metadata()
+            .ok_without_device_authorization()
+            .named("server_metadata")
+            .mount()
+            .await;
+
+        // Create a secure channel on the new client (Bob) and extract the QR
+        // code.
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, true)
+            .await
+            .expect("Bob should be able to create a secure channel.");
+        let qr_code_data = channel.qr_code_data().clone();
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+
+        // Prepare the login granting future using the QR code.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .scan(&qr_code_data);
+        let state = grant.state.clone();
+
+        assert_matches!(grant.await, Err(QRCodeGrantLoginError::NoSupportedProtocols));
+        assert_matches!(
+            state.get(),
+            GrantLoginProgress::Starting,
+            "Alice should abort before connecting to the secure channel"
+        );
     }
 
     #[async_test]
