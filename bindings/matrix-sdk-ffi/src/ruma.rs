@@ -2035,3 +2035,95 @@ mod galleries {
         }
     }
 }
+
+/// A message retention policy, as defined in
+/// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763).
+#[derive(Clone, uniffi::Record)]
+pub struct RoomRetentionPolicy {
+    /// The maximum duration during which messages can be kept, if any.
+    pub max_lifetime: Option<Duration>,
+}
+
+impl From<ruma::events::room::retention::RoomRetentionEventContent> for RoomRetentionPolicy {
+    fn from(value: ruma::events::room::retention::RoomRetentionEventContent) -> Self {
+        Self { max_lifetime: value.max_lifetime() }
+    }
+}
+
+/// The range of values accepted by the server for a retention policy lifetime.
+#[derive(Clone, uniffi::Record)]
+pub struct RetentionLifetimeLimits {
+    /// The minimum accepted value, if any.
+    pub min: Option<Duration>,
+    /// The maximum accepted value, if any.
+    pub max: Option<Duration>,
+}
+
+impl From<ruma::api::client::retention::get_retention_configuration::unstable::LifetimeLimits>
+    for RetentionLifetimeLimits
+{
+    fn from(
+        value: ruma::api::client::retention::get_retention_configuration::unstable::LifetimeLimits,
+    ) -> Self {
+        Self { min: value.min(), max: value.max() }
+    }
+}
+
+/// The limits the server applies to the retention policies defined by
+/// `m.room.retention` state events.
+#[derive(Clone, uniffi::Record)]
+pub struct RetentionLimits {
+    /// Limits to apply to the maximum lifetime of retention policies.
+    pub max_lifetime_limit: Option<RetentionLifetimeLimits>,
+}
+
+impl From<ruma::api::client::retention::get_retention_configuration::unstable::RetentionLimits>
+    for RetentionLimits
+{
+    fn from(
+        value: ruma::api::client::retention::get_retention_configuration::unstable::RetentionLimits,
+    ) -> Self {
+        Self { max_lifetime_limit: value.max_lifetime.map(Into::into) }
+    }
+}
+
+/// The message retention configuration of the homeserver, as defined in
+/// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763).
+#[derive(Clone, uniffi::Record)]
+pub struct RetentionConfiguration {
+    /// The retention policy the server applies to all rooms by default, if
+    /// any.
+    pub default_policy: Option<RoomRetentionPolicy>,
+    /// Retention policies the server applies to specific rooms, by room ID.
+    ///
+    /// They take precedence over the room's own `m.room.retention` state
+    /// event.
+    pub room_policies: HashMap<String, RoomRetentionPolicy>,
+    /// The limits the server applies to retention policies defined by
+    /// `m.room.retention` state events.
+    pub limits: RetentionLimits,
+}
+
+impl From<ruma::api::client::retention::get_retention_configuration::unstable::Response>
+    for RetentionConfiguration
+{
+    fn from(
+        value: ruma::api::client::retention::get_retention_configuration::unstable::Response,
+    ) -> Self {
+        use ruma::api::client::retention::RoomIdOrAllRooms;
+
+        let mut default_policy = None;
+        let mut room_policies = HashMap::new();
+
+        for (room, policy) in value.policies {
+            match room {
+                RoomIdOrAllRooms::AllRooms => default_policy = Some(policy.into()),
+                RoomIdOrAllRooms::RoomId(room_id) => {
+                    room_policies.insert(room_id.to_string(), policy.into());
+                }
+            }
+        }
+
+        Self { default_policy, room_policies, limits: value.limits.into() }
+    }
+}

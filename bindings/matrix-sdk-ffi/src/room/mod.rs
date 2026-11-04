@@ -68,7 +68,8 @@ use crate::{
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{
-        AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, UserCall, UserStatus, VideoInfo,
+        AudioInfo, FileInfo, ImageInfo, MediaSource, RoomRetentionPolicy, ThumbnailInfo, UserCall,
+        UserStatus, VideoInfo,
     },
     runtime::get_runtime_handle,
     timeline::{
@@ -135,6 +136,17 @@ impl Room {
 
     pub fn topic(&self) -> Option<String> {
         self.inner.topic()
+    }
+
+    /// Compute the effective message retention policy for this room
+    /// ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)),
+    /// combining the room's `m.room.retention` state event with the
+    /// homeserver's retention configuration.
+    ///
+    /// Returns `None` if no retention policy applies, including when the
+    /// homeserver doesn't support MSC1763.
+    pub async fn effective_retention(&self) -> Result<Option<RoomRetentionPolicy>, ClientError> {
+        Ok(self.inner.effective_retention().await?.map(Into::into))
     }
 
     pub fn avatar_url(&self) -> Option<String> {

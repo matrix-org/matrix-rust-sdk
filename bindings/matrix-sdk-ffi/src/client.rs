@@ -155,7 +155,7 @@ use crate::{
     ruma::{
         AccountDataEvent, AccountDataEventType, InviteAvatars, InvitePermissionAction,
         InvitePermissionState, MediaPreviewConfig, MediaPreviews, MediaSource, PresenceState,
-        RoomAccountDataEvent, UserCall, UserStatus,
+        RetentionConfiguration, RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -2443,6 +2443,15 @@ impl Client {
         &self,
     ) -> Result<Option<MediaPreviewConfig>, ClientError> {
         Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
+    }
+
+    /// Get the homeserver's message retention configuration
+    /// ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)).
+    ///
+    /// The result is cached for a day. If the cached value expired and
+    /// refreshing it fails, the expired value is returned instead.
+    pub async fn get_retention_configuration(&self) -> Result<RetentionConfiguration, ClientError> {
+        Ok(self.inner.get_retention_configuration().await?.into())
     }
 
     /// Gets the `max_upload_size` value from the homeserver, which controls the
