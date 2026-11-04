@@ -44,7 +44,7 @@ use super::{
     RoomLoadSettings, StateChanges, StateStore, StoreError, SupportedVersionsResponse,
     WellKnownResponse,
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
-    traits::ComposerDraft,
+    traits::{ComposerDraft, MessageRetentionResponse},
 };
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
@@ -96,6 +96,7 @@ struct MemoryStoreInner {
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
     global_profiles: HashMap<OwnedUserId, UserProfile>,
     homeserver_capabilities: Option<TtlValue<Capabilities>>,
+    message_retention: Option<TtlValue<MessageRetentionResponse>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -211,6 +212,9 @@ impl StateStore for MemoryStore {
                 .homeserver_capabilities
                 .clone()
                 .map(StateStoreDataValue::HomeserverCapabilities),
+            StateStoreDataKey::MessageRetention => {
+                inner.message_retention.clone().map(StateStoreDataValue::MessageRetention)
+            }
         })
     }
 
@@ -293,6 +297,13 @@ impl StateStore for MemoryStore {
                         .expect("Session data is not a homeserver capabilities"),
                 );
             }
+            StateStoreDataKey::MessageRetention => {
+                inner.message_retention = Some(
+                    value
+                        .into_message_retention()
+                        .expect("Session data is not a message retention configuration"),
+                );
+            }
         }
 
         Ok(())
@@ -328,6 +339,7 @@ impl StateStore for MemoryStore {
                 inner.thread_subscriptions_catchup_tokens = None;
             }
             StateStoreDataKey::HomeserverCapabilities => inner.homeserver_capabilities = None,
+            StateStoreDataKey::MessageRetention => inner.message_retention = None,
         }
         Ok(())
     }

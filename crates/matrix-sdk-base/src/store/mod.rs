@@ -98,9 +98,9 @@ pub use self::{
     },
     traits::{
         ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
-        DynStateStore, IncorrectMutexGuardError, IntoStateStore, SaveLockedStateStore, StateStore,
-        StateStoreDataKey, StateStoreDataValue, StateStoreExt, SupportedVersionsResponse,
-        ThreadSubscriptionCatchupToken, WellKnownResponse,
+        DynStateStore, IncorrectMutexGuardError, IntoStateStore, MessageRetentionResponse,
+        SaveLockedStateStore, StateStore, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        SupportedVersionsResponse, ThreadSubscriptionCatchupToken, WellKnownResponse,
     },
 };
 

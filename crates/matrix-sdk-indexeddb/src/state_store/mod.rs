@@ -32,10 +32,10 @@ use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
-        QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        SerializableEventContent, StateChanges, StateStore, StoreError, StoredThreadSubscription,
-        SupportedVersionsResponse, ThreadSubscriptionStatus, WellKnownResponse,
-        compare_thread_subscription_bump_stamps,
+        MessageRetentionResponse, QueuedRequest, QueuedRequestKind, RoomLoadSettings,
+        SentRequestKey, SerializableEventContent, StateChanges, StateStore, StoreError,
+        StoredThreadSubscription, SupportedVersionsResponse, ThreadSubscriptionStatus,
+        WellKnownResponse, compare_thread_subscription_bump_stamps,
     },
     ttl::TtlValue,
 };
@@ -516,6 +516,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::HomeserverCapabilities => {
                 self.encode_key(keys::KV, StateStoreDataKey::HOMESERVER_CAPABILITIES)
             }
+            StateStoreDataKey::MessageRetention => {
+                self.encode_key(keys::KV, StateStoreDataKey::MESSAGE_RETENTION)
+            }
         }
     }
 }
@@ -682,6 +685,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<TtlValue<Capabilities>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::HomeserverCapabilities),
+            StateStoreDataKey::MessageRetention => value
+                .map(|f| self.deserialize_value::<TtlValue<MessageRetentionResponse>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::MessageRetention),
         };
 
         Ok(value)
@@ -737,6 +744,11 @@ impl_state_store!({
                 &value
                     .into_homeserver_capabilities()
                     .expect("Session data is not a homeserver capabilities"),
+            ),
+            StateStoreDataKey::MessageRetention => self.serialize_value(
+                &value
+                    .into_message_retention()
+                    .expect("Session data is not a message retention configuration"),
             ),
         };
 
