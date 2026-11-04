@@ -41,6 +41,59 @@ use crate::{
     },
 };
 
+/// ## State transition diagram
+///
+/// ```text
+///            start()                               from_start_event()
+///               │                                   (on recv(start))
+///               ▼ send(start)                               │
+///         ┌───────────┐                                     ▼
+///         │  Created  │                               ┌───────────┐
+///         └─────┬─────┘                               │  Started  │
+///  recv(accept) │                                     └──┬─────┬──┘
+///               │                           recv(accept) │     │ accept()
+///               │                                        │     │
+///               ▼ send(key)                              │     ▼ send(accept)
+///         ┌───────────┐ send(key)                        │  ┌────────────┐
+///         │ Accepted  │◄─────────────────────────────────┘  │ WeAccepted │
+///         └──┬──────┬─┘                                     └─────┬──────┘
+///   key sent │      │ recv(key)                                   │ recv(key)
+///            │      │                                             │
+///            │      ▼                                             │
+///            │    ┌─────────────┐ send(key)                       │
+///            │    │ KeyReceived │◄────────────────────────────────┘
+///            │    └────┬────────┘
+///            ▼         │ key sent
+///       ┌─────────┐    │
+///       │ KeySent │    │
+///       └────┬────┘    │
+///  recv(key) │         │
+///            │         │
+///            ▼         ▼
+///         ┌───────────────┐
+///         │ KeysExchanged │  ← SAS can be displayed
+///         └──┬─────────┬──┘
+///  confirm() │         │ recv(mac)
+///            │         └─────────────────────────────────────┐
+///            │                                               │
+///            ▼ send(mac)                                     ▼
+///     ┌─────────────┐                                 ┌─────────────┐
+///     │  Confirmed  │                                 │ MacReceived │
+///     └──┬───────┬──┘                                 └──┬───────┬──┘
+///        │       │ recv(mac)                   confirm() │       │ confirm()
+///        │       │                                       │       │ [legacy flow]
+///        │       │                                       │       │
+///        │       ▼ send(done)      send(mac), send(done) ▼       │
+///        │  ┌─────────────────────────────────────────────────┐  │
+///        │  │                 WaitingForDone                  │  │
+///        │  └────────────────────────┬────────────────────────┘  │
+///        │                           │ recv(done)                │
+///        │                           │                           │
+///        │                           ▼                           │
+///        │                        ┌──────┐ send(mac)             │
+///        └───────────────────────►│ Done │◄──────────────────────┘
+///      recv(mac) [legacy flow]    └──────┘
+/// ```
 #[derive(Clone, Debug)]
 pub enum InnerSas {
     Created(SasState<Created>),
@@ -372,6 +425,8 @@ impl InnerSas {
         match self {
             InnerSas::Accepted(s) => s.into_key_sent(request_id).map(InnerSas::KeySent),
             InnerSas::KeyReceived(s) => {
+                // The message sent on entry to this state was our own `m.key.verification.key`,
+                // so both keys have now been exchanged.
                 s.into_keys_exchanged(request_id).map(InnerSas::KeysExchanged)
             }
             InnerSas::Created(_)

@@ -393,7 +393,7 @@ pub struct Accepted {
     commitment: Base64,
 }
 
-/// The SAS state we're going to be in after we accepted our verification start
+/// The SAS state we're going to be in after we accepted the other side's verification start
 /// event.
 #[derive(Clone, Debug)]
 pub struct WeAccepted {
@@ -402,10 +402,9 @@ pub struct WeAccepted {
     commitment: Base64,
 }
 
-/// The SAS state we're going to be in after we received the public key of the
-/// other participant.
-///
-/// From now on we can show the short auth string to the user.
+/// The SAS state we're going to be in after we accepted the verification start event, and
+/// then received the public key of the other participant. We will send our own
+/// `m.key.verification.key` message.
 #[derive(Clone, Debug)]
 pub struct KeyReceived {
     sas: Arc<Mutex<EstablishedSas>>,
@@ -414,6 +413,8 @@ pub struct KeyReceived {
     pub accepted_protocols: AcceptedProtocols,
 }
 
+/// The SAS state which we will be in after the other side accepted our verification start
+/// event, and we sent our keys.
 #[derive(Clone, Debug)]
 pub struct KeySent {
     we_started: bool,
@@ -422,6 +423,9 @@ pub struct KeySent {
     pub accepted_protocols: AcceptedProtocols,
 }
 
+/// The SAS state which we will be in after we have both sent and received public keys.
+///
+/// Once we are in this state, we can show the SAS string and wait for the user to confirm.
 #[derive(Clone, Debug)]
 pub struct KeysExchanged {
     sas: Arc<Mutex<EstablishedSas>>,
