@@ -96,7 +96,8 @@ pub enum HttpError {
 impl HttpError {
     /// If `self` is
     /// <code>[Api](Self::Api)([Server](FromHttpResponseError::Server)(e))</code>,
-    /// returns `Some(e)`.
+    /// returns `Some(e)`. If `self` is [`Cached`](Self::Cached), looks into
+    /// the inner error.
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
@@ -104,6 +105,7 @@ impl HttpError {
             Self::Api(error) => {
                 as_variant!(error.as_ref(), FromHttpResponseError::Server)
             },
+            Self::Cached(error) => error.as_ruma_api_error(),
             _ => None
         }
     }
