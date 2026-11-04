@@ -478,6 +478,7 @@ impl ClientInner {
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
             rtc_transports: Cache::new(),
+            message_retention: Cache::new(),
         };
 
         let client = Self {
@@ -3234,10 +3235,136 @@ impl Client {
     /// Returns the server-level retention policy limits and any per-room
     /// overrides defined by the server.
     ///
+    /// The result is cached in memory and in the state store for a day. If a
+    /// cached value exists and hasn't expired, it is returned without making a
+    /// request. Otherwise it is fetched from the server with
+    /// [`Self::fetch_retention_configuration`] and cached.
+    ///
+    /// If fetching the configuration fails but an expired value is cached,
+    /// the expired value is returned instead of the error.
+    ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
     pub async fn get_retention_configuration(
+        &self,
+    ) -> HttpResult<get_retention_configuration::unstable::Response> {
+        let cache = &self.inner.caches.message_retention;
+
+        // Fast path: a valid value is cached in memory.
+        if let CachedValue::Cached(value) = cache.value()
+            && !value.has_expired()
+        {
+            return Ok(value.into_data());
+        }
+
+        let mut refresh_guard = match cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to
+                // finish.
+                let guard = cache.refresh_lock.lock().await;
+                let cached = cache.value();
+
+                if let CachedValue::Cached(value) = &cached
+                    && !value.has_expired()
+                {
+                    return Ok(value.clone().into_data());
+                }
+
+                if let Err(error) = guard.as_ref() {
+                    // The previous refresh failed: fall back to the expired
+                    // value if there is one, otherwise return the error.
+                    return match cached {
+                        CachedValue::Cached(value) => Ok(value.into_data()),
+                        CachedValue::NotSet => Err(HttpError::Cached(error.clone())),
+                    };
+                }
+
+                // The data wasn't cached or has expired, we need to make
+                // another request.
+                guard
+            }
+        };
+
+        // Load the value from the state store if it's not in memory yet.
+        let cached = match cache.value() {
+            CachedValue::Cached(value) => Some(value),
+            CachedValue::NotSet => {
+                match self.state_store().get_kv_data(StateStoreDataKey::MessageRetention).await {
+                    Ok(value) => value
+                        .and_then(|value| value.into_message_retention())
+                        .map(|value| value.map(Into::into)),
+                    Err(error) => {
+                        warn!("error when loading cached message retention configuration: {error}");
+                        None
+                    }
+                }
+            }
+        };
+
+        if let Some(value) = &cached {
+            // Copy the data from the store in the in-memory cache.
+            cache.set_value(value.clone());
+
+            if !value.has_expired() {
+                *refresh_guard = Ok(());
+                return Ok(value.clone().into_data());
+            }
+        }
+
+        let response = match self.fetch_retention_configuration().await {
+            Ok(response) => {
+                *refresh_guard = Ok(());
+                response
+            }
+            Err(error) => {
+                let error = Arc::new(error);
+                *refresh_guard = Err(error.clone());
+
+                return match cached {
+                    Some(value) => {
+                        warn!(
+                            "error when refreshing message retention configuration, \
+                             using expired cached value: {error}"
+                        );
+                        Ok(value.into_data())
+                    }
+                    None => Err(HttpError::Cached(error)),
+                };
+            }
+        };
+
+        let value = TtlValue::new(response);
+
+        if let Err(error) = self
+            .state_store()
+            .set_kv_data(
+                StateStoreDataKey::MessageRetention,
+                StateStoreDataValue::MessageRetention(value.clone().map(Into::into)),
+            )
+            .await
+        {
+            warn!("error when caching message retention configuration: {error}");
+        }
+
+        cache.set_value(value.clone());
+
+        Ok(value.into_data())
+    }
+
+    /// Fetch the server's message retention policy configuration from the
+    /// server, bypassing any cache.
+    ///
+    /// Returns the server-level retention policy limits and any per-room
+    /// overrides defined by the server.
+    ///
+    /// Prefer [`Self::get_retention_configuration`], which caches the result.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn fetch_retention_configuration(
         &self,
     ) -> HttpResult<get_retention_configuration::unstable::Response> {
         self.send(get_retention_configuration::unstable::Request::default()).await
@@ -4406,7 +4533,7 @@ pub(crate) mod tests {
     };
     use url::Url;
 
-    use super::Client;
+    use super::{Client, get_retention_configuration};
     use crate::{
         Error, Result, TransmissionProgress, assert_next_eq_with_timeout,
         client::{caches::CachedValue, futures::SendMediaUploadRequest},
@@ -6533,5 +6660,152 @@ pub(crate) mod tests {
 
         assert_next_eq_with_timeout!(stream, 6, 300 ms);
         assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_caching() {
+        use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
+        use ruma::api::client::retention::RoomIdOrAllRooms;
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        const RETENTION_PATH: &str =
+            "/_matrix/client/unstable/org.matrix.msc1763/retention/configuration";
+
+        let server = MatrixMockServer::new().await;
+        let memory_store = Arc::new(MemoryStore::new());
+        let build_client = || {
+            server
+                .client_builder()
+                .on_builder(|builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                            .state_store(memory_store.clone()),
+                    )
+                })
+                .build()
+        };
+
+        let mock_retention_configuration = |max_lifetime: Duration| {
+            Mock::given(method("GET")).and(path(RETENTION_PATH)).respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "policies": {
+                        "*": { "max_lifetime": max_lifetime.as_millis() as u64 },
+                    },
+                    "limits": {},
+                })),
+            )
+        };
+        let max_lifetime = |response: &get_retention_configuration::unstable::Response| {
+            response.policies.get(&RoomIdOrAllRooms::AllRooms).unwrap().max_lifetime()
+        };
+
+        let one_day = Duration::from_secs(60 * 60 * 24);
+        let two_days = one_day * 2;
+
+        let client = build_client().await;
+
+        {
+            let _guard = mock_retention_configuration(one_day)
+                .expect(1)
+                .named("first retention configuration")
+                .mount_as_scoped(server.server())
+                .await;
+
+            // The first call hits the network.
+            let response = client.get_retention_configuration().await.unwrap();
+            assert_eq!(max_lifetime(&response), Some(one_day));
+
+            // The second call hits the in-memory cache.
+            let response = client.get_retention_configuration().await.unwrap();
+            assert_eq!(max_lifetime(&response), Some(one_day));
+            assert_matches!(
+                client.inner.caches.message_retention.value(),
+                CachedValue::Cached(value) if !value.has_expired()
+            );
+        }
+
+        // The value was persisted in the store.
+        let stored = client
+            .state_store()
+            .get_kv_data(StateStoreDataKey::MessageRetention)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_message_retention()
+            .unwrap();
+        assert!(!stored.has_expired());
+
+        // A new client loads the value from the store, without hitting the
+        // network.
+        drop(client);
+        let client = build_client().await;
+        assert_matches!(client.inner.caches.message_retention.value(), CachedValue::NotSet);
+        let response = client.get_retention_configuration().await.unwrap();
+        assert_eq!(max_lifetime(&response), Some(one_day));
+        assert_matches!(
+            client.inner.caches.message_retention.value(),
+            CachedValue::Cached(value) if !value.has_expired()
+        );
+
+        // Force an expiry of the cached data.
+        let mut expired = stored;
+        expired.expire();
+        client
+            .state_store()
+            .set_kv_data(
+                StateStoreDataKey::MessageRetention,
+                StateStoreDataValue::MessageRetention(expired.clone()),
+            )
+            .await
+            .unwrap();
+        client.inner.caches.message_retention.set_value(expired.map(Into::into));
+
+        {
+            let _guard = Mock::given(method("GET"))
+                .and(path(RETENTION_PATH))
+                .respond_with(ResponseTemplate::new(500))
+                .expect(1)
+                .named("failing retention configuration")
+                .mount_as_scoped(server.server())
+                .await;
+
+            // Refreshing the expired value fails, so the expired value is
+            // returned.
+            let response = client.get_retention_configuration().await.unwrap();
+            assert_eq!(max_lifetime(&response), Some(one_day));
+        }
+
+        {
+            let _guard = mock_retention_configuration(two_days)
+                .expect(2)
+                .named("second retention configuration")
+                .mount_as_scoped(server.server())
+                .await;
+
+            // The cached value expired, so the data is fetched again and
+            // cached.
+            let response = client.get_retention_configuration().await.unwrap();
+            assert_eq!(max_lifetime(&response), Some(two_days));
+            let response = client.get_retention_configuration().await.unwrap();
+            assert_eq!(max_lifetime(&response), Some(two_days));
+
+            // Fetching always hits the network.
+            let response = client.fetch_retention_configuration().await.unwrap();
+            assert_eq!(max_lifetime(&response), Some(two_days));
+        }
+
+        // Without any cached value, a failure to fetch is returned.
+        client.inner.caches.message_retention.reset();
+        client.state_store().remove_kv_data(StateStoreDataKey::MessageRetention).await.unwrap();
+        Mock::given(method("GET"))
+            .and(path(RETENTION_PATH))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(server.server())
+            .await;
+        client.get_retention_configuration().await.unwrap_err();
     }
 }

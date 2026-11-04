@@ -23,6 +23,7 @@ use ruma::api::{
             get_authorization_server_metadata::v1::AuthorizationServerMetadata,
             get_capabilities::v3::Capabilities,
         },
+        retention::get_retention_configuration,
         rtc::RtcTransport,
     },
 };
@@ -53,6 +54,10 @@ pub(crate) struct ClientCaches {
     /// discovery endpoint, as distinct from one that advertises no transports
     /// (`Some(vec![])`).
     pub(crate) rtc_transports: Cache<Option<Vec<RtcTransport>>, Arc<HttpError>>,
+    /// Message retention configuration of the homeserver
+    /// ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)).
+    pub(crate) message_retention:
+        Cache<get_retention_configuration::unstable::Response, Arc<HttpError>>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion
