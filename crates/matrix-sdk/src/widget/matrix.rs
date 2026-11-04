@@ -30,7 +30,6 @@ use ruma::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::UpdateAction},
         filter::RoomEventFilter,
-        rtc::livekit::{delegate_delayed_leave, get_token},
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
     assign,
@@ -126,14 +125,10 @@ impl MatrixDriver {
         req: RtcLivekitGetTokenRequest,
     ) -> Result<RtcLivekitGetTokenResponse> {
         let RtcLivekitGetTokenRequest { server_name, url, room_id, slot_id, member_id } = req;
-        let request =
-            assign!(get_token::msc4195::Request::new(url, room_id, slot_id, member_id), {
-                server_name
-            });
 
         self.room
             .client
-            .send(request)
+            .rtc_livekit_get_token(url, room_id, slot_id, member_id, server_name)
             .await
             .map(Into::into)
             .map_err(|error| Error::Http(Box::new(error)))
@@ -153,13 +148,10 @@ impl MatrixDriver {
     ) -> Result<RtcLivekitDelegateDelayedLeaveResponse> {
         let RtcLivekitDelegateDelayedLeaveRequest { url, room_id, slot_id, member_id, delay_id } =
             req;
-        let request = delegate_delayed_leave::msc4195::Request::new(
-            url, room_id, slot_id, member_id, delay_id,
-        );
 
         self.room
             .client
-            .send(request)
+            .rtc_livekit_delegate_delayed_leave(url, room_id, slot_id, member_id, delay_id)
             .await
             .map(Into::into)
             .map_err(|error| Error::Http(Box::new(error)))
