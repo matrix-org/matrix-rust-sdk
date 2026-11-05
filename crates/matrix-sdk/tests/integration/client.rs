@@ -344,8 +344,7 @@ async fn test_subscribe_all_room_updates() {
         .ok_and_run(&client, |builder| {
             builder
                 .add_left_room(
-                    LeftRoomBuilder::new(left_room_id.into())
-                        .add_timeline_event(f.text_msg("Goodbye!")),
+                    LeftRoomBuilder::new(left_room_id).add_timeline_event(f.text_msg("Goodbye!")),
                 )
                 .add_joined_room(
                     JoinedRoomBuilder::default()
@@ -357,16 +356,14 @@ async fn test_subscribe_all_room_updates() {
                         .set_timeline_prev_batch(joined_room_prev_batch)
                         .set_unread_notifications_count(json!({ "notification_count": 11 })),
                 )
-                .add_invited_room(InvitedRoomBuilder::new(invited_room_id.into()).add_state_bulk([
+                .add_invited_room(InvitedRoomBuilder::new(invited_room_id).add_state_bulk([
                     f.create(User::Carol, RoomVersionId::V11).sender(User::Carol).into(),
                     f.member(User::Carol).sender(User::Carol).into(),
                 ]))
-                .add_knocked_room(KnockedRoomBuilder::new(knocked_room_id.into()).add_state_bulk(
-                    [
-                        f.create(User::Bob, RoomVersionId::V12).sender(User::Bob).into(),
-                        f.member(User::Bob).sender(User::Carol).into(),
-                    ],
-                ));
+                .add_knocked_room(KnockedRoomBuilder::new(knocked_room_id).add_state_bulk([
+                    f.create(User::Bob, RoomVersionId::V12).sender(User::Bob).into(),
+                    f.member(User::Bob).sender(User::Carol).into(),
+                ]));
         })
         .await;
 
@@ -1056,7 +1053,7 @@ async fn test_avatar_url_changes() {
 
     // Now we sync a room member with an avatar URL.
     let mut sync_builder = SyncResponseBuilder::new();
-    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([
+    let joined_room = JoinedRoomBuilder::default().add_state_bulk([
         f.member(example_id)
             .avatar_url("mxc://localhost/avatar".into())
             .display_name("the first example")
@@ -1108,8 +1105,7 @@ async fn test_avatar_url_changes() {
     // And after that, receive the first room member without an avatar URL.
     let avatar_removal =
         f.member(example_id).display_name("the first example").into_raw_sync_state();
-    let joined_room =
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(avatar_removal.clone());
+    let joined_room = JoinedRoomBuilder::default().add_state_event(avatar_removal.clone());
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1122,7 +1118,7 @@ async fn test_avatar_url_changes() {
     assert_let!(Some(None) = changes.get(example_id));
 
     // If we receive the same event again, nothing should happen
-    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_event(avatar_removal);
+    let joined_room = JoinedRoomBuilder::default().add_state_event(avatar_removal);
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -1689,7 +1685,7 @@ async fn test_room_sync_state_after() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 .use_state_after()
                 .add_state_bulk([
                     f.create(user_id!("@example:localhost"), RoomVersionId::V1).into(),

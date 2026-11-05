@@ -18,8 +18,8 @@ impl LeftRoomBuilder {
     ///
     /// If the room ID matches [`TestRoom::Default`],
     /// [`LeftRoomBuilder::default()`] can be used instead.
-    pub fn new(room_id: &RoomId) -> Self {
-        Self { room_id: room_id.to_owned(), inner: Default::default() }
+    pub fn new(room_id: impl Into<OwnedRoomId>) -> Self {
+        Self { room_id: room_id.into(), inner: Default::default() }
     }
 
     /// Get the room ID of this [`LeftRoomBuilder`].
@@ -96,6 +96,6 @@ impl LeftRoomBuilder {
 
 impl Default for LeftRoomBuilder {
     fn default() -> Self {
-        Self::new(TestRoom::Default.into())
+        Self::new(TestRoom::Default)
     }
 }
