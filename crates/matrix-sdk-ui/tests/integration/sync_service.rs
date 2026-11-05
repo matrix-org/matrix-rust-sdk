@@ -393,6 +393,59 @@ async fn test_sync_service_offline_mode_unknown_token_room_list() {
 }
 
 #[async_test]
+async fn test_sync_service_offline_mode_reconnects_with_revoked_token() {
+    use wiremock::matchers::{method, path};
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
+    let mut states = sync_service.state();
+
+    // Enter Offline.
+    {
+        let _sync_guard =
+            mock_server.mock_sliding_sync().error_unrecognized().mount_as_scoped().await;
+
+        let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
+
+        sync_service.start().await;
+
+        assert_next_matches!(states, State::Running);
+        assert_next_matches_with_timeout!(states, 2000, State::Offline);
+    }
+
+    // Revoke access token.
+    mock_server.mock_sliding_sync().error_unknown_token(false).mount().await;
+
+    // The server is reachable again, but rejects the revoked token.
+    Mock::given(method("GET"))
+        .and(path("/_matrix/client/versions"))
+        .respond_with(|request: &Request| {
+            if request.headers.contains_key("authorization") {
+                ResponseTemplate::new(401).set_body_json(json!({
+                    "errcode": "M_UNKNOWN_TOKEN",
+                    "error": "Revoked token",
+                    "soft_logout": false,
+                }))
+            } else {
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "versions": ["v1.1"],
+                    "unstable_features": {},
+                }))
+            }
+        })
+        .mount(&mock_server)
+        .await;
+
+    // The versions check succeeds, we're back running.
+    assert_next_matches_with_timeout!(states, 2000, State::Running);
+
+    // Sync fails because of the revoked token and terminates.
+    assert_next_matches_with_timeout!(states, 2000, State::Error(_));
+}
+
+#[async_test]
 async fn test_sync_service_offline_mode_restarting() {
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
