@@ -15,12 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "unstable-msc4536")]
+use std::sync::OnceLock as StdOnceLock;
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
     future::{Future, ready},
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex, OnceLock as StdOnceLock, RwLock as StdRwLock, Weak},
+    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
     time::Duration,
 };
 
@@ -96,6 +98,8 @@ use self::{
     caches::{Cache, CachedValue, ClientCaches},
     futures::SendRequest,
 };
+#[cfg(feature = "unstable-msc4536")]
+use crate::client::global_profiles::GlobalProfileFetcher;
 use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
@@ -104,7 +108,7 @@ use crate::{
         oauth::OAuth,
     },
     client::{
-        global_profiles::GlobalProfileFetcher, homeserver_capabilities::HomeserverCapabilities,
+        homeserver_capabilities::HomeserverCapabilities,
         thread_subscriptions::ThreadSubscriptionCatchup,
     },
     config::{RequestConfig, SyncToken},
@@ -138,6 +142,7 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+#[cfg(feature = "unstable-msc4536")]
 pub(crate) mod global_profiles;
 pub(crate) mod homeserver_capabilities;
 pub(crate) mod thread_subscriptions;
@@ -419,6 +424,7 @@ pub(crate) struct ClientInner {
 
     /// Service fetching missing global profiles in the background, created
     /// lazily on first use.
+    #[cfg(feature = "unstable-msc4536")]
     global_profile_fetcher: StdOnceLock<GlobalProfileFetcher>,
 
     #[cfg(feature = "experimental-search")]
@@ -519,6 +525,7 @@ impl ClientInner {
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
             thread_subscription_catchup,
+            #[cfg(feature = "unstable-msc4536")]
             global_profile_fetcher: StdOnceLock::new(),
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
@@ -4085,6 +4092,7 @@ impl Client {
         self.inner.thread_subscription_catchup.get().unwrap()
     }
 
+    #[cfg(feature = "unstable-msc4536")]
     pub(crate) fn global_profile_fetcher(&self) -> &GlobalProfileFetcher {
         self.inner.global_profile_fetcher.get_or_init(|| GlobalProfileFetcher::new(self))
     }

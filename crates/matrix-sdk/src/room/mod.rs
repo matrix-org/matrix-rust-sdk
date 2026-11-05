@@ -60,6 +60,8 @@ use matrix_sdk_common::{
 };
 use mime::Mime;
 use reply::Reply;
+#[cfg(feature = "unstable-msc4536")]
+use ruma::api::FeatureFlag;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "experimental-encrypted-state-events")]
@@ -74,7 +76,6 @@ use ruma::{
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::{
-        FeatureFlag,
         client::{
             config::{set_global_account_data, set_room_account_data},
             context,
@@ -1331,6 +1332,7 @@ impl Room {
     /// keep the fetched profiles up to date.
     ///
     /// [MSC4536]: https://github.com/matrix-org/matrix-spec-proposals/pull/4536
+    #[cfg(feature = "unstable-msc4536")]
     pub async fn fetch_missing_global_profiles_in_background(&self) -> Result<()> {
         if self.state() != RoomState::Joined {
             return Ok(());

@@ -334,26 +334,8 @@ impl Room {
         Ok(self.inner.latest_encryption_state().await?)
     }
 
-    /// Get the members of this room, fetching them from the homeserver if they
-    /// aren't synced yet.
-    ///
-    /// If `include_global_profiles` is true, the global profiles of any joined
-    /// members that aren't stored yet are fetched in the background, when
-    /// supported by the homeserver.
-    #[uniffi::method(default(include_global_profiles = false))]
-    pub async fn members(
-        &self,
-        include_global_profiles: bool,
-    ) -> Result<Arc<RoomMembersIterator>, ClientError> {
-        let members = self.inner.members(RoomMemberships::empty()).await?;
-
-        if include_global_profiles
-            && let Err(error) = self.inner.fetch_missing_global_profiles_in_background().await
-        {
-            warn!(?error, "Failed to start fetching the joined members' missing global profiles");
-        }
-
-        Ok(Arc::new(RoomMembersIterator::new(members)))
+    pub async fn members(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
+        Ok(Arc::new(RoomMembersIterator::new(self.inner.members(RoomMemberships::empty()).await?)))
     }
 
     pub async fn members_no_sync(&self) -> Result<Arc<RoomMembersIterator>, ClientError> {
@@ -1472,6 +1454,25 @@ impl Room {
                 .map(as_ffi_event)
                 .collect::<Result<Vec<_>, _>>()?,
         })
+    }
+}
+
+#[cfg(feature = "unstable-msc4536")]
+#[matrix_sdk_ffi_macros::export]
+impl Room {
+    /// Gets the members for this room, like [`Room::members`], but also fetches
+    /// any missing global profiles for those members in the background (when
+    /// supported by the server).
+    pub async fn members_fetching_global_profiles(
+        &self,
+    ) -> Result<Arc<RoomMembersIterator>, ClientError> {
+        let members = self.inner.members(RoomMemberships::empty()).await?;
+
+        if let Err(error) = self.inner.fetch_missing_global_profiles_in_background().await {
+            warn!(?error, "Failed to start fetching the joined members' missing global profiles");
+        }
+
+        Ok(Arc::new(RoomMembersIterator::new(members)))
     }
 }
 

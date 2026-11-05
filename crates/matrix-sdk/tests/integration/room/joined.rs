@@ -18,6 +18,8 @@ use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, User, async_test,
     event_factory::EventFactory,
 };
+#[cfg(feature = "unstable-msc4536")]
+use ruma::profile::ProfileFieldValue;
 use ruma::{
     OwnedUserId, RoomVersionId, TransactionId,
     api::{
@@ -36,9 +38,7 @@ use ruma::{
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
     },
-    int, mxc_uri, owned_event_id, owned_user_id,
-    profile::ProfileFieldValue,
-    room_id, thirdparty, user_id,
+    int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
 use strass::assert_let;
@@ -1463,6 +1463,7 @@ async fn test_send_sticky_event() {
     assert_eq!(result.response.event_id, event_id!("$regular"));
 }
 
+#[cfg(feature = "unstable-msc4536")]
 #[async_test]
 async fn test_fetch_missing_global_profiles_in_background() {
     let server = MatrixMockServer::new().await;
@@ -1521,6 +1522,7 @@ async fn test_fetch_missing_global_profiles_in_background() {
     assert_eq!(profile.get("displayname"), Some(&json!("Alice")));
 }
 
+#[cfg(feature = "unstable-msc4536")]
 #[async_test]
 async fn test_fetch_missing_global_profiles_in_background_requires_server_support() {
     let server = MatrixMockServer::new().await;

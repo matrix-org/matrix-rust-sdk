@@ -39,10 +39,12 @@ use matrix_sdk_crypto::{
 };
 #[cfg(doc)]
 use ruma::DeviceId;
+#[cfg(feature = "unstable-msc4536")]
+use ruma::MilliSecondsSinceUnixEpoch;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
         StateEvent, StateEventType,
@@ -1243,6 +1245,7 @@ impl BaseClient {
     ///
     /// **Note:** This method should only be called when global profile syncing
     /// is enabled.
+    #[cfg(feature = "unstable-msc4536")]
     pub async fn receive_fetched_global_profiles(
         &self,
         profiles: BTreeMap<OwnedUserId, UserProfileUpdate>,
