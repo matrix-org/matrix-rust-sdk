@@ -81,7 +81,9 @@ pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{Client, OwnedServerName, Room, SlidingSyncBuilder, room::IncludeRelations};
+use crate::{
+    Client, OwnedServerName, Room, SlidingSyncBuilder, room::IncludeRelations, sync::SyncResponse,
+};
 
 /// Structure used to store the crypto keys uploaded to the server. They will be
 /// served back to clients when requested.
@@ -3135,9 +3137,21 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn ok_and_run<F: FnOnce(&mut SyncResponseBuilder)>(self, client: &Client, func: F) {
+        self.ok_and_run_with_response(client, func).await;
+    }
+
+    /// Temporarily mocks the sync with the given endpoint, runs a client
+    /// sync with it and returns the response.
+    ///
+    /// After calling this function, the sync endpoint isn't mocked anymore.
+    pub async fn ok_and_run_with_response<F: FnOnce(&mut SyncResponseBuilder)>(
+        self,
+        client: &Client,
+        func: F,
+    ) -> SyncResponse {
         let _scope = self.ok(func).mount_as_scoped().await;
 
-        let _response = client.sync_once(Default::default()).await.unwrap();
+        client.sync_once(Default::default()).await.unwrap()
     }
 }
 
