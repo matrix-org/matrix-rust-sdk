@@ -6544,8 +6544,7 @@ pub(crate) mod tests {
         server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(TestRoom::V12.into())
-                    .add_account_data(f.marked_unread(true)),
+                JoinedRoomBuilder::new(TestRoom::V12).add_account_data(f.marked_unread(true)),
             )
             .await;
 

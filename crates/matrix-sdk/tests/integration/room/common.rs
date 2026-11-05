@@ -262,7 +262,7 @@ async fn test_state_event_getting() {
 async fn test_room_route() {
     let (client, server) = logged_in_client_with_server().await;
     let mut sync_builder = SyncResponseBuilder::new();
-    let room_id = &*DEFAULT_TEST_ROOM_ID;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
     let f = EventFactory::new();
 
     // Without eligible server
@@ -579,7 +579,7 @@ async fn test_event() {
             &client,
             // We need the member event and power levels locally so the push
             // rules processor works.
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(f.power_levels()),
         )
@@ -630,7 +630,7 @@ async fn test_event_with_context() {
     sync_builder
         // We need the member event and power levels locally so the push rules processor works.
         .add_joined_room(
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(f.power_levels()),
         );
@@ -685,7 +685,7 @@ async fn test_is_direct() {
     // Initialize the room with 2 members, including ourself.
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+        JoinedRoomBuilder::default()
             .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
             .add_state_event(f.member(User::Bob).sender(User::Bob)),
     );

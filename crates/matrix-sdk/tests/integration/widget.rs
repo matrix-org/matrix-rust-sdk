@@ -496,7 +496,7 @@ async fn test_receive_live_events() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
-                JoinedRoomBuilder::new(&ROOM_ID)
+                JoinedRoomBuilder::new(&*ROOM_ID)
                     // text message from alice - matches filter #2
                     .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // emote from alice - doesn't match
@@ -846,7 +846,7 @@ async fn test_receive_state() {
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
                 // set room name - matches filter
-                JoinedRoomBuilder::new(&ROOM_ID).add_state_event(name_event_1),
+                JoinedRoomBuilder::new(&*ROOM_ID).add_state_event(name_event_1),
             );
         })
         .await;
@@ -880,7 +880,7 @@ async fn test_receive_state() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
-                JoinedRoomBuilder::new(&ROOM_ID)
+                JoinedRoomBuilder::new(&*ROOM_ID)
                     // text message from alice - doesn't match
                     .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // set room topic - doesn't match

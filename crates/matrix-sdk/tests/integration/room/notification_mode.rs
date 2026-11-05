@@ -35,7 +35,7 @@ async fn test_get_notification_mode() {
 
     // Add the rooms for the tests
     let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
+    sync_builder.add_joined_room(JoinedRoomBuilder::default());
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_no_rules_id));
     sync_builder.add_invited_room(InvitedRoomBuilder::new(room_not_joined_id));
 
