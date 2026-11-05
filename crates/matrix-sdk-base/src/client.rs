@@ -45,7 +45,7 @@ use ruma::MilliSecondsSinceUnixEpoch;
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
     OwnedRoomId, OwnedUserId, RoomId, UserId,
-    api::client::{self as api, sync::sync_events::v5},
+    api::client::{self as api, sync::sync_events::msc4186},
     events::{
         StateEvent, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
@@ -1400,8 +1400,8 @@ impl RequestedRequiredStates {
     }
 }
 
-impl From<&v5::Request> for RequestedRequiredStates {
-    fn from(request: &v5::Request) -> Self {
+impl From<&msc4186::Request> for RequestedRequiredStates {
+    fn from(request: &msc4186::Request) -> Self {
         // The following information is missing in the MSC4186 at the time of
         // writing (2025-03-12) but: the `required_state`s from all lists and
         // from all room subscriptions are combined by doing an union.
@@ -1452,7 +1452,7 @@ mod tests {
     };
     use ruma::{
         RoomId,
-        api::client::{self as api, sync::sync_events::v5},
+        api::client::{self as api, sync::sync_events::msc4186},
         event_id,
         events::{StateEventType, room::member::MembershipState},
         room_id,
@@ -1510,7 +1510,7 @@ mod tests {
         let room_id_1 = room_id!("!r1");
 
         // Empty request.
-        let mut request = v5::Request::new();
+        let mut request = msc4186::Request::new();
 
         {
             let requested_required_states = RequestedRequiredStates::from(&request);
@@ -1521,7 +1521,7 @@ mod tests {
 
         // One list.
         request.lists.insert("foo".to_owned(), {
-            let mut list = v5::request::List::default();
+            let mut list = msc4186::request::List::default();
             list.room_details.required_state = vec![
                 (StateEventType::RoomAvatar, "".to_owned()),
                 (StateEventType::RoomEncryption, "".to_owned()),
@@ -1545,7 +1545,7 @@ mod tests {
 
         // Two lists.
         request.lists.insert("bar".to_owned(), {
-            let mut list = v5::request::List::default();
+            let mut list = msc4186::request::List::default();
             list.room_details.required_state = vec![
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomName, "".to_owned()),
@@ -1571,7 +1571,7 @@ mod tests {
 
         // One room subscription.
         request.room_subscriptions.insert(room_id_0.to_owned(), {
-            let mut room_subscription = v5::request::RoomSubscription::default();
+            let mut room_subscription = msc4186::request::RoomSubscription::default();
 
             room_subscription.required_state = vec![
                 (StateEventType::RoomJoinRules, "".to_owned()),
@@ -1600,7 +1600,7 @@ mod tests {
 
         // Two room subscriptions.
         request.room_subscriptions.insert(room_id_1.to_owned(), {
-            let mut room_subscription = v5::request::RoomSubscription::default();
+            let mut room_subscription = msc4186::request::RoomSubscription::default();
 
             room_subscription.required_state = vec![
                 (StateEventType::RoomName, "".to_owned()),

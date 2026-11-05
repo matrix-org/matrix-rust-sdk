@@ -30,7 +30,7 @@ use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEve
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timeout::timeout};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
-    api::client::sync::sync_events::v5 as http,
+    api::client::sync::sync_events::msc4186 as http,
     assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContentChange,
@@ -1325,7 +1325,7 @@ mod tests {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
-        api::client::sync::sync_events::v5,
+        api::client::sync::sync_events::msc4186,
         assign, event_id,
         events::room::{member::MembershipState, message::RedactedRoomMessageEventContent},
         owned_event_id, owned_room_id, room_id, user_id,
@@ -1375,12 +1375,12 @@ mod tests {
             .membership(MembershipState::Invite)
             .no_event_id()
             .into_raw_sync_state();
-        let mut room = v5::response::Room::new();
+        let mut room = msc4186::response::Room::new();
         room.invite_state = Some(vec![invite.cast_unchecked()]);
         let rooms = BTreeMap::from_iter([(room_id.to_owned(), room)]);
         server
             .mock_sliding_sync()
-            .ok(assign!(v5::Response::new("1".to_owned()), {
+            .ok(assign!(msc4186::Response::new("1".to_owned()), {
                 rooms: rooms,
             }))
             .mount()
@@ -1442,7 +1442,7 @@ mod tests {
             .redacted(User::Alice, RedactedRoomMessageEventContent::new())
             .event_id(&event_id)
             .into_raw();
-        let mut room = v5::response::Room::new();
+        let mut room = msc4186::response::Room::new();
         room.timeline = vec![redacted_event];
 
         let mut rooms = BTreeMap::new();
@@ -1450,7 +1450,7 @@ mod tests {
 
         server
             .mock_sliding_sync()
-            .ok(assign!(v5::Response::new("1".to_owned()), {
+            .ok(assign!(msc4186::Response::new("1".to_owned()), {
                 rooms: rooms,
             }))
             .mount()

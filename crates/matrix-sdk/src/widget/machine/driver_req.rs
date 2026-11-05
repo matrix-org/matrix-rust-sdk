@@ -362,10 +362,10 @@ impl From<UpdateDelayedEventRequest> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for UpdateDelayedEventRequest {
-    type Response = update_delayed_event::unstable_v1::Response;
+    type Response = update_delayed_event::msc4140_v1::Response;
 }
 
-impl FromMatrixDriverResponse for update_delayed_event::unstable_v1::Response {
+impl FromMatrixDriverResponse for update_delayed_event::msc4140_v1::Response {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::DelayedEventUpdated(response) => Some(response),

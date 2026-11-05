@@ -10,7 +10,7 @@ use std::{
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
-use ruma::{api::client::sync::sync_events::v5 as http, assign, events::StateEventType};
+use ruma::{api::client::sync::sync_events::msc4186 as http, assign, events::StateEventType};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};

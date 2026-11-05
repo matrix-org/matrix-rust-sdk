@@ -6,7 +6,7 @@ use std::{
 };
 
 use matrix_sdk_common::timer;
-use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use ruma::{OwnedRoomId, api::client::sync::sync_events::msc4186 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{

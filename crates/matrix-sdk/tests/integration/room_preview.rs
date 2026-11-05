@@ -4,7 +4,7 @@ use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_base::{RequestedRequiredStates, RoomState};
 use matrix_sdk_test::{InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, async_test};
 use ruma::{
-    api::client::sync::sync_events::v5::{self as sliding_sync_http, response::Hero},
+    api::client::sync::sync_events::msc4186::{self as sliding_sync_http, response::Hero},
     assign,
     events::room::member::MembershipState,
     owned_user_id, room_id,

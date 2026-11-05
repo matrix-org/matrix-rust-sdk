@@ -11,7 +11,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
 };
 use ruma::{
-    api::client::sync::sync_events::v5,
+    api::client::sync::sync_events::msc4186,
     events::AnyGlobalAccountDataEvent,
     push::{Action, ConditionalPushRule, NewSimplePushRule, Ruleset, SoundTweakValue, Tweak},
     room_id,
@@ -135,9 +135,9 @@ async fn test_cached_notification_mode_is_updated_when_syncing() {
     .into();
     let f = EventFactory::new();
     let push_rules: Raw<AnyGlobalAccountDataEvent> = f.push_rules(ruleset).into_raw();
-    let mut response = v5::Response::new("pos".to_owned());
+    let mut response = msc4186::Response::new("pos".to_owned());
     response.extensions.account_data.global.push(push_rules);
-    response.rooms.insert(DEFAULT_TEST_ROOM_ID.to_owned(), v5::response::Room::default());
+    response.rooms.insert(DEFAULT_TEST_ROOM_ID.to_owned(), msc4186::response::Room::default());
 
     server
         .mock_sliding_sync()
@@ -171,7 +171,7 @@ async fn test_cached_notification_mode_is_updated_when_syncing() {
 
     let f = EventFactory::new();
     let push_rules: Raw<AnyGlobalAccountDataEvent> = f.push_rules(ruleset).into_raw();
-    let mut response = v5::Response::new("pos".to_owned());
+    let mut response = msc4186::Response::new("pos".to_owned());
     response.extensions.account_data.global.push(push_rules);
 
     server

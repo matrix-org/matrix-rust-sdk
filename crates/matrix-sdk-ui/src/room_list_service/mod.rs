@@ -67,7 +67,7 @@ use matrix_sdk::{
 };
 pub use room_list::*;
 use ruma::{
-    OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
+    OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::msc4186 as http, assign,
     events::StateEventType,
 };
 pub use state::*;
@@ -620,7 +620,7 @@ mod tests {
     use futures_util::StreamExt;
     use matrix_sdk::{SlidingSyncMode, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{TestError, async_test};
-    use ruma::{api::client::sync::sync_events::v5, assign, uint};
+    use ruma::{api::client::sync::sync_events::msc4186, assign, uint};
 
     use super::{ALL_ROOMS_LIST_NAME, Error, RoomListService, State};
 
@@ -661,10 +661,10 @@ mod tests {
             let _mock_guard = server
                 .mock_sliding_sync()
                 .ok({
-                    let mut response = v5::Response::new("0".to_owned());
+                    let mut response = msc4186::Response::new("0".to_owned());
                     response.lists.insert(
                         ALL_ROOMS_LIST_NAME.to_owned(),
-                        assign!(v5::response::List::default(), { count: uint!(0) }),
+                        assign!(msc4186::response::List::default(), { count: uint!(0) }),
                     );
                     response
                 })

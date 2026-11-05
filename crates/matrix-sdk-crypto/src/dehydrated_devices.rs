@@ -219,14 +219,14 @@ impl RehydratedDevice {
     /// # use ruma::{api::client::dehydrated_device, DeviceId};
     /// # async fn example() -> Result<()> {
     /// # let machine: OlmMachine = unimplemented!();
-    /// async fn get_dehydrated_device() -> Result<dehydrated_device::get_dehydrated_device::unstable::Response> {
+    /// async fn get_dehydrated_device() -> Result<dehydrated_device::get_dehydrated_device::msc3814::Response> {
     ///     todo!("Download the dehydrated device");
     /// }
     ///
     /// async fn get_events(
     ///     device_id: &DeviceId,
     ///     since_token: Option<&str>
-    /// ) -> Result<dehydrated_device::get_events::unstable::Response> {
+    /// ) -> Result<dehydrated_device::get_events::msc3814::Response> {
     ///     todo!("Download the to-device events of the dehydrated device");
     /// }
     /// // Get the cached dehydrated key (got it after verification/recovery)
@@ -369,7 +369,7 @@ impl DehydratedDevice {
         &self,
         initial_device_display_name: String,
         pickle_key: &DehydratedDeviceKey,
-    ) -> Result<put_dehydrated_device::unstable::Request, DehydrationError> {
+    ) -> Result<put_dehydrated_device::msc3814::Request, DehydrationError> {
         let mut transaction = self.store.transaction().await;
 
         let account = transaction.account().await?;
@@ -391,7 +391,7 @@ impl DehydratedDevice {
         transaction.commit().await?;
 
         Ok(
-            assign!(put_dehydrated_device::unstable::Request::new(device_id, device_data, device_keys.to_raw()), {
+            assign!(put_dehydrated_device::msc3814::Request::new(device_id, device_data, device_keys.to_raw()), {
                 one_time_keys, fallback_keys, initial_device_display_name
             }),
         )
@@ -725,7 +725,7 @@ mod tests {
     async fn legacy_dehydrated_device_keys_for_upload(
         dehydrated_device: &DehydratedDevice,
         pickle_key: &DehydratedDeviceKey,
-    ) -> put_dehydrated_device::unstable::Request {
+    ) -> put_dehydrated_device::msc3814::Request {
         let mut transaction = dehydrated_device.store.transaction().await;
         let account = transaction.account().await.unwrap();
         account.generate_fallback_key_if_needed();
@@ -745,7 +745,7 @@ mod tests {
         let device_data = account.legacy_dehydrate(pickle_key.inner.as_ref());
         transaction.commit().await.unwrap();
 
-        assign!(put_dehydrated_device::unstable::Request::new(device_id, device_data, device_keys.to_raw()), {
+        assign!(put_dehydrated_device::msc3814::Request::new(device_id, device_data, device_keys.to_raw()), {
             one_time_keys, fallback_keys
         })
     }

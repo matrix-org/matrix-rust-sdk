@@ -23,8 +23,8 @@ use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::{
+        msc4186 as http,
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
-        v5 as http,
     },
     assign,
     events::{
