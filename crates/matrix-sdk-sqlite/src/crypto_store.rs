@@ -249,7 +249,18 @@ impl SqliteCryptoStore {
             let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
             conns.write_connection.clone()
         };
-        Ok(write_connection.lock_owned().await)
+        let connection = write_connection.lock_owned().await;
+
+        // Specify a busy timeout so that operations are automatically retried,
+        // in case the database was marked as locked, which can happen
+        // under very peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
+
+        Ok(connection)
     }
 }
 
@@ -282,7 +293,7 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))?;
             txn.set_db_version(1)
         })
@@ -311,7 +322,7 @@ pub(crate) async fn run_migrations(
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/002_reset_olm_hash.sql"))?;
             txn.set_db_version(2)
         })
@@ -320,7 +331,7 @@ pub(crate) async fn run_migrations(
 
     if version < 3 {
         debug!("Upgrading database to version 3");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/003_room_settings.sql"))?;
             txn.set_db_version(3)
         })
@@ -329,7 +340,7 @@ pub(crate) async fn run_migrations(
 
     if version < 4 {
         debug!("Upgrading database to version 4");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/004_drop_outbound_group_sessions.sql"
             ))?;
@@ -340,7 +351,7 @@ pub(crate) async fn run_migrations(
 
     if version < 5 {
         debug!("Upgrading database to version 5");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/005_withheld_code.sql"))?;
             txn.set_db_version(5)
         })
@@ -349,7 +360,7 @@ pub(crate) async fn run_migrations(
 
     if version < 6 {
         debug!("Upgrading database to version 6");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/006_drop_outbound_group_sessions.sql"
             ))?;
@@ -360,7 +371,7 @@ pub(crate) async fn run_migrations(
 
     if version < 7 {
         debug!("Upgrading database to version 7");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/007_lock_leases.sql"))?;
             txn.set_db_version(7)
         })
@@ -369,7 +380,7 @@ pub(crate) async fn run_migrations(
 
     if version < 8 {
         debug!("Upgrading database to version 8");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/008_secret_inbox.sql"))?;
             txn.set_db_version(8)
         })
@@ -378,7 +389,7 @@ pub(crate) async fn run_migrations(
 
     if version < 9 {
         debug!("Upgrading database to version 9");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/009_inbound_group_session_sender_key_sender_data_type.sql"
             ))?;
@@ -389,7 +400,7 @@ pub(crate) async fn run_migrations(
 
     if version < 10 {
         debug!("Upgrading database to version 10");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/010_received_room_key_bundles.sql"
             ))?;
@@ -400,7 +411,7 @@ pub(crate) async fn run_migrations(
 
     if version < 11 {
         debug!("Upgrading database to version 11");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/011_received_room_key_bundles_with_curve_key.sql"
             ))?;
@@ -411,7 +422,7 @@ pub(crate) async fn run_migrations(
 
     if version < 12 {
         debug!("Upgrading database to version 12");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/012_withheld_code_by_room.sql"
             ))?;
@@ -422,7 +433,7 @@ pub(crate) async fn run_migrations(
 
     if version < 13 {
         debug!("Upgrading database to version 13");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/013_lease_locks_with_generation.sql"
             ))?;
@@ -433,7 +444,7 @@ pub(crate) async fn run_migrations(
 
     if version < 14 {
         debug!("Upgrading database to version 14");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/014_room_key_backups_fully_downloaded.sql"
             ))?;
@@ -444,7 +455,7 @@ pub(crate) async fn run_migrations(
 
     if version < 15 {
         debug!("Upgrading database to version 15");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/015_rooms_pending_key_bundle.sql"
             ))?;
@@ -455,7 +466,7 @@ pub(crate) async fn run_migrations(
 
     if version < 16 {
         debug!("Upgrading database to version 16");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/016_remove_old_generation_counter.sql"
             ))?;
@@ -471,7 +482,7 @@ pub(crate) async fn run_migrations(
     if version < 17 {
         debug!("Upgrading database to version 17");
         let store = store.clone();
-        conn.with_transaction(move |txn| {
+        conn.with_immediate_transaction(move |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/017_add_new_secrets_inbox.sql"
             ))?;
@@ -506,7 +517,7 @@ pub(crate) async fn run_migrations(
     if version < 18 {
         debug!("Upgrading database to version 18");
         let store = store.clone();
-        conn.with_transaction(move |txn| {
+        conn.with_immediate_transaction(move |txn| {
             txn.execute_batch(include_str!(
                 "../migrations/crypto_store/018_add_gossip_request_info.sql"
             ))?;
@@ -537,7 +548,7 @@ pub(crate) async fn run_migrations(
         // never reset the `pos` value, this fixes it.
         let user_id = store.load_account().await?.map(|account| account.user_id.clone());
 
-        conn.with_transaction(move |txn| {
+        conn.with_immediate_transaction(move |txn| {
             if let Some(user_id) = user_id {
                 txn.clear_kv(&format!("sliding_sync_store::room-list::{user_id}::instance"))?;
             }
@@ -1175,7 +1186,7 @@ impl CryptoStore for SqliteCryptoStore {
         let this = self.clone();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 if let Some(pickled_account) = pickled_account {
                     let serialized_account = this.serialize_value(&pickled_account)?;
                     txn.set_kv("account", &serialized_account)?;
@@ -1227,7 +1238,7 @@ impl CryptoStore for SqliteCryptoStore {
         let this = self.clone();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 if let Some(pickled_private_identity) = &pickled_private_identity {
                     let serialized_private_identity =
                         this.serialize_value(pickled_private_identity)?;
@@ -1864,7 +1875,7 @@ impl CryptoStore for SqliteCryptoStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)

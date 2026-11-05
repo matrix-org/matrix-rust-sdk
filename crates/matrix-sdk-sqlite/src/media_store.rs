@@ -218,11 +218,14 @@ impl SqliteMediaStore {
 
         let connection = write_connection.lock_owned().await;
 
-        // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
-        // support must be enabled on a per-connection basis. Execute it every
-        // time we try to get a connection, since we can't guarantee a previous
-        // connection did enable it before.
-        connection.execute_batch("PRAGMA foreign_keys = ON;").await?;
+        // Specify a busy timeout so that operations are automatically retried,
+        // in case the database was marked as locked, which can happen
+        // under very peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
 
         Ok(connection)
     }
@@ -280,7 +283,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/media_store/001_init.sql"))?;
             txn.set_db_version(1)
         })
@@ -289,7 +292,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/media_store/002_lease_locks_with_generation.sql"
             ))?;
@@ -322,7 +325,7 @@ impl MediaStore for SqliteMediaStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
@@ -592,9 +595,10 @@ impl MediaStoreInner for SqliteMediaStore {
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
         let timestamp = time_to_timestamp(current_time);
 
-        let conn = self.write().await?;
-        let data = conn
-            .with_transaction::<_, rusqlite::Error, _>(move |txn| {
+        let data = self
+            .write()
+            .await?
+            .with_immediate_transaction(move |txn| {
                 // Update the last access. We need to do this first so the
                 // transaction is in write mode right away. See:
                 // https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
@@ -625,9 +629,10 @@ impl MediaStoreInner for SqliteMediaStore {
             return Ok(());
         }
 
-        let conn = self.write().await?;
+        let conn = self.read().await?;
+
         let removed = conn
-            .with_transaction::<_, Error, _>(move |txn| {
+            .with_immediate_transaction::<_, Self::Error, _>(move |txn| {
                 let mut removed = false;
 
                 // First, check media content that exceed the max filesize.

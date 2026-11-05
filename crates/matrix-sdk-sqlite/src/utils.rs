@@ -26,7 +26,9 @@ use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
-use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
+use rusqlite::{
+    OptionalExtension, Params, Row, Statement, Transaction, TransactionBehavior, limits::Limit,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
 use vodozemac::base64_encode;
@@ -122,6 +124,16 @@ pub(crate) trait SqliteAsyncConnExt {
         F: FnMut(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        T: Send + 'static,
+        E: From<rusqlite::Error> + Send + 'static,
+        F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
+
+    /// Like `deadpool::managed::Object::with_transaction`, but starts the
+    /// transaction in immediate (write) mode from the beginning, precluding
+    /// errors of the kind SQLITE_BUSY from happening, for transactions that
+    /// may involve both reads and writes, and start with a read.
+    async fn with_immediate_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
         T: Send + 'static,
         E: From<rusqlite::Error> + Send + 'static,
@@ -308,6 +320,39 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
             let result = f(&txn)?;
             txn.commit()?;
             Ok(result)
+        })
+        .await
+        .map_err(map_interact_err)
+        .map_err(E::from)?
+    }
+
+    async fn with_immediate_transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        T: Send + 'static,
+        E: From<rusqlite::Error> + Send + 'static,
+        F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static,
+    {
+        self.interact(move |conn| -> Result<T, E> {
+            // Start the transaction in IMMEDIATE mode since all updates may
+            // cause writes, to avoid read transactions upgrading to write mode
+            // and causing SQLITE_BUSY errors. See also:
+            // https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
+            conn.set_transaction_behavior(TransactionBehavior::Immediate);
+
+            let code = || -> Result<T, E> {
+                let txn = conn.transaction()?;
+                let res = f(&txn)?;
+                txn.commit()?;
+                Ok(res)
+            };
+
+            let res = code();
+
+            // Reset the transaction behavior to use Deferred, after this
+            // transaction has been run, whether it was successful or not.
+            conn.set_transaction_behavior(TransactionBehavior::Deferred);
+
+            res
         })
         .await
         .map_err(map_interact_err)
