@@ -192,7 +192,10 @@ impl SyncTaskSupervisor {
                 //
                 // Let's set a retry limit so network failures are retried as
                 // well.
-                let request_config = RequestConfig::default().retry_limit(5);
+                //
+                // We only use /versions to check whether the server is
+                // reachable, we can skip authentication for this.
+                let request_config = RequestConfig::default().retry_limit(5).skip_auth();
 
                 // We're in an infinite loop, but our request sending already
                 // has an exponential backoff set up. This will kick in for any
