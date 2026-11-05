@@ -376,20 +376,27 @@ impl OAuth {
     ///
     /// Returns `Ok(true)` if the rendezvous discovery endpoint returns a 200 OK
     /// HTTP response, `Ok(false)` if the endpoint returns a 404 NOT_FOUND or
-    /// 403 FORBIDDEN HTTP response, otherwise an error is returned.
+    /// 403 FORBIDDEN HTTP response or an `M_UNRECOGNIZED` error code, otherwise
+    /// an error is returned.
     ///
     /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
     #[cfg(feature = "unstable-msc4388")]
     pub async fn msc_4388_rendezvous_server_supported(&self) -> Result<bool, crate::HttpError> {
         use http::StatusCode;
-        use ruma::api::client::rendezvous::discover_rendezvous;
+        use ruma::api::{client::rendezvous::discover_rendezvous, error::ErrorKind};
 
         match self.client.send(discover_rendezvous::unstable::Request::new()).await {
             Ok(response) => Ok(response.create_available),
             Err(e) => {
+                // A homeserver that doesn't implement the endpoint responds
+                // with a 404 or an `M_UNRECOGNIZED` error code, which some
+                // servers or reverse proxies send with another status code
+                // like 400 or 405. A 403 means that the homeserver doesn't let
+                // us use the endpoint, which isn't a failure to check either.
                 if e.as_client_api_error().is_some_and(|err| {
                     matches!(err.status_code, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
-                }) {
+                }) || matches!(e.client_api_error_kind(), Some(ErrorKind::Unrecognized))
+                {
                     Ok(false)
                 } else {
                     Err(e)
@@ -510,10 +517,8 @@ impl OAuth {
     /// This matches the variant used when generating a QR code: [MSC4388] if
     /// it's supported (only with the `unstable-msc4388` feature), otherwise
     /// [MSC4108]. Like the generation path, if the MSC4388 support check fails
-    /// we fall back to checking MSC4108 support rather than returning an error,
-    /// because MSC4388 is optional. However, MSC4108 support is advertised in
-    /// the versions of the homeserver, which are required, so if that check
-    /// fails we return the error rather than guessing.
+    /// we only fall back to MSC4108 if it's supported, otherwise we return the
+    /// error rather than reporting that generating a QR code isn't supported.
     ///
     /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
     /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
@@ -521,7 +526,7 @@ impl OAuth {
     async fn qr_code_login_support_with_rendezvous_server(
         &self,
     ) -> Result<qrcode::QrCodeLoginSupport, crate::HttpError> {
-        let generate = qrcode::use_msc_4388_for_generated_qr_code(&self.client).await
+        let generate = qrcode::use_msc_4388_for_generated_qr_code(&self.client).await?
             || self.client.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108);
 
         Ok(qrcode::QrCodeLoginSupport { scan: true, generate })

@@ -531,7 +531,7 @@ impl LoginWithGeneratedQrCode {
         // login with.
         //
         // -- MSC4108 Secure channel setup steps 1 & 2
-        let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client).await;
+        let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client).await?;
         let secure_channel = SecureChannel::login(&self.client, msc_4388).await?;
 
         // Extract the QR code data and emit a progress update so that the

@@ -83,55 +83,107 @@ pub struct QrCodeLoginSupport {
 /// rendezvous session for a QR code that we generate.
 ///
 /// We use MSC4388 if the `unstable-msc4388` feature is enabled and the
-/// homeserver supports it. Otherwise, or if we can't find out, we fall back to
-/// MSC4108.
+/// homeserver supports it. Otherwise, we use MSC4108.
 ///
-/// A successful check is cached for [`MSC_4388_SUPPORT_MAX_AGE`], so that
-/// checking which QR code login modes are supported and then generating a QR
-/// code use the same variant.
+/// If we can't find out whether the homeserver supports MSC4388, we only fall
+/// back to MSC4108 if the homeserver advertises support for it. Otherwise, we
+/// return the error, because creating an MSC4108 rendezvous session would fail
+/// with an unrelated error, and the caller can retry later.
 ///
 /// [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
 /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
 #[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
-pub(super) async fn use_msc_4388_for_generated_qr_code(client: &Client) -> bool {
+pub(super) async fn use_msc_4388_for_generated_qr_code(client: &Client) -> Result<bool, HttpError> {
     #[cfg(feature = "unstable-msc4388")]
-    {
-        use matrix_sdk_common::ttl::TtlValue;
-
-        use crate::client::caches::CachedValue;
-
-        let cache = &client.inner.caches.msc_4388_rendezvous_server;
-
-        if let CachedValue::Cached(supported) = cache.value()
-            && !supported.is_older_than(MSC_4388_SUPPORT_MAX_AGE)
-        {
-            return *supported.data();
-        }
-
-        // Remember whether the request is authenticated, because the cache is
-        // reset when the session changes. The answer can depend on whether the
-        // request is authenticated, because the homeserver might only let
-        // authenticated users create rendezvous sessions.
-        let authenticated = client.access_token().is_some();
-
-        match client.oauth().msc_4388_rendezvous_server_supported().await {
-            Ok(supported) => {
-                // Don't cache the result if the session changed during the
-                // check, otherwise it would be used for the new session.
-                if client.access_token().is_some() == authenticated {
-                    cache.set_value(TtlValue::new(supported));
+    match cached_msc_4388_rendezvous_server_supported(client).await {
+        Ok(supported) => return Ok(supported),
+        Err(error) => {
+            let unstable_features = match client.unstable_features().await {
+                Ok(unstable_features) => unstable_features,
+                Err(versions_error) => {
+                    // We can only return one error, so log the one from the
+                    // MSC4388 check.
+                    tracing::warn!(
+                        "Could not check whether the homeserver supports MSC4388: {error}"
+                    );
+                    return Err(versions_error);
                 }
+            };
 
-                return supported;
+            if !unstable_features.contains(&ruma::api::FeatureFlag::Msc4108) {
+                return Err(error);
             }
-            Err(error) => tracing::warn!(
+
+            tracing::warn!(
                 "Could not check whether the homeserver supports MSC4388, falling back to \
                  MSC4108: {error}"
-            ),
+            );
         }
     }
 
-    false
+    Ok(false)
+}
+
+/// Check whether the homeserver supports [MSC4388], using the cached result
+/// if it isn't older than [`MSC_4388_SUPPORT_MAX_AGE`].
+///
+/// Only successful checks are cached, so that checking which QR code login
+/// modes are supported and then generating a QR code use the same variant.
+///
+/// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+#[cfg(feature = "unstable-msc4388")]
+async fn cached_msc_4388_rendezvous_server_supported(client: &Client) -> Result<bool, HttpError> {
+    use matrix_sdk_common::ttl::TtlValue;
+
+    use crate::client::caches::CachedValue;
+
+    let cache = &client.inner.caches.msc_4388_rendezvous_server;
+    let cached_value = || match cache.value() {
+        CachedValue::Cached(supported) if !supported.is_older_than(MSC_4388_SUPPORT_MAX_AGE) => {
+            Some(*supported.data())
+        }
+        _ => None,
+    };
+
+    if let Some(supported) = cached_value() {
+        return Ok(supported);
+    }
+
+    // If there is already a check in progress, wait for it to finish.
+    let mut refresh_guard = cache.refresh_lock.lock().await;
+
+    // Reuse the result of a successful check that finished while we were
+    // waiting for the lock, or since we read the cache above.
+    if let Some(supported) = cached_value() {
+        return Ok(supported);
+    }
+
+    // Remember which homeserver we are checking, and whether the request is
+    // authenticated, because the cache is reset when either changes. The
+    // answer can depend on whether the request is authenticated, because the
+    // homeserver might only let authenticated users create rendezvous
+    // sessions.
+    let homeserver = client.homeserver();
+    let authenticated = client.access_token().is_some();
+
+    match client.oauth().msc_4388_rendezvous_server_supported().await {
+        Ok(supported) => {
+            // Don't cache the result if the homeserver or the session changed
+            // during the check, otherwise it would be used for the new
+            // homeserver or session.
+            if client.homeserver() == homeserver && client.access_token().is_some() == authenticated
+            {
+                cache.set_value(TtlValue::new(supported));
+            }
+
+            *refresh_guard = Ok(());
+            Ok(supported)
+        }
+        Err(error) => {
+            *refresh_guard = Err(());
+            Err(error)
+        }
+    }
 }
 
 /// How long the result of checking whether the homeserver supports [MSC4388]
@@ -560,7 +612,7 @@ mod tests {
     use wiremock::ResponseTemplate;
 
     use super::QrCodeLoginSupport;
-    use crate::{Error, test_utils::mocks::MatrixMockServer};
+    use crate::{Error, HttpError, test_utils::mocks::MatrixMockServer};
 
     #[cfg(feature = "unstable-msc4388")]
     #[async_test]
@@ -637,6 +689,30 @@ mod tests {
             );
         }
 
+        for status in [400, 405] {
+            let _discover_guard = server
+                .mock_rendezvous_discovery()
+                .respond_with(ResponseTemplate::new(status).set_body_json(serde_json::json!({
+                    "errcode": "M_UNRECOGNIZED",
+                    "error": "Unrecognized request",
+                })))
+                .expect(1)
+                .mount_as_scoped()
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported if we receive an M_UNRECOGNIZED \
+                 error with a {status} response"
+            );
+        }
+
         {
             let _discover_guard =
                 server.mock_rendezvous_discovery().error500().expect(1).mount_as_scoped().await;
@@ -651,10 +727,10 @@ mod tests {
 
     #[cfg(feature = "unstable-msc4388")]
     #[async_test]
-    async fn test_use_msc_4388_for_generated_qr_code_is_cached() {
+    async fn test_msc_4388_rendezvous_server_support_is_cached() {
         use matrix_sdk_common::ttl::TtlValue;
 
-        use super::use_msc_4388_for_generated_qr_code;
+        use super::cached_msc_4388_rendezvous_server_supported;
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().logged_in_with_oauth().build().await;
@@ -664,7 +740,7 @@ mod tests {
             let _discover_guard =
                 server.mock_rendezvous_discovery().error500().expect(1).mount_as_scoped().await;
 
-            assert!(!use_msc_4388_for_generated_qr_code(&client).await);
+            cached_msc_4388_rendezvous_server_supported(&client).await.unwrap_err();
         }
 
         // A successful check is cached, so the next check doesn't hit the
@@ -673,8 +749,8 @@ mod tests {
             let _discover_guard =
                 server.mock_rendezvous_discovery().ok(true).expect(1).mount_as_scoped().await;
 
-            assert!(use_msc_4388_for_generated_qr_code(&client).await);
-            assert!(use_msc_4388_for_generated_qr_code(&client).await);
+            assert!(cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
+            assert!(cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
         }
 
         // The homeserver changes its answer, but we still use the cached one.
@@ -682,7 +758,7 @@ mod tests {
             let _discover_guard =
                 server.mock_rendezvous_discovery().ok(false).expect(0).mount_as_scoped().await;
 
-            assert!(use_msc_4388_for_generated_qr_code(&client).await);
+            assert!(cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
         }
 
         // Once the cached value is too old, we check again.
@@ -695,8 +771,112 @@ mod tests {
             let _discover_guard =
                 server.mock_rendezvous_discovery().ok(false).expect(1).mount_as_scoped().await;
 
-            assert!(!use_msc_4388_for_generated_qr_code(&client).await);
+            assert!(!cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
         }
+    }
+
+    #[cfg(feature = "unstable-msc4388")]
+    #[async_test]
+    async fn test_msc_4388_rendezvous_server_support_cache_reset_on_homeserver_switch() {
+        use super::cached_msc_4388_rendezvous_server_supported;
+
+        let initial_server = MatrixMockServer::new().await;
+        let client = initial_server.client_builder().logged_in_with_oauth().build().await;
+
+        initial_server.mock_rendezvous_discovery().ok(true).expect(1).mount().await;
+        assert!(cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
+
+        // Switch to another homeserver that doesn't support MSC4388.
+        let other_server = MatrixMockServer::new().await;
+        other_server.mock_well_known().ok().mount().await;
+        other_server.mock_rendezvous_discovery().ok(false).expect(1).mount().await;
+
+        client
+            .switch_homeserver_and_re_resolve_well_known(
+                other_server.server().uri().parse().unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // The cached value of the initial homeserver isn't used.
+        assert!(!cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
+    }
+
+    #[cfg(feature = "unstable-msc4388")]
+    #[async_test]
+    async fn test_msc_4388_rendezvous_server_support_concurrent_checks() {
+        use std::time::Duration;
+
+        use super::cached_msc_4388_rendezvous_server_supported;
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().logged_in_with_oauth().build().await;
+
+        // Concurrent checks only make one request.
+        server
+            .mock_rendezvous_discovery()
+            .with_delay(Duration::from_millis(200))
+            .ok(true)
+            .expect(1)
+            .mount()
+            .await;
+
+        let (first, second) = futures_util::future::join(
+            cached_msc_4388_rendezvous_server_supported(&client),
+            cached_msc_4388_rendezvous_server_supported(&client),
+        )
+        .await;
+
+        assert!(first.unwrap());
+        assert!(second.unwrap());
+    }
+
+    #[cfg(feature = "unstable-msc4388")]
+    #[async_test]
+    async fn test_msc_4388_rendezvous_server_support_homeserver_switch_during_check() {
+        use std::time::Duration;
+
+        use super::cached_msc_4388_rendezvous_server_supported;
+
+        let initial_server = MatrixMockServer::new().await;
+        let client = initial_server.client_builder().logged_in_with_oauth().build().await;
+
+        initial_server
+            .mock_rendezvous_discovery()
+            .with_delay(Duration::from_millis(200))
+            .ok(true)
+            .expect(1)
+            .mount()
+            .await;
+
+        // The other homeserver doesn't have a well-known, so that the cache is
+        // only reset once when switching to it, before the check of the
+        // initial homeserver finishes.
+        let other_server = MatrixMockServer::new().await;
+        other_server.mock_rendezvous_discovery().ok(false).expect(1).mount().await;
+
+        // Switch to another homeserver while the check of the initial
+        // homeserver is in progress.
+        let switch_homeserver = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            client
+                .switch_homeserver_and_re_resolve_well_known(
+                    other_server.server().uri().parse().unwrap(),
+                )
+                .await
+                .unwrap();
+        };
+
+        let (supported, ()) = futures_util::future::join(
+            cached_msc_4388_rendezvous_server_supported(&client),
+            switch_homeserver,
+        )
+        .await;
+        assert!(supported.unwrap());
+
+        // The result of the check of the initial homeserver isn't cached for
+        // the other homeserver.
+        assert!(!cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
     }
 
     /// Restore an OAuth 2.0 session in the given client.
@@ -718,8 +898,8 @@ mod tests {
 
     #[cfg(feature = "unstable-msc4388")]
     #[async_test]
-    async fn test_use_msc_4388_for_generated_qr_code_cache_reset_on_login() {
-        use super::use_msc_4388_for_generated_qr_code;
+    async fn test_msc_4388_rendezvous_server_support_cache_reset_on_login() {
+        use super::cached_msc_4388_rendezvous_server_supported;
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().unlogged().build().await;
@@ -730,7 +910,7 @@ mod tests {
             let _discover_guard =
                 server.mock_rendezvous_discovery().ok(false).expect(1).mount_as_scoped().await;
 
-            assert!(!use_msc_4388_for_generated_qr_code(&client).await);
+            assert!(!cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
         }
 
         restore_oauth_session(&client).await;
@@ -740,16 +920,16 @@ mod tests {
             let _discover_guard =
                 server.mock_rendezvous_discovery().ok(true).expect(1).mount_as_scoped().await;
 
-            assert!(use_msc_4388_for_generated_qr_code(&client).await);
+            assert!(cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
         }
     }
 
     #[cfg(feature = "unstable-msc4388")]
     #[async_test]
-    async fn test_use_msc_4388_for_generated_qr_code_login_during_check() {
+    async fn test_msc_4388_rendezvous_server_support_login_during_check() {
         use std::time::Duration;
 
-        use super::use_msc_4388_for_generated_qr_code;
+        use super::cached_msc_4388_rendezvous_server_supported;
 
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().unlogged().build().await;
@@ -771,12 +951,13 @@ mod tests {
         };
 
         let (supported, ()) =
-            futures_util::future::join(use_msc_4388_for_generated_qr_code(&client), login).await;
-        assert!(supported);
+            futures_util::future::join(cached_msc_4388_rendezvous_server_supported(&client), login)
+                .await;
+        assert!(supported.unwrap());
 
         // The result of the unauthenticated check isn't cached for the
         // session.
-        assert!(use_msc_4388_for_generated_qr_code(&client).await);
+        assert!(cached_msc_4388_rendezvous_server_supported(&client).await.unwrap());
     }
 
     /// What the authorization server metadata endpoint returns in
@@ -890,6 +1071,59 @@ mod tests {
         client.oauth().grant_login_with_qr_code_support().await
     }
 
+    /// Check which variant of the rendezvous server a new client would use to
+    /// generate a QR code with the given APIs.
+    async fn use_msc_4388_for_generated_qr_code(apis: SupportedApis) -> Result<bool, HttpError> {
+        let server = mock_qr_code_login_server(apis).await;
+        let client = server.client_builder().no_server_versions().unlogged().build().await;
+        super::use_msc_4388_for_generated_qr_code(&client).await
+    }
+
+    #[async_test]
+    async fn test_use_msc_4388_for_generated_qr_code() {
+        let msc_4388 = cfg!(feature = "unstable-msc4388");
+
+        let use_msc_4388 = use_msc_4388_for_generated_qr_code(SupportedApis::all()).await;
+        assert_eq!(use_msc_4388.unwrap(), msc_4388, "MSC4388 is preferred when it's supported");
+
+        let use_msc_4388 = use_msc_4388_for_generated_qr_code(SupportedApis {
+            msc_4388: Msc4388::NotSupported,
+            msc_4108: Msc4108::NotSupported,
+            ..SupportedApis::all()
+        })
+        .await;
+        assert!(
+            !use_msc_4388.unwrap(),
+            "We still try MSC4108 if neither variant is supported, like before the check"
+        );
+
+        let use_msc_4388 = use_msc_4388_for_generated_qr_code(SupportedApis {
+            msc_4388: Msc4388::Error,
+            ..SupportedApis::all()
+        })
+        .await;
+        assert!(
+            !use_msc_4388.unwrap(),
+            "We fall back to MSC4108 if the MSC4388 support can't be fetched and MSC4108 is \
+             supported"
+        );
+
+        let use_msc_4388 = use_msc_4388_for_generated_qr_code(SupportedApis {
+            msc_4388: Msc4388::Error,
+            msc_4108: Msc4108::NotSupported,
+            ..SupportedApis::all()
+        })
+        .await;
+        if msc_4388 {
+            use_msc_4388.expect_err(
+                "We can't fall back to MSC4108 if the MSC4388 support can't be fetched and \
+                 MSC4108 isn't supported",
+            );
+        } else {
+            assert!(!use_msc_4388.unwrap(), "We don't check MSC4388 without the feature");
+        }
+    }
+
     const ALL_MODES: QrCodeLoginSupport = QrCodeLoginSupport { scan: true, generate: true };
     const SCAN_ONLY: QrCodeLoginSupport = QrCodeLoginSupport { scan: true, generate: false };
     const NO_MODES: QrCodeLoginSupport = QrCodeLoginSupport { scan: false, generate: false };
@@ -960,13 +1194,15 @@ mod tests {
                 expected: Some(ALL_MODES),
             },
             SupportCase {
-                description: "The MSC4388 support can't be fetched, and MSC4108 isn't supported",
+                description: "The MSC4388 support can't be fetched, and MSC4108 isn't \
+                              supported, so we can't know whether generating a QR code is \
+                              supported, unless we don't use MSC4388 anyway",
                 apis: SupportedApis {
                     msc_4388: Msc4388::Error,
                     msc_4108: Msc4108::NotSupported,
                     ..SupportedApis::all()
                 },
-                expected: Some(SCAN_ONLY),
+                expected: (!cfg!(feature = "unstable-msc4388")).then_some(SCAN_ONLY),
             },
             SupportCase {
                 description: "The MSC4108 support can't be fetched, which is required, so we \

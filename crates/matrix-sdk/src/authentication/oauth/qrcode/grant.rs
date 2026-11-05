@@ -498,7 +498,9 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
             // Determine which variant of the rendezvous server to use, and
             // which login protocols we can offer, so that we can abort before
             // generating a QR code if there are none.
-            let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client).await;
+            let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client)
+                .await
+                .map_err(SecureChannelError::from)?;
             #[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
             let available_protocols = available_login_protocols(&self.client, msc_4388).await?;
 
