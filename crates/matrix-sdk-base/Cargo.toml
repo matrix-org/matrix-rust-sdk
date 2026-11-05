@@ -77,6 +77,9 @@ unstable-msc4354 = ["ruma/unstable-msc4480"]
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["ruma/unstable-msc4426"]
 
+# Add support for fetching the global profiles of multiple users (MSC4536).
+unstable-msc4536 = []
+
 experimental-element-recent-emojis = []
 experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-crypto/experimental-x509-identity-verification"]
 

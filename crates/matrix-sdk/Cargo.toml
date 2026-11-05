@@ -101,6 +101,9 @@ unstable-msc4388 = ["ruma/unstable-msc4388"]
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 
+# Add support for fetching the global profiles of multiple users (MSC4536).
+unstable-msc4536 = ["matrix-sdk-base/unstable-msc4536"]
+
 # Add support for circle videos (MSC4546).
 unstable-msc4546 = ["ruma/unstable-msc4546"]
 
