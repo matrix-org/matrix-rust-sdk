@@ -27,8 +27,8 @@ use ruma::{
             get_public_rooms,
             get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
         },
-        sync::sync_events::v5,
-        threads::get_thread_subscriptions_changes::unstable::{
+        sync::sync_events::msc4186,
+        threads::get_thread_subscriptions_changes::msc4308::{
             ThreadSubscription, ThreadUnsubscription,
         },
         uiaa,
@@ -1834,8 +1834,8 @@ fn thread_subscription_response(
     thread1: &EventId,
     room2: TestRoom,
     thread2: &EventId,
-) -> v5::response::ThreadSubscriptions {
-    assign!(v5::response::ThreadSubscriptions::default(), {
+) -> msc4186::response::ThreadSubscriptions {
+    assign!(msc4186::response::ThreadSubscriptions::default(), {
         subscribed: {
             let mut map = BTreeMap::new();
             map.insert(room1.into(), {
@@ -1891,14 +1891,14 @@ async fn test_sync_thread_subscriptions() {
             &client,
             |config_builder| {
                 config_builder.with_thread_subscriptions_extension(
-                    assign!(v5::request::ThreadSubscriptions::default(), {
+                    assign!(msc4186::request::ThreadSubscriptions::default(), {
                         enabled: Some(true),
                         limit: Some(uint!(10)),
                     }),
                 )
             },
-            assign!(v5::Response::new("pos".to_owned()), {
-                extensions: assign!(v5::response::Extensions::default(), {
+            assign!(msc4186::Response::new("pos".to_owned()), {
+                extensions: assign!(msc4186::response::Extensions::default(), {
                     thread_subscriptions: thread_subscription_response(
                         room1, &thread1, room2, &thread2,
                     ),
@@ -1982,21 +1982,21 @@ async fn test_sync_thread_subscriptions_with_catchup() {
             |config_builder| {
                 config_builder
                     .with_thread_subscriptions_extension(
-                        assign!(v5::request::ThreadSubscriptions::default(), {
+                        assign!(msc4186::request::ThreadSubscriptions::default(), {
                             enabled: Some(true),
                             limit: Some(uint!(10)),
                         }),
                     )
                     .add_list(SlidingSyncList::builder("rooms"))
             },
-            assign!(v5::Response::new("pos".to_owned()), {
+            assign!(msc4186::Response::new("pos".to_owned()), {
                 rooms: {
                     let mut rooms = BTreeMap::new();
-                    rooms.insert(room_id1.into(), v5::response::Room::default());
-                    rooms.insert(room_id2.into(), v5::response::Room::default());
+                    rooms.insert(room_id1.into(), msc4186::response::Room::default());
+                    rooms.insert(room_id2.into(), msc4186::response::Room::default());
                     rooms
                 },
-                extensions: assign!(v5::response::Extensions::default(), {
+                extensions: assign!(msc4186::response::Extensions::default(), {
                     thread_subscriptions,
                 }),
             }),

@@ -12,7 +12,7 @@ use ruma::{
     OwnedRoomId,
     api::{
         FeatureFlag, SupportedVersions,
-        client::sync::sync_events::v5::{self as http, response},
+        client::sync::sync_events::msc4186::{self as http, response},
     },
     assign,
     directory::RoomTypeFilter,
@@ -770,7 +770,7 @@ mod tests {
 
     #[async_test]
     async fn test_read_receipt_can_trigger_a_notable_update_reason() {
-        use ruma::api::client::sync::sync_events::v5 as http;
+        use ruma::api::client::sync::sync_events::msc4186 as http;
 
         // Given a logged-in client.
         let client = MockClientBuilder::new(None).build().await;

@@ -384,7 +384,7 @@ impl OAuth {
         use http::StatusCode;
         use ruma::api::client::rendezvous::discover_rendezvous;
 
-        match self.client.send(discover_rendezvous::unstable::Request::new()).await {
+        match self.client.send(discover_rendezvous::msc4388::Request::new()).await {
             Ok(response) => Ok(response.create_available),
             Err(e) => {
                 if e.as_client_api_error().is_some_and(|err| {

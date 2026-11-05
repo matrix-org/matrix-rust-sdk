@@ -3111,7 +3111,7 @@ impl Client {
     /// bypassing the cache.
     pub async fn fetch_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
         let response = self
-            .send(transports::v1::Request::new())
+            .send(transports::msc4143::Request::new())
             .with_request_config(RequestConfig::short_retry())
             .await?;
         Ok(response.rtc_transports)
@@ -3252,8 +3252,8 @@ impl Client {
     /// for more info.
     pub async fn get_retention_configuration(
         &self,
-    ) -> HttpResult<get_retention_configuration::unstable::Response> {
-        self.send(get_retention_configuration::unstable::Request::default()).await
+    ) -> HttpResult<get_retention_configuration::msc1763::Response> {
+        self.send(get_retention_configuration::msc1763::Request::default()).await
     }
 
     /// Delete the given devices from the server.
@@ -4079,8 +4079,8 @@ impl Client {
         from: Option<String>,
         to: Option<String>,
         limit: Option<UInt>,
-    ) -> Result<get_thread_subscriptions_changes::unstable::Response> {
-        let request = assign!(get_thread_subscriptions_changes::unstable::Request::new(), {
+    ) -> Result<get_thread_subscriptions_changes::msc4308::Response> {
+        let request = assign!(get_thread_subscriptions_changes::msc4308::Request::new(), {
             from,
             to,
             limit,

@@ -40,8 +40,8 @@ use ruma::{
             discovery::get_capabilities::v3::Capabilities,
             receipt::create_receipt::v3::ReceiptType,
             room::Visibility,
-            sync::sync_events::v5,
-            threads::get_thread_subscriptions_changes::unstable::{
+            sync::sync_events::msc4186,
+            threads::get_thread_subscriptions_changes::msc4308::{
                 ThreadSubscription, ThreadUnsubscription,
             },
             uiaa,
@@ -2662,7 +2662,7 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// // A non delayed event should not be mocked by the server.
     /// assert!(response_not_mocked.is_err());
     ///
-    /// let r = delayed_message_event::unstable::Request::new(
+    /// let r = delayed_message_event::msc4140::Request::new(
     ///     room.room_id().to_owned(),
     ///     TransactionId::new(),
     ///     DelayParameters::Timeout { timeout: Duration::from_millis(500) },
@@ -2943,7 +2943,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// // A non delayed event should not be mocked by the server.
     /// assert!(response_not_mocked.is_err());
     ///
-    /// let r = delayed_state_event::unstable::Request::new(
+    /// let r = delayed_state_event::msc4140::Request::new(
     ///     room.room_id().to_owned(),
     ///     "".to_owned(),
     ///     DelayParameters::Timeout { timeout: Duration::from_millis(500) },
@@ -5558,7 +5558,7 @@ pub struct SlidingSyncEndpoint;
 
 impl<'a> MockEndpoint<'a, SlidingSyncEndpoint> {
     /// Mocks the sliding sync endpoint with the given response.
-    pub fn ok(self, response: v5::Response) -> MatrixMock<'a> {
+    pub fn ok(self, response: msc4186::Response) -> MatrixMock<'a> {
         // A bit silly that we need to destructure all the fields ourselves, but
         // Response isn't serializable :'(
         self.ok_json(json!({
@@ -5578,7 +5578,7 @@ impl<'a> MockEndpoint<'a, SlidingSyncEndpoint> {
         self,
         client: &Client,
         on_builder: F,
-        response: v5::Response,
+        response: msc4186::Response,
     ) {
         let _scope = self.ok(response).mount_as_scoped().await;
 

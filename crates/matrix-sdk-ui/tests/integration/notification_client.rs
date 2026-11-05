@@ -18,7 +18,7 @@ use matrix_sdk_ui::{
 };
 use ruma::{
     RoomVersionId,
-    api::client::sync::sync_events::v5::{Response, response},
+    api::client::sync::sync_events::msc4186::{Response, response},
     assign, event_id,
     events::{Mentions, TimelineEventType, room::member::MembershipState},
     mxc_uri, owned_user_id, room_id, uint, user_id,

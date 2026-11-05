@@ -4378,10 +4378,10 @@ impl Room {
     /// for more info.
     pub fn effective_retention_with_server_config(
         &self,
-        config: &get_retention_configuration::unstable::Response,
+        config: &get_retention_configuration::msc1763::Response,
     ) -> Option<RoomRetentionEventContent> {
         use ruma::api::client::retention::{
-            RoomIdOrAllRooms, get_retention_configuration::unstable::LifetimeLimits,
+            RoomIdOrAllRooms, get_retention_configuration::msc1763::LifetimeLimits,
         };
 
         fn clamp(value: Option<Duration>, limits: &Option<LifetimeLimits>) -> Option<Duration> {
@@ -4522,7 +4522,7 @@ impl Room {
 
         match self
             .client
-            .send(subscribe_thread::unstable::Request::new(
+            .send(subscribe_thread::msc4306::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
                 automatic,
@@ -4604,7 +4604,7 @@ impl Room {
     #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
         self.client
-            .send(unsubscribe_thread::unstable::Request::new(
+            .send(unsubscribe_thread::msc4306::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
             ))
@@ -4651,7 +4651,7 @@ impl Room {
     ) -> Result<Option<ThreadSubscription>> {
         let result = self
             .client
-            .send(get_thread_subscription::unstable::Request::new(
+            .send(get_thread_subscription::msc4306::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
             ))

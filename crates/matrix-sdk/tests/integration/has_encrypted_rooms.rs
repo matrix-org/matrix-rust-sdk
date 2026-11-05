@@ -5,18 +5,20 @@ use matrix_sdk::{
     Error, sliding_sync::Version as SlidingSyncVersion, test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::{RoomVersionId, UInt, api::client::sync::sync_events::v5, assign, room_id, user_id};
+use ruma::{
+    RoomVersionId, UInt, api::client::sync::sync_events::msc4186, assign, room_id, user_id,
+};
 use serde_json::json;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{body_partial_json, method, path, query_param},
 };
 
-fn encrypted_rooms_count_response(count: u32) -> v5::Response {
-    let mut response = v5::Response::new("pos".to_owned());
+fn encrypted_rooms_count_response(count: u32) -> msc4186::Response {
+    let mut response = msc4186::Response::new("pos".to_owned());
     response.lists.insert(
         "encrypted_rooms".to_owned(),
-        assign!(v5::response::List::default(), { count: UInt::from(count) }),
+        assign!(msc4186::response::List::default(), { count: UInt::from(count) }),
     );
     response
 }

@@ -182,7 +182,7 @@ impl GlobalProfileFetcher {
             return Ok(());
         }
 
-        let request = query_profile::unstable::Request::new(users.clone());
+        let request = query_profile::msc4536::Request::new(users.clone());
         let mut response = client.send(request).await?;
 
         let now = MilliSecondsSinceUnixEpoch::now();
@@ -220,7 +220,7 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         OwnedUserId, UserId,
-        api::client::sync::sync_events::v5,
+        api::client::sync::sync_events::msc4186,
         owned_user_id,
         profile::{ProfileFieldName, ProfileFieldValue, UserProfileChanges, UserProfileUpdate},
     };
@@ -378,7 +378,7 @@ mod tests {
             users.iter().cloned().enumerate().partition(|(i, _)| *i < 200 && i % 2 == 0);
         let missing: Vec<_> = missing.into_iter().map(|(_, user_id)| user_id).collect();
 
-        let mut response = v5::Response::new("0".to_owned());
+        let mut response = msc4186::Response::new("0".to_owned());
         for (_, user_id) in stored {
             let mut changes = UserProfileChanges::new();
             changes.updated.insert(ProfileFieldName::DisplayName, json!("Stored"));
@@ -471,7 +471,7 @@ mod tests {
         user_id: &OwnedUserId,
         update: UserProfileUpdate,
     ) {
-        let mut response = v5::Response::new("0".to_owned());
+        let mut response = msc4186::Response::new("0".to_owned());
         response.extensions.profiles.users.insert(user_id.clone(), update);
         client
             .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())

@@ -127,7 +127,9 @@ impl MatrixDriver {
     ) -> Result<RtcLivekitGetTokenResponse> {
         let RtcLivekitGetTokenRequest { server_name, url, room_id, slot_id, member_id } = req;
         let request =
-            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
+            assign!(get_token::msc4195::Request::new(url, room_id, slot_id, member_id), {
+                server_name
+            });
 
         self.room
             .client
@@ -151,8 +153,9 @@ impl MatrixDriver {
     ) -> Result<RtcLivekitDelegateDelayedLeaveResponse> {
         let RtcLivekitDelegateDelayedLeaveRequest { url, room_id, slot_id, member_id, delay_id } =
             req;
-        let request =
-            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
+        let request = delegate_delayed_leave::msc4195::Request::new(
+            url, room_id, slot_id, member_id, delay_id,
+        );
 
         self.room
             .client
@@ -273,7 +276,7 @@ impl MatrixDriver {
             ),
 
             (None, Some(delayed_event_parameters)) => {
-                let r = delayed_events::delayed_message_event::unstable::Request::new_raw(
+                let r = delayed_events::delayed_message_event::msc4140::Request::new_raw(
                     self.room.room_id().to_owned(),
                     TransactionId::new(),
                     MessageLikeEventType::from(type_str),
@@ -284,7 +287,7 @@ impl MatrixDriver {
             }
 
             (Some(key), Some(delayed_event_parameters)) => {
-                let r = delayed_events::delayed_state_event::unstable::Request::new_raw(
+                let r = delayed_events::delayed_state_event::msc4140::Request::new_raw(
                     self.room.room_id().to_owned(),
                     key,
                     StateEventType::from(type_str),
@@ -305,8 +308,8 @@ impl MatrixDriver {
         &self,
         delay_id: String,
         action: UpdateAction,
-    ) -> Result<delayed_events::update_delayed_event::unstable_v1::Response> {
-        let r = delayed_events::update_delayed_event::unstable_v1::Request::new(delay_id, action);
+    ) -> Result<delayed_events::update_delayed_event::msc4140_v1::Response> {
+        let r = delayed_events::update_delayed_event::msc4140_v1::Request::new(delay_id, action);
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
 

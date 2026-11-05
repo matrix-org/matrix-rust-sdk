@@ -40,7 +40,7 @@ use matrix_sdk_common::{executor::spawn, timer};
 use ruma::api::error::{ErrorBody, StandardErrorBody};
 use ruma::{
     OwnedRoomId, RoomId,
-    api::{client::sync::sync_events::v5 as http, error::ErrorKind},
+    api::{client::sync::sync_events::msc4186 as http, error::ErrorKind},
     assign,
 };
 use tokio::{
