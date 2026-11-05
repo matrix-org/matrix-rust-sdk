@@ -793,8 +793,7 @@ mod test {
     async fn test_qr_login(msc_4388: bool) {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
@@ -912,13 +911,8 @@ mod test {
     #[cfg(feature = "unstable-msc4388")]
     async fn test_qr_login_with_homeserver_swap_msc_4388() {
         let initial_server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(
-            initial_server.server(),
-            "abcdEFG12345",
-            Duration::MAX,
-            true,
-        )
-        .await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&initial_server, "abcdEFG12345", Duration::MAX, true).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let login_server = MatrixMockServer::new().await;
@@ -1157,8 +1151,7 @@ mod test {
     async fn test_generated_qr_login(msc_4388: bool) {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -1288,13 +1281,9 @@ mod test {
 
     async fn test_generated_qr_login_with_homeserver_swap(msc_4388: bool) {
         let initial_server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(
-            initial_server.server(),
-            "abcdEFG12345",
-            Duration::MAX,
-            msc_4388,
-        )
-        .await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&initial_server, "abcdEFG12345", Duration::MAX, msc_4388)
+                .await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -1456,8 +1445,7 @@ mod test {
             _ => Duration::MAX,
         };
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", expiration, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", expiration, msc_4388).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
@@ -1605,8 +1593,7 @@ mod test {
             _ => Duration::MAX,
         };
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", expiration, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", expiration, msc_4388).await;
 
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
@@ -2194,8 +2181,7 @@ mod test {
     async fn test_device_authorization_endpoint_missing() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();

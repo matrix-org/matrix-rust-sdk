@@ -425,7 +425,10 @@ pub(super) mod test {
     };
 
     use super::{EstablishedSecureChannel, SecureChannel};
-    use crate::{Client, test_utils::client::MockClientBuilder};
+    use crate::{
+        Client,
+        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
+    };
 
     #[allow(dead_code)]
     pub struct MockedRendezvousServer {
@@ -442,15 +445,15 @@ pub(super) mod test {
 
     impl MockedRendezvousServer {
         pub async fn new(
-            server: &MockServer,
+            server: &MatrixMockServer,
             location: &str,
             expiration: Duration,
             msc_4388: bool,
         ) -> Self {
             if msc_4388 {
-                Self::new_msc4388(server, expiration).await
+                Self::new_msc4388(server.server(), expiration).await
             } else {
-                Self::new_msc4108(server, location, expiration).await
+                Self::new_msc4108(server.server(), location, expiration).await
             }
         }
 
@@ -730,7 +733,7 @@ pub(super) mod test {
     }
 
     async fn test_creation(msc_4388: bool) {
-        let server = MockServer::start().await;
+        let server = MatrixMockServer::new().await;
         let rendezvous_server =
             MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
 

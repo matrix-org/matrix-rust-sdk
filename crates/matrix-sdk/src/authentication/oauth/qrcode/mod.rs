@@ -477,33 +477,18 @@ pub enum SenderError {
 #[cfg(all(test, not(target_family = "wasm"), feature = "unstable-msc4388"))]
 mod tests {
     use matrix_sdk_test::async_test;
-    use serde_json::json;
-    use wiremock::{
-        Mock, ResponseTemplate,
-        matchers::{method, path},
-    };
+    use wiremock::ResponseTemplate;
 
     use crate::test_utils::mocks::MatrixMockServer;
 
     #[async_test]
     async fn test_msc_4388_rendezvous_server_supported() {
-        const URL: &str = "/_matrix/client/unstable/io.element.msc4388/rendezvous";
-
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().logged_in_with_oauth().build().await;
 
         {
-            let _discover_guard = server
-                .server()
-                .register_as_scoped(
-                    Mock::given(method("GET"))
-                        .and(path(URL))
-                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                            "create_available": true,
-                        })))
-                        .expect(1),
-                )
-                .await;
+            let _discover_guard =
+                server.mock_rendezvous_discovery().ok(true).expect(1).mount_as_scoped().await;
 
             let supported = client
                 .oauth()
@@ -515,17 +500,8 @@ mod tests {
         }
 
         {
-            let _discover_guard = server
-                .server()
-                .register_as_scoped(
-                    Mock::given(method("GET"))
-                        .and(path(URL))
-                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                            "create_available": false,
-                        })))
-                        .expect(1),
-                )
-                .await;
+            let _discover_guard =
+                server.mock_rendezvous_discovery().ok(false).expect(1).mount_as_scoped().await;
 
             let supported = client
                 .oauth()
@@ -541,13 +517,10 @@ mod tests {
 
         {
             let _discover_guard = server
-                .server()
-                .register_as_scoped(
-                    Mock::given(method("GET"))
-                        .and(path(URL))
-                        .respond_with(ResponseTemplate::new(404))
-                        .expect(1),
-                )
+                .mock_rendezvous_discovery()
+                .respond_with(ResponseTemplate::new(404))
+                .expect(1)
+                .mount_as_scoped()
                 .await;
 
             let supported = client
@@ -564,13 +537,10 @@ mod tests {
 
         {
             let _discover_guard = server
-                .server()
-                .register_as_scoped(
-                    Mock::given(method("GET"))
-                        .and(path(URL))
-                        .respond_with(ResponseTemplate::new(403))
-                        .expect(1),
-                )
+                .mock_rendezvous_discovery()
+                .respond_with(ResponseTemplate::new(403))
+                .expect(1)
+                .mount_as_scoped()
                 .await;
 
             let supported = client
@@ -586,15 +556,8 @@ mod tests {
         }
 
         {
-            let _discover_guard = server
-                .server()
-                .register_as_scoped(
-                    Mock::given(method("GET"))
-                        .and(path(URL))
-                        .respond_with(ResponseTemplate::new(500))
-                        .expect(1),
-                )
-                .await;
+            let _discover_guard =
+                server.mock_rendezvous_discovery().error500().expect(1).mount_as_scoped().await;
 
             client
                 .oauth()
