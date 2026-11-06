@@ -3243,8 +3243,8 @@ impl Client {
         delay_id: String,
         action: update_delayed_event::UpdateAction,
         request_config: Option<RequestConfig>,
-    ) -> Result<update_delayed_event::unstable_v2::Response> {
-        let request = update_delayed_event::unstable_v2::Request::new(delay_id, action);
+    ) -> Result<update_delayed_event::msc4140_v2::Response> {
+        let request = update_delayed_event::msc4140_v2::Request::new(delay_id, action);
 
         // Ruma declares this endpoint as not requiring authentication, but the
         // homeserver only lets the owner of the delayed event update it, so the
