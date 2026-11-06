@@ -15,8 +15,8 @@
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
-use matrix_sdk_test::User;
-use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id};
+use matrix_sdk_test::{TestDevice, User};
+use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion};
 
 use crate::{
     Client, ClientBuilder, SessionTokens, authentication::matrix::MatrixSession,
@@ -172,10 +172,10 @@ impl AuthState {
                         MatrixSession {
                             meta: SessionMeta {
                                 user_id: user_id.unwrap_or_else(|| User::Default.into()),
-                                device_id: device_id.unwrap_or(owned_device_id!("DEVICEID")),
+                                device_id: device_id.unwrap_or_else(|| TestDevice::Default.into()),
                             },
                             tokens: SessionTokens {
-                                access_token: token.unwrap_or("1234".to_owned()).to_owned(),
+                                access_token: token.unwrap_or_else(|| "1234".to_owned()),
                                 refresh_token: None,
                             },
                         },
@@ -226,7 +226,7 @@ impl ServerVersions {
 
 /// A [`SessionMeta`], for unit or integration tests.
 pub fn mock_session_meta() -> SessionMeta {
-    SessionMeta { user_id: User::Default.into(), device_id: owned_device_id!("DEVICEID") }
+    SessionMeta { user_id: User::Default.into(), device_id: TestDevice::Default.into() }
 }
 
 /// A [`SessionTokens`] including only an access token, for unit or integration
