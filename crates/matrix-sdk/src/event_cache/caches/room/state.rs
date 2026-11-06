@@ -103,6 +103,12 @@ pub struct RoomEventCacheState {
     /// timeline events.
     waited_for_initial_prev_token: bool,
 
+    /// Our own events inserted by the send queue, that sync hasn't returned
+    /// yet, in sending order.
+    ///
+    /// They stay at the back of the timeline: events from sync go before them.
+    unsynced_sent_event_ids: Vec<OwnedEventId>,
+
     /// A handle for subscribers.
     subscribers_handle: SubscribersHandle,
 
@@ -197,6 +203,7 @@ impl RoomEventCacheState {
             linked_chunk_update_sender,
             room_version_rules,
             waited_for_initial_prev_token: false,
+            unsynced_sent_event_ids: Vec::new(),
             subscribers_handle: Default::default(),
             back_pagination_queue,
         })
@@ -361,6 +368,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                 // Clear the `LinkedChunk` and broadcast the updates to the
                 // store.
                 self.room_linked_chunk_mut().reset();
+                self.state.unsynced_sent_event_ids.clear();
                 self.propagate_changes().await?;
 
                 // Reset the pagination state too: pretend we never waited for
@@ -448,6 +456,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             error!("error when replacing the linked chunk: {err}");
 
             self.state.room_linked_chunk.reset();
+            self.state.unsynced_sent_event_ids.clear();
             self.propagate_changes().await?;
 
             // Reset the pagination state too: pretend we never waited for the
@@ -580,6 +589,9 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     /// It may send room event cache updates to the given sender, if it
     /// generated any of those.
     ///
+    /// `from_send_queue` is `true` when the events are our own sent events,
+    /// inserted by the send queue before sync returns them.
+    ///
     /// Returns `true` for the first part of the tuple if a new gap
     /// (previous-batch token) has been inserted, `false` otherwise.
     #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
@@ -587,12 +599,13 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         &mut self,
         mut timeline: Timeline,
         read_receipt_event: &MaybeReceiptEventContent,
+        from_send_queue: bool,
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
         let mut prev_batch_token = timeline.prev_batch.take();
 
         let DeduplicationOutcome {
             all_events: events,
-            in_memory_duplicated_event_ids,
+            mut in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
             non_empty_all_duplicates: all_duplicates,
         } = filter_duplicate_events(
@@ -603,6 +616,15 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             timeline.events,
         )
         .await?;
+
+        // Sync was faster than the send response: keep its copy, which is the
+        // authoritative one.
+        if from_send_queue
+            && (!in_memory_duplicated_event_ids.is_empty()
+                || !in_store_duplicated_event_ids.is_empty())
+        {
+            return Ok((false, Vec::new()));
+        }
 
         // If the timeline isn't limited, and we already knew about some past
         // events, then this definitely knows what the timeline head is (either
@@ -622,6 +644,16 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             prev_batch_token = None;
         }
 
+        if prev_batch_token.is_some() {
+            // Events from after the gap must go after our sent events.
+            self.state.unsynced_sent_event_ids.clear();
+        } else if !from_send_queue {
+            // Sync returned these events, whether we still had them or not.
+            self.state
+                .unsynced_sent_event_ids
+                .retain(|event_id| !events.iter().any(|event| event.event_id() == Some(event_id)));
+        }
+
         if all_duplicates {
             // No new events and no gap (per the previous check), thus no need
             // to change the room state. We're done!
@@ -635,12 +667,53 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             return Ok((false, Vec::new()));
         }
 
+        // All the events are already loaded, typically our own events eagerly
+        // inserted by the send queue. Replace them in place with their copy
+        // from sync instead of moving them to the back, which would reorder
+        // the timeline.
+        if prev_batch_token.is_none() && in_memory_duplicated_event_ids.len() == events.len() {
+            for (event_id, position) in in_memory_duplicated_event_ids {
+                let event = events
+                    .iter()
+                    .find(|event| event.event_id() == Some(&event_id))
+                    .expect("a duplicated event must come from the batch");
+
+                self.state
+                    .room_linked_chunk
+                    .replace_event_at(position, event.clone())
+                    .expect("a duplicated event must exist at its position");
+            }
+
+            self.propagate_changes().await?;
+            self.post_process_upserted_events(events.iter(), read_receipt_event.as_ref()).await?;
+
+            return Ok((false, self.room_linked_chunk.updates_as_vector_diffs()));
+        }
+
         let has_new_gap = prev_batch_token.is_some();
 
         // If we've never waited for an initial previous-batch token, and we've
         // now inserted a gap, no need to wait for a previous-batch token later.
         if !self.state.waited_for_initial_prev_token && has_new_gap {
             self.state.waited_for_initial_prev_token = true;
+        }
+
+        // Our sent events that sync hasn't returned yet are moved after the
+        // batch, so that they stay at the back.
+        let mut unsynced_sent_events = Vec::new();
+
+        if prev_batch_token.is_none() && !from_send_queue {
+            for event_id in &self.state.unsynced_sent_event_ids {
+                if let Some((position, event)) = self
+                    .state
+                    .room_linked_chunk
+                    .revents()
+                    .find(|(_, event)| event.event_id() == Some(event_id))
+                {
+                    in_memory_duplicated_event_ids.push((event_id.clone(), position));
+                    unsynced_sent_events.push(event.clone());
+                }
+            }
         }
 
         // Remove the old duplicated events.
@@ -654,6 +727,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             prev_batch_token.map(|prev_token| Gap { token: prev_token }),
             &events,
         );
+        self.state.room_linked_chunk.push_live_events(None, &unsynced_sent_events);
 
         // Update the store.
         self.propagate_changes().await?;
@@ -669,6 +743,12 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             //
             // We must do this _after_ persisting these events to storage.
             self.shrink_to_last_reloaded_chunk().await?;
+        }
+
+        if from_send_queue {
+            self.state
+                .unsynced_sent_event_ids
+                .extend(events.iter().filter_map(|event| event.event_id()).map(ToOwned::to_owned));
         }
 
         let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
