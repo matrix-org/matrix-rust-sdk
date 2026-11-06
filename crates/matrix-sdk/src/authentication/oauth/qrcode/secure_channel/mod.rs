@@ -425,7 +425,10 @@ pub(super) mod test {
     };
 
     use super::{EstablishedSecureChannel, SecureChannel};
-    use crate::{Client, test_utils::client::MockClientBuilder};
+    use crate::{
+        Client,
+        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
+    };
 
     #[allow(dead_code)]
     pub struct MockedRendezvousServer {
@@ -438,11 +441,12 @@ pub(super) mod test {
         post_guard: MockGuard,
         put_guard: MockGuard,
         get_guard: MockGuard,
+        discovery_guard: Option<MockGuard>,
     }
 
     impl MockedRendezvousServer {
         pub async fn new(
-            server: &MockServer,
+            server: &MatrixMockServer,
             location: &str,
             expiration: Duration,
             msc_4388: bool,
@@ -450,7 +454,7 @@ pub(super) mod test {
             if msc_4388 {
                 Self::new_msc4388(server, expiration).await
             } else {
-                Self::new_msc4108(server, location, expiration).await
+                Self::new_msc4108(server.server(), location, expiration).await
             }
         }
 
@@ -570,12 +574,13 @@ pub(super) mod test {
                 post_guard,
                 put_guard,
                 get_guard,
+                discovery_guard: None,
                 homeserver_url,
                 rendezvous_url,
             }
         }
 
-        pub async fn new_msc4388(server: &MockServer, expiration: Duration) -> Self {
+        pub async fn new_msc4388(server: &MatrixMockServer, expiration: Duration) -> Self {
             #[derive(Debug, Deserialize)]
             struct PutContent {
                 #[allow(dead_code)]
@@ -598,6 +603,11 @@ pub(super) mod test {
             let rendezvous_url = homeserver_url
                 .join(RENDEZVOUS_ID)
                 .expect("We should be able to create a rendezvous URL");
+
+            let discovery_guard =
+                server.mock_rendezvous_discovery().ok(true).mount_as_scoped().await;
+
+            let server = server.server();
 
             let post_guard = server
                 .register_as_scoped(
@@ -717,6 +727,7 @@ pub(super) mod test {
                 post_guard,
                 put_guard,
                 get_guard,
+                discovery_guard: Some(discovery_guard),
                 homeserver_url,
                 rendezvous_url,
             }
@@ -730,7 +741,7 @@ pub(super) mod test {
     }
 
     async fn test_creation(msc_4388: bool) {
-        let server = MockServer::start().await;
+        let server = MatrixMockServer::new().await;
         let rendezvous_server =
             MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
 

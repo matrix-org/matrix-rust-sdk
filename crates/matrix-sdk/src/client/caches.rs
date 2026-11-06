@@ -53,6 +53,10 @@ pub(crate) struct ClientCaches {
     /// discovery endpoint, as distinct from one that advertises no transports
     /// (`Some(vec![])`).
     pub(crate) rtc_transports: Cache<Option<Vec<RtcTransport>>, Arc<HttpError>>,
+    /// Whether the homeserver supports creating rendezvous sessions with
+    /// [MSC4388](https://github.com/matrix-org/matrix-spec-proposals/pull/4388).
+    #[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4388"))]
+    pub(crate) msc_4388_rendezvous_server: Cache<bool, ()>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion
