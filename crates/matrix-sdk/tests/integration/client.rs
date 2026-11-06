@@ -1456,7 +1456,7 @@ async fn test_restore_room() {
 
     let mut changes = StateChanges::default();
 
-    let f = EventFactory::new().room(room_id.into()).sender(User::Alice);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let raw_tag_event: Raw<AnyRoomAccountDataEvent> =
         f.tag_from_names(vec![TagName::Favorite]).into();
     let tag_event = raw_tag_event.deserialize().unwrap();
@@ -1682,7 +1682,7 @@ async fn test_room_sync_state_after() {
 
     let mut rx = client.subscribe_to_room_updates(room_id.into());
 
-    let f = EventFactory::new().sender(User::Alice).room(room_id.into());
+    let f = EventFactory::new().sender(User::Alice).room(room_id);
 
     server
         .sync_room(

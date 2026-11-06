@@ -27,7 +27,7 @@ use matrix_sdk_common::deserialized_responses::{
 use ruma::{
     EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
     OwnedRoomAliasId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, OwnedVoipId,
-    RoomId, RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
+    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -242,8 +242,9 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
         self
     }
 
-    pub fn room(mut self, room_id: &RoomId) -> Self {
-        self.room = Some(room_id.to_owned());
+    /// Set the room ID of the event.
+    pub fn room(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.room = Some(room_id.into());
         self
     }
 
@@ -555,8 +556,8 @@ impl EventBuilder<UnstablePollStartEventContent> {
 
 impl EventBuilder<RoomCreateEventContent> {
     /// Define the predecessor fields.
-    pub fn predecessor(mut self, room_id: &RoomId) -> Self {
-        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned()));
+    pub fn predecessor(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.content.predecessor = Some(PreviousRoom::new(room_id.into()));
         self
     }
 
@@ -889,8 +890,9 @@ impl EventFactory {
         Self { next_ts: AtomicU64::new(0), sender: None, room: None }
     }
 
-    pub fn room(mut self, room_id: &RoomId) -> Self {
-        self.room = Some(room_id.to_owned());
+    /// Set the default room ID used for events.
+    pub fn room(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.room = Some(room_id.into());
         self
     }
 
@@ -1016,10 +1018,9 @@ impl EventFactory {
     pub fn room_tombstone(
         &self,
         body: impl Into<String>,
-        replacement: &RoomId,
+        replacement: impl Into<OwnedRoomId>,
     ) -> EventBuilder<RoomTombstoneEventContent> {
-        let mut event =
-            self.event(RoomTombstoneEventContent::new(body.into(), replacement.to_owned()));
+        let mut event = self.event(RoomTombstoneEventContent::new(body.into(), replacement.into()));
         event.state_key = Some("".to_owned());
         event
     }
