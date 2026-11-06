@@ -37,8 +37,9 @@ impl Client {
     ///
     /// The search service aggregates results of different kinds (currently only
     /// messages) into a single reactive, paginated list of typed
-    /// [`SearchResult`]s. Call [`SearchService::set_query`] to start or update
-    /// the search, then [`SearchService::paginate`] to load more results.
+    /// [`SearchServiceResult`]s. Call [`SearchService::set_query`] to start or
+    /// update the search, then [`SearchService::paginate`] to load more
+    /// results.
     pub fn search_service(&self) -> Arc<SearchService> {
         Arc::new(SearchService { inner: UISearchService::new((*self.inner).clone()) })
     }

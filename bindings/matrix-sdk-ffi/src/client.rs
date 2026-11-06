@@ -80,6 +80,8 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use oauth2::Scope;
+#[cfg(feature = "experimental-prelude")]
+use ops::Deref;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId,
     RoomOrAliasId, ServerName,
@@ -515,6 +517,12 @@ impl Client {
 
         Ok(client)
     }
+
+    #[cfg(feature = "experimental-prelude")]
+    /// get hold of the inner actual matrix client for reusing in other crates
+    pub fn cloned_inner(&self) -> MatrixClient {
+        self.inner.clone().deref().clone()
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -632,9 +640,9 @@ impl Client {
     }
 
     /// Login using JWT This is an implementation of the custom_login
-    /// https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom
+    /// <https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom>\
     /// For more information on logging in with JWT:
-    /// https://element-hq.github.io/synapse/latest/jwt.html
+    /// <https://element-hq.github.io/synapse/latest/jwt.html>
     pub async fn custom_login_with_jwt(
         &self,
         jwt: String,
@@ -718,8 +726,7 @@ impl Client {
     ///   by the spec as external providers all have their own way to handle the
     ///   hint. However, it should be noted that when providing a user ID as a
     ///   hint for MAS (with no upstream provider), then the format to use is
-    ///   defined by [MSC4198]:
-    ///   https://github.com/matrix-org/matrix-spec-proposals/pull/4198
+    ///   defined by [MSC4198].
     ///
     /// - `device_id` - The unique ID that will be associated with the session.
     ///   If not set, a random one will be generated. It can be an existing
@@ -732,6 +739,9 @@ impl Client {
     ///   and the device ID according to the
     ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
     ///   are always requested.
+    ///
+    ///
+    ///   [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     pub async fn url_for_oauth(
         &self,
         oauth_configuration: &OAuthConfiguration,
@@ -1157,9 +1167,10 @@ impl Client {
     ///
     /// Some deployments must not emit any request to the well-known URI of
     /// their domain. When disabled, [`Client::tile_server`] returns `None`,
-    /// [`Client::well_known_rtc_transports`] returns an empty list, and
-    /// [`Client::discover_rtc_transports`] doesn't fall back to the well-known
-    /// `m.rtc_foci`, relying only on the MSC4143 discovery endpoint.
+    /// [`matrix_sdk::Client::well_known_rtc_transports`] returns an empty list,
+    /// and [`matrix_sdk::Client::discover_rtc_transports`] doesn't fall
+    /// back to the well-known `m.rtc_foci`, relying only on the MSC4143
+    /// discovery endpoint.
     pub fn disable_well_known_lookup(&self, disable: bool) {
         self.inner.disable_well_known_lookup(disable);
     }
@@ -1691,7 +1702,7 @@ impl Client {
     /// all events in a room including those inside threads.
     ///
     /// This is useful to mitigate backend led wrong iOS app badges and work
-    /// around https://github.com/element-hq/element-x-ios/issues/3151
+    /// around <https://github.com/element-hq/element-x-ios/issues/3151>
     pub async fn mark_all_rooms_as_read(&self) -> Result<(), ClientError> {
         use matrix_sdk::room::Receipts;
         use matrix_sdk_base::RoomStateFilter;
@@ -2256,7 +2267,7 @@ impl Client {
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
     /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
     /// a fallback, unless well-known discovery was disabled with
-    /// [`ClientBuilder::disable_well_known_lookup`] or
+    /// [`crate::ClientBuilder::disable_well_known_lookup`] or
     /// [`Client::disable_well_known_lookup`].
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
@@ -2269,8 +2280,8 @@ impl Client {
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
     /// homeserver doesn't implement that endpoint, this falls back to the
     /// `m.rtc_foci` field of the well-known, unless well-known discovery was
-    /// disabled with [`ClientBuilder::disable_well_known_lookup`] or
-    /// [`Client::disable_well_known_lookup`].
+    /// disabled with [`crate::ClientBuilder::disable_well_known_lookup`] or
+    /// [`crate::Client::disable_well_known_lookup`].
     ///
     /// Returns `None` if neither source could provide transports, which is kept
     /// distinct from an empty list, i.e. a homeserver that advertises no
