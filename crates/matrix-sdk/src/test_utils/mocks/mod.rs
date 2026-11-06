@@ -1570,7 +1570,10 @@ impl MatrixMockServer {
     pub fn mock_user_directory(&self) -> MockEndpoint<'_, UserDirectoryEndpoint> {
         let mock = Mock::given(method("POST"))
             .and(path("/_matrix/client/v3/user_directory/search"))
-            .and(body_json(&*test_json::search_users::SEARCH_USERS_REQUEST));
+            .and(body_json(json!({
+                "search_term": "test",
+                "limit": 50
+            })));
         self.mock_endpoint(mock, UserDirectoryEndpoint).expect_default_access_token()
     }
 
@@ -4944,7 +4947,24 @@ pub struct DevicesEndpoint;
 impl<'a> MockEndpoint<'a, DevicesEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_json(&*test_json::DEVICES)
+        self.ok_json(json!({
+            "devices": [
+                {
+                    "device_id": "BNYQQWUMXO",
+                    "display_name": "Client 1",
+                    "last_seen_ip": "-",
+                    "last_seen_ts": 1596117733037u64,
+                    "user_id": "@example:localhost"
+                },
+                {
+                    "device_id": "LEBKSEUSNR",
+                    "display_name": "Client 2",
+                    "last_seen_ip": "-",
+                    "last_seen_ts": 1599057006985u64,
+                    "user_id": "@example:localhost"
+                }
+            ]
+        }))
     }
 }
 
@@ -4954,7 +4974,12 @@ pub struct GetDeviceEndpoint;
 impl<'a> MockEndpoint<'a, GetDeviceEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_json(&*test_json::DEVICE)
+        self.ok_json(json!({
+            "device_id": "QBUAZIFURK",
+            "display_name": "android",
+            "last_seen_ip": "1.2.3.4",
+            "last_seen_ts": 1474491775024u64
+        }))
     }
 }
 
@@ -4974,7 +4999,16 @@ pub struct UserDirectoryEndpoint;
 impl<'a> MockEndpoint<'a, UserDirectoryEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_json(&*test_json::search_users::SEARCH_USERS_RESPONSE)
+        self.ok_json(json!({
+            "limited": false,
+            "results": [
+                {
+                    "user_id": "@test:example.me",
+                    "display_name": "Test",
+                    "avatar_url": "mxc://example.me/someid"
+                }
+            ]
+        }))
     }
 }
 

@@ -14,33 +14,16 @@ pub mod api_responses;
 pub mod keys_query;
 pub mod keys_query_sets;
 pub mod members;
-pub mod search_users;
 pub mod sync;
 
 pub use api_responses::{
-    DEVICE, DEVICES, GET_ALIAS, KEYS_QUERY, KEYS_QUERY_TWO_DEVICES_ONE_SIGNED, KEYS_UPLOAD, LOGIN,
-    LOGIN_RESPONSE_ERR, LOGIN_TYPES, LOGIN_WITH_DISCOVERY, LOGIN_WITH_REFRESH_TOKEN, NOT_FOUND,
-    PUBLIC_ROOMS, PUBLIC_ROOMS_FINAL_PAGE, REFRESH_TOKEN, REFRESH_TOKEN_WITH_REFRESH_TOKEN,
-    REGISTRATION_RESPONSE_ERR, UNKNOWN_TOKEN_SOFT_LOGOUT, VERSIONS, WELL_KNOWN, WHOAMI,
+    KEYS_QUERY, KEYS_QUERY_TWO_DEVICES_ONE_SIGNED, KEYS_UPLOAD, LOGIN, LOGIN_RESPONSE_ERR,
+    LOGIN_TYPES, LOGIN_WITH_DISCOVERY, LOGIN_WITH_REFRESH_TOKEN, NOT_FOUND, PUBLIC_ROOMS,
+    PUBLIC_ROOMS_FINAL_PAGE, REFRESH_TOKEN, REFRESH_TOKEN_WITH_REFRESH_TOKEN,
+    REGISTRATION_RESPONSE_ERR, UNKNOWN_TOKEN_SOFT_LOGOUT, VERSIONS, WHOAMI,
 };
 pub use members::MEMBERS;
-pub use sync::{
-    DEFAULT_SYNC_SUMMARY, INVITE_SYNC, JOIN_SPACE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, SYNC,
-};
+pub use sync::{DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, SYNC};
 
 /// An empty response.
 pub static EMPTY: LazyLock<JsonValue> = LazyLock::new(|| json!({}));
-
-/// A response with only an event ID.
-pub static EVENT_ID: LazyLock<JsonValue> = LazyLock::new(|| {
-    json!({
-        "event_id": "$h29iv0s8:example.com"
-    })
-});
-
-/// A response with only a room ID.
-pub static ROOM_ID: LazyLock<JsonValue> = LazyLock::new(|| {
-    json!({
-        "room_id": *DEFAULT_TEST_ROOM_ID
-    })
-});
