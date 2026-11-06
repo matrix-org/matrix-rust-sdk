@@ -290,7 +290,7 @@ async fn test_room_update_channel() {
             &client,
             JoinedRoomBuilder::default()
                 .add_account_data(f.marked_unread(false))
-                .add_typing(f.typing(vec![User::Bob.into()]))
+                .add_typing(f.typing([User::Bob]))
                 .add_state_bulk([
                     f.create(User::Alice, RoomVersionId::V11).into(),
                     f.member(User::Alice).into(),
@@ -344,7 +344,7 @@ async fn test_subscribe_all_room_updates() {
                 .add_joined_room(
                     JoinedRoomBuilder::default()
                         .add_account_data(f.marked_unread(false))
-                        .add_typing(f.typing(vec![User::Bob.into()]))
+                        .add_typing(f.typing([User::Bob]))
                         .add_state_event(f.member(User::Bob).sender(User::Bob))
                         .add_timeline_event(f.text_msg("Hello Bob!"))
                         .set_timeline_limited()
