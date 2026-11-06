@@ -356,7 +356,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let f = EventFactory::new().room(&ROOM_ID).sender(user_id!("@example:localhost"));
+    let f = EventFactory::new().room(&*ROOM_ID).sender(user_id!("@example:localhost"));
 
     let end = "t47409-4357353_219380_26003_2269";
     let chunk2 = vec![
@@ -416,7 +416,7 @@ async fn test_read_room_members() {
     // No further messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let f = EventFactory::new().room(&ROOM_ID);
+    let f = EventFactory::new().room(&*ROOM_ID);
 
     let leave_event = f
         .member(user_id!("@example:localhost"))
@@ -838,7 +838,7 @@ async fn test_should_block_internal_to_device() {
 async fn test_receive_state() {
     let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
-    let f = EventFactory::new().room(&ROOM_ID);
+    let f = EventFactory::new().room(&*ROOM_ID);
     let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(User::Bob).into();
 
     mock_server
