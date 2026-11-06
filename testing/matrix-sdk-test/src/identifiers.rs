@@ -187,6 +187,8 @@ impl fmt::Display for User {
 ///
 /// - `&'static RoomId`
 /// - `OwnedRoomId`
+/// - `&'static RoomOrAliasId`
+/// - `OwnedRoomOrAliasId`
 ///
 /// It implements `PartialEq` with all the ID types above, as well as with
 /// `serde_json::Value` to use with the `assert_eq!` macro.
@@ -194,7 +196,7 @@ impl fmt::Display for User {
 /// It implements `Serialize` and `Into<String>` to use it with the `json!`
 /// macro.
 ///
-/// It implements `Hash` and `Equivalent<OwnedUserId>` as well to be able to use
+/// It implements `Hash` and `Equivalent<OwnedRoomId>` as well to be able to use
 /// it with methods like `IndexMap::get()` or `IndexMap::contains_key()`.
 ///
 /// It can also be converted to a borrowed string with `.as_str()` to use it
