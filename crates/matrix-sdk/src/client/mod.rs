@@ -2988,17 +2988,20 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
+    /// # #![allow(deprecated)]
     /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::rtc::RtcTransport};
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let rtc_foci = client.well_known_rtc_transports().await?;
-    /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
-    ///     RtcTransport::LiveKit(info) => Some(info),
+    /// // Well-known foci may still use the legacy `livekit` transport type.
+    /// let default_livekit_url = rtc_foci.iter().find_map(|focus| match focus {
+    ///     RtcTransport::LiveKit(info) => Some(&info.url),
+    ///     RtcTransport::LegacyLiveKit(info) => info.url.as_ref(),
     ///     _ => None,
     /// });
-    /// if let Some(url) = default_livekit_focus_info.and_then(|info| info.url.as_ref()) {
+    /// if let Some(url) = default_livekit_url {
     ///     println!("Default LiveKit SFU URL: {url}");
     /// }
     /// # anyhow::Ok(()) };
@@ -5027,14 +5030,13 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_well_known_caching() {
         let server = MatrixMockServer::new().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let server_name = <&ServerName>::try_from(domain).unwrap();
-        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let well_known_mock = server
@@ -5112,16 +5114,15 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_rtc_transports_caching() {
         let server = MatrixMockServer::new().await;
-        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let transports_mock = server
             .mock_get_rtc_transports()
-            .ok_with_service_url()
+            .ok()
             .named("first transports mock")
             .expect(1)
             .mount_as_scoped()
@@ -5142,7 +5143,7 @@ pub(crate) mod tests {
 
         server
             .mock_get_rtc_transports()
-            .ok_with_service_url()
+            .ok()
             .named("second transports mock")
             .expect(2)
             .mount()
@@ -5203,18 +5204,16 @@ pub(crate) mod tests {
     ) -> wiremock::MockGuard {
         let endpoint = server.mock_get_rtc_transports();
 
-        let mock =
-            if supported { endpoint.ok_with_service_url() } else { endpoint.error_unrecognized() };
+        let mock = if supported { endpoint.ok() } else { endpoint.error_unrecognized() };
 
         mock.named("transports mock").expect(1).mount_as_scoped().await
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_discover_rtc_transports_prefers_the_endpoint() {
         let server = MatrixMockServer::new().await;
-        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
@@ -5235,12 +5234,11 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_discover_rtc_transports_falls_back_to_well_known() {
         let server = MatrixMockServer::new().await;
         // The `m.rtc_foci` advertised by `WellKnownEndpoint::ok`.
-        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
