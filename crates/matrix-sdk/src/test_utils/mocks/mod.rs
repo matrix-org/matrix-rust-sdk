@@ -4383,9 +4383,9 @@ pub struct RoomLeaveEndpoint;
 impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
     /// Returns a successful response with some default data for the given room
     /// id.
-    pub fn ok(self, room_id: &RoomId) -> MatrixMock<'a> {
+    pub fn ok<'b>(self, room_id: impl Into<&'b RoomId>) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "room_id": room_id,
+            "room_id": room_id.into(),
         }))
     }
 
@@ -5027,8 +5027,8 @@ pub struct UpgradeRoomEndpoint;
 
 impl<'a> MockEndpoint<'a, UpgradeRoomEndpoint> {
     /// Returns a successful response with desired replacement_room ID.
-    pub fn ok_with(self, new_room_id: &RoomId) -> MatrixMock<'a> {
-        self.ok_json(json!({ "replacement_room": new_room_id.as_str()}))
+    pub fn ok_with<'b>(self, new_room_id: impl Into<&'b RoomId>) -> MatrixMock<'a> {
+        self.ok_json(json!({ "replacement_room": new_room_id.into() }))
     }
 }
 
