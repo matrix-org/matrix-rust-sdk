@@ -816,3 +816,111 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
     // Asserting the `ThreadInfo` has received an update too.
     assert!(thread_info_updates.next().await.is_some());
 }
+
+/// Test that an unthreaded receipt on a main-timeline event reads the thread
+/// events before it.
+#[async_test]
+async fn test_unread_count_unthreaded_receipt_on_main_event() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache().unwrap();
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!r");
+    let thread_id = event_id!("$t");
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+    server.sync_joined_room(&client, room_id).await;
+    let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
+    let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("ev1").in_thread(thread_id, thread_id).event_id(event_id!("$1")),
+                )
+                .add_timeline_event(
+                    f.text_msg("ev2").in_thread(thread_id, thread_id).event_id(event_id!("$2")),
+                )
+                .add_timeline_event(f.text_msg("main").event_id(event_id!("$main")))
+                .add_timeline_event(
+                    f.text_msg("ev3").in_thread(thread_id, thread_id).event_id(event_id!("$3")),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$main"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = thread_updates.recv());
+
+    // ev1 and ev2 are before the unthreaded receipt, only ev3 is unread.
+    assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+}
+
+/// Test that an unthreaded receipt older than the thread receipt doesn't move
+/// the thread receipt backwards.
+#[async_test]
+async fn test_unread_count_older_unthreaded_receipt_is_ignored() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache().unwrap();
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!r");
+    let thread_id = event_id!("$t");
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+    server.sync_joined_room(&client, room_id).await;
+    let (thread, _drop_handles) = event_cache.thread(room_id, thread_id).await.unwrap();
+    let (_, mut thread_updates) = thread.subscribe().await.unwrap();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("ev1").in_thread(thread_id, thread_id).event_id(event_id!("$1")),
+                )
+                .add_timeline_event(f.text_msg("main").event_id(event_id!("$main")))
+                .add_timeline_event(
+                    f.text_msg("ev2").in_thread(thread_id, thread_id).event_id(event_id!("$2")),
+                )
+                .add_timeline_event(
+                    f.text_msg("ev3").in_thread(thread_id, thread_id).event_id(event_id!("$3")),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$main"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            event_id!("$2"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Thread(thread_id.to_owned()),
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = thread_updates.recv());
+
+    // The thread receipt on ev2 wins, only ev3 is unread.
+    assert_eq!(thread.num_unread_messages().await.unwrap(), 1);
+}
