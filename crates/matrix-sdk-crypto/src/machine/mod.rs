@@ -14,6 +14,8 @@
 
 #[cfg(feature = "experimental-encrypted-state-events")]
 use std::borrow::Borrow;
+#[cfg(feature = "experimental-msc4350")]
+use std::ops::Deref;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -68,6 +70,8 @@ use vodozemac::{Curve25519PublicKey, Ed25519Signature, megolm::DecryptionError};
 
 #[cfg(feature = "experimental-push-secrets")]
 use crate::error::SecretPushError;
+#[cfg(feature = "experimental-msc4350")]
+use crate::identities::impersonation::{MembershipCheck, is_validly_impersonated_by};
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
 #[cfg(feature = "experimental-x509-identity-verification")]
@@ -2058,7 +2062,16 @@ impl OlmMachine {
         // appropriate `DeviceLinkProblem` for `VerificationLevel::None`.
         let (verification_state, device_id) = match sender_data.user_id() {
             Some(i) if i != sender => {
-                (VerificationState::Unverified(VerificationLevel::MismatchedSender), None)
+                // The session belongs to someone else than the claimed
+                // sender. That's only legitimate if the sender has an
+                // MSC4350 impersonatable device owned by the session
+                // owner (e.g. a bridge bot sending for its ghost users).
+                match self.verify_impersonation(session, &sender_data, sender).await? {
+                    Some(result) => result,
+                    None => {
+                        (VerificationState::Unverified(VerificationLevel::MismatchedSender), None)
+                    }
+                }
             }
 
             Some(_) | None => {
@@ -2067,6 +2080,134 @@ impl OlmMachine {
         };
 
         Ok((verification_state, device_id))
+    }
+
+    /// Provide a function that tells whether a user is a member of a room, so
+    /// that the MSC4350 requirement that the impersonating user (a bridge bot)
+    /// is in the room can be enforced.
+    ///
+    /// The crypto crate doesn't track room membership itself. Until a check is
+    /// set, no impersonation is accepted, because the membership of the
+    /// impersonator can't be proven.
+    #[cfg(feature = "experimental-msc4350")]
+    pub fn set_impersonator_membership_check(&self, check: Option<MembershipCheck>) {
+        self.inner.identity_manager.impersonatable_devices().set_membership_check(check);
+    }
+
+    /// Check whether `sender` has an MSC4350 impersonatable device which
+    /// allows the owner of the session (described by `sender_data`) to send
+    /// messages as `sender`.
+    ///
+    /// Returns the verification state to use for the message if so, or `None`
+    /// if the message should be treated as coming from a mismatched sender.
+    ///
+    /// The conditions for trusting such a message are:
+    ///
+    /// * `sender` has an impersonatable device validly signed by the session
+    ///   owner's device (see [`is_validly_impersonated_by`]),
+    /// * a membership check has been set with
+    ///   [`OlmMachine::set_impersonator_membership_check`], and it says that
+    ///   the session owner is a member of the room,
+    /// * the session owner's device is cross-signed by its owner, and
+    /// * if `sender` has cross-signing keys, the impersonatable device is
+    ///   signed by their self-signing key.
+    #[cfg(feature = "experimental-msc4350")]
+    async fn verify_impersonation(
+        &self,
+        session: &InboundGroupSession,
+        sender_data: &SenderData,
+        sender: &UserId,
+    ) -> MegolmResult<Option<(VerificationState, Option<OwnedDeviceId>)>> {
+        let impersonatable = self.inner.identity_manager.impersonatable_devices();
+        let candidates = impersonatable.get_user_devices(sender).await?;
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let (Some(impersonator_user), Some(impersonator_device)) =
+            (sender_data.user_id(), sender_data.device_id())
+        else {
+            return Ok(None);
+        };
+        let Some(impersonator) =
+            self.store().get_device(&impersonator_user, &impersonator_device).await?
+        else {
+            debug!(
+                ?sender,
+                ?impersonator_user,
+                ?impersonator_device,
+                "MSC4350: the session owner's device isn't known"
+            );
+            return Ok(None);
+        };
+
+        let Some(ghost_device) = candidates
+            .iter()
+            .find(|candidate| is_validly_impersonated_by(candidate, impersonator.deref()))
+        else {
+            debug!(
+                ?sender,
+                ?impersonator_user,
+                ?impersonator_device,
+                "MSC4350: no impersonatable device is validly signed by the session owner"
+            );
+            return Ok(None);
+        };
+
+        let Some(is_member) = impersonatable.membership_check() else {
+            warn!("MSC4350: no impersonator membership check is set, rejecting the impersonation");
+            return Ok(None);
+        };
+        if !is_member(session.room_id().to_owned(), impersonator_user.clone()).await {
+            debug!(?sender, ?impersonator_user, "MSC4350: the impersonator isn't in the room");
+            return Ok(None);
+        }
+
+        if !impersonator.is_cross_signed_by_owner() {
+            debug!(
+                ?sender,
+                ?impersonator_user,
+                ?impersonator_device,
+                "MSC4350: the impersonator's device isn't cross-signed by its owner"
+            );
+            return Ok(None);
+        }
+
+        let identity = self.store().get_identity(sender).await?;
+        let (self_signing_key, verified) = match &identity {
+            Some(UserIdentity::Own(own)) => (Some(own.self_signing_key()), own.is_verified()),
+            Some(UserIdentity::Other(other)) => {
+                (Some(other.self_signing_key()), other.is_verified())
+            }
+            None => (None, false),
+        };
+        if let Some(self_signing_key) = self_signing_key
+            && self_signing_key.verify_device_keys(ghost_device).is_err()
+        {
+            debug!(
+                ?sender,
+                "MSC4350: the sender has cross-signing keys but didn't sign the impersonatable device"
+            );
+            return Ok(None);
+        }
+
+        let state = if verified {
+            VerificationState::Verified
+        } else {
+            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+        };
+        Ok(Some((state, Some(ghost_device.device_id.clone()))))
+    }
+
+    /// MSC4350 support is disabled, so a mismatched sender is never accepted.
+    #[cfg(not(feature = "experimental-msc4350"))]
+    #[allow(clippy::unused_async)]
+    async fn verify_impersonation(
+        &self,
+        _session: &InboundGroupSession,
+        _sender_data: &SenderData,
+        _sender: &UserId,
+    ) -> MegolmResult<Option<(VerificationState, Option<OwnedDeviceId>)>> {
+        Ok(None)
     }
 
     /// Get an up-to-date [`SenderData`] for the given session, suitable for
