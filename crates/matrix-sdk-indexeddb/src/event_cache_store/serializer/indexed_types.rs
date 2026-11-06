@@ -400,6 +400,7 @@ impl Indexed for Event {
         let timestamp = self.timestamp().map(|timestamp| {
             IndexedEventTimestampKey::encode((self.room_id(), timestamp), serializer)
         });
+        let maybe_state_key = self.state_key();
         Ok(IndexedEvent {
             id,
             event_id: IndexedEventEventIdKey::encode(event_id, serializer),
@@ -408,16 +409,15 @@ impl Indexed for Event {
             out_of_band,
             relation,
             timestamp,
-            state_key: self
-                .state_key()
+            state_key: maybe_state_key
                 .map(|state_key| serializer.encode_key_as_string(keys::EVENTS, state_key)),
             room_state_key: IndexedEventRoomKeyStateKey::encode(
-                (self.room_id(), self.state_key().as_deref()),
+                (self.room_id(), maybe_state_key.as_deref()),
                 serializer,
             ),
             state_key_timestamp: self.timestamp().map(|timestamp| {
                 IndexedEventStateKeyTimestampKey::encode(
-                    (self.room_id(), self.state_key().as_deref(), timestamp),
+                    (self.room_id(), maybe_state_key.as_deref(), timestamp),
                     serializer,
                 )
             }),
