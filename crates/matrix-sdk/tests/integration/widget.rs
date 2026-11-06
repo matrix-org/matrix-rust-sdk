@@ -87,7 +87,7 @@ async fn run_test_driver(
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
-    let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
+    let room = mock_server.sync_joined_room(&client, &*ROOM_ID).await;
 
     if is_room_e2ee {
         mock_server.mock_room_state_encryption().encrypted().mount().await;
@@ -127,7 +127,7 @@ async fn run_test_driver_e2e_with_room_encryption(
     mock_server.mock_crypto_endpoints_preset().await;
     let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
 
-    let room = mock_server.sync_joined_room(&alice, &ROOM_ID).await;
+    let room = mock_server.sync_joined_room(&alice, &*ROOM_ID).await;
 
     if is_room_e2ee {
         mock_server.mock_room_state_encryption().encrypted().mount().await;

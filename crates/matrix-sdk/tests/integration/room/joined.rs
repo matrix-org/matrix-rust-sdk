@@ -658,7 +658,7 @@ async fn test_fetch_members_deduplication() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     // We don't need any members, we're just checking if we're correctly
     // deduplicating calls to the method.
@@ -711,7 +711,7 @@ async fn test_report_content() {
     let client = server.client_builder().build().await;
 
     server.mock_report_room_event().ok().expect(1).mount().await;
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let event_id = owned_event_id!("$offensive_event");
     room.report_content(event_id, Some("I am offended".to_owned())).await.unwrap();
