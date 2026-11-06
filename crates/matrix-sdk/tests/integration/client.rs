@@ -1002,7 +1002,7 @@ async fn test_ambiguity_changes() {
             builder.add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(
                     f.member(example_id)
-                        .avatar_url("mxc://localhost/avatar".into())
+                        .avatar_url("mxc://localhost/avatar")
                         .display_name("the first example")
                         .event_id(example_avatar_event_id),
                 ),
@@ -1070,11 +1070,11 @@ async fn test_avatar_url_changes() {
             builder.add_joined_room(
                 JoinedRoomBuilder::default().add_state_bulk([
                     f.member(example_id)
-                        .avatar_url("mxc://localhost/avatar".into())
+                        .avatar_url("mxc://localhost/avatar")
                         .display_name("the first example")
                         .into_raw_sync_state(),
                     f.member(example_2_id)
-                        .avatar_url("mxc://localhost/avatar2".into())
+                        .avatar_url("mxc://localhost/avatar2")
                         .display_name("the second example")
                         .into_raw_sync_state(),
                 ]),
