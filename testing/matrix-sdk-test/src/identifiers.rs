@@ -42,6 +42,8 @@ pub enum User {
     /// The default user ID used when building a `Client` for tests,
     /// `@example:localhost`.
     Default,
+    /// `@ella:localhost`
+    Ella,
 }
 
 /// Alice's user ID.
@@ -55,6 +57,8 @@ static CAROL_USER_ID: LazyLock<OwnedUserId> =
 /// Default user ID.
 static DEFAULT_USER_ID: LazyLock<OwnedUserId> =
     LazyLock::new(|| owned_user_id!("@example:localhost"));
+/// Ella's user ID.
+static ELLA_USER_ID: LazyLock<OwnedUserId> = LazyLock::new(|| owned_user_id!("@ella:localhost"));
 
 impl User {
     /// The user's ID.
@@ -67,6 +71,7 @@ impl User {
             User::Bob => &BOB_USER_ID,
             User::Carol => &CAROL_USER_ID,
             User::Default => &DEFAULT_USER_ID,
+            User::Ella => &ELLA_USER_ID,
         }
     }
 
