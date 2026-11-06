@@ -97,12 +97,17 @@ impl Encryption {
         let raw_event = event.raw();
         let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
 
+        // An event is a state event if it has a `state_key`, even if it's
+        // empty.
+        let is_state_event = raw_event.get_field::<String>("state_key").ok().flatten().is_some();
+
         // The content may be encrypted.
         let content = self.encode_value(serialized)?;
 
         Ok(EncodedEvent {
             content,
             rel_type,
+            is_state_event,
             relates_to: relates_to
                 .map(|relates_to| self.encode_event_id(keys::EVENTS, &relates_to)),
         })
@@ -363,6 +368,8 @@ struct EncodedEvent {
     content: Vec<u8>,
     rel_type: Option<String>,
     relates_to: Option<Key>,
+    /// Whether the event has a `state_key` (even an empty one).
+    is_state_event: bool,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -685,6 +692,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 20 {
+        debug!("Upgrading database to version 20");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/020_events_is_state_event.sql"
+            ))?;
+            txn.set_db_version(20)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -850,7 +868,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // outside the context of a linked chunk (e.g. pinned
                         // event).
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, is_state_event) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -901,6 +919,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     encoded_event.relates_to,
                                     encoded_event.rel_type,
                                     timestamp,
+                                    encoded_event.is_state_event,
                                 ))?;
                             }
                         }
@@ -939,7 +958,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                             let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                             txn.execute(
-                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, is_state_event) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
                                     &hashed_room_id,
                                     &hashed_event_id,
@@ -949,6 +968,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     encoded_event.relates_to,
                                     encoded_event.rel_type,
                                     timestamp,
+                                    encoded_event.is_state_event,
                                 ),
                             )?;
                         }
@@ -1877,7 +1897,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, is_state_event) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         &hashed_room_id,
                         hashed_event_id,
@@ -1887,6 +1907,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         encoded_event.relates_to,
                         encoded_event.rel_type,
                         timestamp,
+                        encoded_event.is_state_event,
                     )
                 )?;
 
@@ -2119,8 +2140,8 @@ mod tests {
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
-    use matrix_sdk_test::{TestRoom, async_test};
-    use ruma::{OwnedEventId, event_id};
+    use matrix_sdk_test::{TestRoom, async_test, event_factory::EventFactory};
+    use ruma::{EventId, OwnedEventId, event_id, room_id, user_id};
     use tempfile::{TempDir, tempdir};
 
     use super::{SqliteEventCacheStore, keys};
@@ -2155,6 +2176,61 @@ mod tests {
             store.encryption.decode_thread_id(&encoded_thread_id).unwrap();
 
         assert_eq!(thread_id, decoded_thread_id);
+    }
+
+    #[async_test]
+    async fn test_is_state_event_column() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = room_id!("!test:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@alice:localhost"));
+
+        let message_id = event_id!("$message");
+        let empty_state_key_id = event_id!("$empty_state_key");
+        let state_key_id = event_id!("$state_key");
+
+        // A message-like event, without a `state_key`.
+        store
+            .save_event(room_id, f.text_msg("hello").event_id(message_id).into_event())
+            .await
+            .unwrap();
+        // A state event with an empty `state_key`.
+        store
+            .save_event(
+                room_id,
+                f.room_topic("topic").state_key("").event_id(empty_state_key_id).into_event(),
+            )
+            .await
+            .unwrap();
+        // A state event with a non-empty `state_key`.
+        store
+            .save_event(
+                room_id,
+                f.member(user_id!("@bob:localhost")).event_id(state_key_id).into_event(),
+            )
+            .await
+            .unwrap();
+
+        let is_state_event = async |event_id: &EventId| -> bool {
+            let hashed_event_id = store.encryption.encode_event_id(keys::EVENTS, event_id);
+            store
+                .read()
+                .await
+                .unwrap()
+                .with_transaction(move |txn| {
+                    txn.query_one(
+                        "SELECT is_state_event FROM events WHERE event_id = ?",
+                        (hashed_event_id,),
+                        |row| row.get::<_, bool>(0),
+                    )
+                })
+                .await
+                .unwrap()
+        };
+
+        assert!(!is_state_event(message_id).await);
+        assert!(is_state_event(empty_state_key_id).await);
+        assert!(is_state_event(state_key_id).await);
     }
 
     #[async_test]

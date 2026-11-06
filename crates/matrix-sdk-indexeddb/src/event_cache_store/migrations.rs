@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v10};
+    use super::{Version, v11};
 
-    pub const VERSION: Version = Version::V10;
-    pub use v10::keys;
+    pub const VERSION: Version = Version::V11;
+    pub use v11::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -72,6 +72,8 @@ pub enum Version {
     V9 = 9,
     /// Version 10 of the database, for details see [`v10`].
     V10 = 10,
+    /// Version 11 of the database, for details see [`v11`].
+    V11 = 11,
 }
 
 impl Version {
@@ -88,7 +90,8 @@ impl Version {
             Self::V7 => v7::upgrade(transaction).map(Some),
             Self::V8 => v8::upgrade(transaction).map(Some),
             Self::V9 => v9::upgrade(transaction).map(Some),
-            Self::V10 => Ok(None),
+            Self::V10 => v10::upgrade(transaction).map(Some),
+            Self::V11 => Ok(None),
         }
     }
 }
@@ -113,6 +116,7 @@ impl TryFrom<u32> for Version {
             8 => Ok(Version::V8),
             9 => Ok(Version::V9),
             10 => Ok(Version::V10),
+            11 => Ok(Version::V11),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -617,6 +621,43 @@ pub mod v10 {
     /// events all have a timestamp. This clears the dependent `linked_chunks`,
     /// `gaps`, and `threads` stores so rooms start fresh and properly re-sync,
     /// following the same precedent as `v4`/`v6`.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v10` to `v11`.
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v11::empty_event_cache(transaction)?;
+        Ok(Version::V11)
+    }
+}
+
+pub mod v11 {
+    use super::*;
+
+    pub mod keys {
+        // Re-use all the same keys from `v10`.
+        pub use super::super::v10::keys::*;
+    }
+
+    /// Empty the event cache, as events now store whether they are state events
+    /// (i.e. whether they have a `state_key`, even an empty one) in the new
+    /// `is_state_event` field, which can't be backfilled without reprocessing
+    /// every event. This clears the dependent `linked_chunks`, `gaps`, and
+    /// `threads` stores so rooms start fresh and properly re-sync, following
+    /// the same precedent as `v10`.
     pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
         let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
         linked_chunks.clear()?;

@@ -342,6 +342,12 @@ pub struct IndexedEvent {
     /// An indexed key on the object store, which represents the
     /// timestamp of the event (from `TimelineEvent::timestamp()`), if known.
     pub timestamp: Option<IndexedEventTimestampKey>,
+    /// Whether the event is a state event, i.e. it has a `state_key` (even if
+    /// it's an empty string).
+    ///
+    /// Note that this is not an index, as booleans are not valid IndexedDB
+    /// keys.
+    pub is_state_event: bool,
     /// The (possibly) encrypted content of the event.
     pub content: IndexedEventContent,
 }
@@ -394,6 +400,7 @@ impl Indexed for Event {
             out_of_band,
             relation,
             timestamp,
+            is_state_event: self.is_state_event(),
             content: serializer.maybe_encrypt_value(self)?,
         })
     }
