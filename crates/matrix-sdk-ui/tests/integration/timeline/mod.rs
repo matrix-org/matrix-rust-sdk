@@ -927,7 +927,7 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev{nth}")).unwrap())
                                 .into_event()
                         })
                         .collect::<Vec<_>>(),
