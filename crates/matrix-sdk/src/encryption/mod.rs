@@ -42,7 +42,7 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
     cross_process_lock::{AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError},
     crypto::{
-        CrossSigningBootstrapRequests, OlmMachine,
+        CrossSigningBootstrapRequests, OlmMachine, UncommittedCrossSigningReset,
         store::{
             LockableCryptoStore, SecretImportError,
             types::{RoomKeyBundleInfo, RoomKeyInfo},
@@ -63,8 +63,7 @@ use ruma::{
     api::{
         client::{
             keys::{
-                get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
-                upload_signing_keys::v3::Request as UploadSigningKeysRequest,
+                get_keys, upload_keys, upload_signing_keys::v3::Request as UploadSigningKeysRequest,
             },
             message::send_message_event,
             to_device::send_event_to_device::v3::{
@@ -332,14 +331,17 @@ pub enum VerificationState {
 /// of authentication the user needs to complete before the upload might be
 /// continued.
 ///
+/// Not to be confused with [`UncommittedCrossSigningReset`], the internal
+/// struct used by the [`OlmMachine`] to track the cross-signing reset process
+/// this struct is a wrapper around.
+///
 /// More info can be found in the [spec].
 ///
 /// [spec]: https://spec.matrix.org/v1.11/client-server-api/#post_matrixclientv3keysdevice_signingupload
 #[derive(Debug)]
 pub struct CrossSigningResetHandle {
     client: Client,
-    upload_request: UploadSigningKeysRequest,
-    signatures_request: UploadSignaturesRequest,
+    inner: Mutex<Option<UncommittedCrossSigningReset>>,
     auth_type: CrossSigningResetAuthType,
     is_cancelled: Mutex<bool>,
 }
@@ -348,17 +350,10 @@ impl CrossSigningResetHandle {
     /// Set up a new `CrossSigningResetHandle`.
     pub fn new(
         client: Client,
-        upload_request: UploadSigningKeysRequest,
-        signatures_request: UploadSignaturesRequest,
+        inner: UncommittedCrossSigningReset,
         auth_type: CrossSigningResetAuthType,
     ) -> Self {
-        Self {
-            client,
-            upload_request,
-            signatures_request,
-            auth_type,
-            is_cancelled: Mutex::new(false),
-        }
+        Self { client, inner: Mutex::new(Some(inner)), auth_type, is_cancelled: Mutex::new(false) }
     }
 
     /// Get the [`CrossSigningResetAuthType`] this cross-signing reset process
@@ -377,18 +372,41 @@ impl CrossSigningResetHandle {
         // Give up after two minutes of polling.
         const TIMEOUT: Duration = Duration::from_mins(2);
 
-        timeout(
-            async {
-                let mut upload_request = self.upload_request.clone();
-                upload_request.auth = Some(auth);
+        // If someone else has already completed the cross-signing reset before
+        // we've even started, then we have nothing to do.
+        if *self.is_cancelled.lock().await || self.inner.lock().await.is_none() {
+            return Ok(());
+        }
 
+        let mut upload_signing_keys_req = {
+            let inner = self.inner.lock().await;
+            // Make sure that we don't continue with the reset if someone else
+            // has already completed it.
+            let Some(handle) = inner.as_ref() else {
+                return Ok(());
+            };
+            let upload_signing_keys_req = handle.upload_signing_keys_req();
+            assign!(UploadSigningKeysRequest::new(), {
+                auth: None,
+                master_key: upload_signing_keys_req.master_key.as_ref().map(|c| c.to_raw()),
+                self_signing_key: upload_signing_keys_req.self_signing_key.as_ref().map(|c| c.to_raw()),
+                user_signing_key: upload_signing_keys_req.user_signing_key.as_ref().map(|c| c.to_raw()),
+            })
+        };
+        upload_signing_keys_req.auth = Some(auth);
+
+        let signing_keys_uploaded = timeout(
+            async {
                 debug!(
                     "Repeatedly PUTting to keys/device_signing/upload until it works \
                     or we hit a permanent failure."
                 );
-                while let Err(e) = self.client.send(upload_request.clone()).await {
-                    if *self.is_cancelled.lock().await {
-                        return Ok(());
+                while let Err(e) = self.client.send(upload_signing_keys_req.clone()).await {
+                    // If the cross-signing reset has been cancelled or if
+                    // someone else has already completed
+                    // it, then we have nothing to do.
+                    if *self.is_cancelled.lock().await || self.inner.lock().await.is_none() {
+                        return Ok(false);
                     }
 
                     match e.as_uiaa_response() {
@@ -411,9 +429,7 @@ impl CrossSigningResetHandle {
                     sleep(RETRY_EVERY).await;
                 }
 
-                self.client.send(self.signatures_request.clone()).await?;
-
-                Ok(())
+                Ok(true)
             },
             TIMEOUT,
         )
@@ -426,6 +442,32 @@ impl CrossSigningResetHandle {
         if let Some(olm) = self.client.olm_machine().await.as_ref() {
             self.client.encryption().query_own_keys(olm).await;
         }
+
+        // We must not continue with the reset if the signing keys weren't
+        // uploaded, since would leave the client and the server in an
+        // inconsistent state.
+        if !signing_keys_uploaded {
+            return Ok(());
+        }
+
+        // Make sure that we don't continue with the reset if someone else has
+        // already completed it.
+        let mut guard = self.inner.lock().await;
+        let Some(handle) = guard.as_ref() else {
+            return Ok(());
+        };
+
+        let CrossSigningBootstrapRequests { upload_keys_req, upload_signatures_req, .. } =
+            handle.commit().await?;
+
+        if let Some(req) = upload_keys_req {
+            self.client.send_outgoing_request(req).await?;
+        }
+        self.client.send(upload_signatures_req).await?;
+
+        // Finally, drop the inner handle to mark the cross-signing reset as
+        // completed.
+        *guard = None;
 
         Ok(())
     }
@@ -1648,37 +1690,37 @@ impl Encryption {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let CrossSigningBootstrapRequests {
-            upload_keys_req,
-            upload_signing_keys_req,
-            upload_signatures_req,
-        } = olm.bootstrap_cross_signing(true).await?;
+        let handle = olm.reset_cross_signing().await?;
 
+        // Upload the signing keys first, since if the user bails out of the
+        // reset flow, we don't want to have overwritten our identity in
+        // the store.
+        let upload_signing_keys_req = handle.upload_signing_keys_req();
         let upload_signing_keys_req = assign!(UploadSigningKeysRequest::new(), {
             auth: None,
-            master_key: upload_signing_keys_req.master_key.map(|c| c.to_raw()),
-            self_signing_key: upload_signing_keys_req.self_signing_key.map(|c| c.to_raw()),
-            user_signing_key: upload_signing_keys_req.user_signing_key.map(|c| c.to_raw()),
+            master_key: upload_signing_keys_req.master_key.as_ref().map(|c| c.to_raw()),
+            self_signing_key: upload_signing_keys_req.self_signing_key.as_ref().map(|c| c.to_raw()),
+            user_signing_key: upload_signing_keys_req.user_signing_key.as_ref().map(|c| c.to_raw()),
         });
-
-        if let Some(req) = upload_keys_req {
-            self.client.send_outgoing_request(req).await?;
-        }
 
         if let Err(error) = self.client.send(upload_signing_keys_req.clone()).await {
             if let Ok(Some(auth_type)) = CrossSigningResetAuthType::new(&error) {
                 let client = self.client.clone();
 
-                Ok(Some(CrossSigningResetHandle::new(
-                    client,
-                    upload_signing_keys_req,
-                    upload_signatures_req,
-                    auth_type,
-                )))
+                Ok(Some(CrossSigningResetHandle::new(client, handle, auth_type)))
             } else {
                 Err(error.into())
             }
         } else {
+            // Once the signing keys are uploaded, we can commit the reset and
+            // upload the new keys and signatures.
+            let CrossSigningBootstrapRequests { upload_keys_req, upload_signatures_req, .. } =
+                handle.commit().await?;
+
+            if let Some(req) = upload_keys_req {
+                self.client.send_outgoing_request(req).await?;
+            }
+
             self.client.send(upload_signatures_req).await?;
             self.query_own_keys(olm).await;
 

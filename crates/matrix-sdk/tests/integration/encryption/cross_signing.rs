@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{sync::Arc, time::Duration};
+
 use matrix_sdk::{encryption::CrossSigningResetAuthType, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use ruma::api::{
@@ -77,7 +79,7 @@ async fn test_reset_legacy_auth_invalid_password() {
         "Initially we shouldn't have any cross-signin keys",
     );
 
-    server.mock_upload_keys().ok().mock_once().mount().await;
+    server.mock_upload_keys().ok().expect(0).mount().await;
 
     let reset_handle = {
         let _guard = server
@@ -250,5 +252,50 @@ async fn test_reset_stable_oauth() {
     assert!(
         client.encryption().cross_signing_status().await.unwrap().is_complete(),
         "After the reset we have the cross-signing available.",
+    );
+}
+
+#[async_test]
+async fn test_reset_cancel_during_auth_does_not_commit() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    // Mock a UIAA response for the cross-signing keys upload, which will get us
+    // a reset handle.
+    server.mock_upload_cross_signing_keys().error_uiaa_password().mount().await;
+
+    // Assert that nothing may be committed or uploaded after cancellation.
+    server.mock_upload_cross_signing_signatures().ok().expect(0).mount().await;
+    server.mock_upload_keys().ok().expect(0).mount().await;
+
+    let reset_handle = client
+        .encryption()
+        .reset_cross_signing()
+        .await
+        .unwrap()
+        .expect("We should have received a reset handle");
+
+    assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
+    let auth_data = uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned());
+
+    // Spawn a task that will try to authenticate and reset the cross-signing
+    // keys.
+    let reset_handle = Arc::new(reset_handle);
+    let auth_task = tokio::spawn({
+        let handle = reset_handle.clone();
+        async move { handle.auth(auth_data).await }
+    });
+
+    // Wait a bit and then cancel the reset handle.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    reset_handle.cancel().await;
+
+    auth_task.await.unwrap().expect("A cancelled reset should return Ok without committing");
+
+    // Assert that the store was not updated with the new cross-signing keys.
+    assert!(
+        !client.encryption().cross_signing_status().await.unwrap().is_complete(),
+        "A cancelled reset must not commit the new identity to the store",
     );
 }
