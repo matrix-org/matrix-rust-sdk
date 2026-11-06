@@ -14,6 +14,7 @@
 
 use std::{collections::HashMap, ops::Not, sync::Arc};
 
+use aggregator::Aggregation;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -330,7 +331,7 @@ impl Caches {
 
         // Room.
         {
-            let (timeline, read_receipts) =
+            let Aggregation { timeline, read_receipts } =
                 aggregator::aggregate_timeline_and_read_receipts_for_room(
                     &original_timeline,
                     &original_ephemeral,
@@ -369,7 +370,9 @@ impl Caches {
                 .await?
             };
 
-            for (thread_id, (timeline, read_receipts)) in timeline_and_read_receipts_for_threads {
+            for (thread_id, Aggregation { timeline, read_receipts }) in
+                timeline_and_read_receipts_for_threads
+            {
                 // Update the thread summary if and only if there are new
                 // events.
                 let update_thread_summary = timeline.events.is_empty().not();
@@ -419,7 +422,8 @@ impl Caches {
             // Account data are not used by any cache.
             account_data: _,
 
-            // Extract the original timeline as it's going to be used by all caches.
+            // Extract the original timeline as it's going to be used by all
+            // caches.
             timeline: original_timeline,
 
             // Extract other data, only useful for the room cache.
@@ -428,7 +432,7 @@ impl Caches {
 
         // Room.
         {
-            let (timeline, _read_receipts) =
+            let Aggregation { timeline, read_receipts: _ } =
                 aggregator::aggregate_timeline_and_read_receipts_for_room(&original_timeline, &[]);
 
             room.handle_left_room_update(timeline, ambiguity_changes).await?;
@@ -457,7 +461,9 @@ impl Caches {
                 .await?
             };
 
-            for (thread_id, (timeline, _read_receipts)) in timeline_and_read_receipts_for_threads {
+            for (thread_id, Aggregation { timeline, read_receipts: _ }) in
+                timeline_and_read_receipts_for_threads
+            {
                 let thread = self.thread(thread_id).await?;
                 thread.handle_left_room_update(timeline).await?;
             }

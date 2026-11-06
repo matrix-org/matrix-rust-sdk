@@ -209,7 +209,7 @@ trait ReadReceiptsExt {
     /// will update the notification count in the room.
     fn find_and_process_events<'a>(
         &mut self,
-        receipt_event_id: &EventId,
+        acknowledged_event_id: Option<&EventId>,
         user_id: &UserId,
         events: impl Iterator<Item = &'a TimelineEvent>,
     ) -> bool;
@@ -263,18 +263,29 @@ impl ReadReceiptsExt for ReadReceipts {
     #[instrument(skip_all)]
     fn find_and_process_events<'a>(
         &mut self,
-        receipt_event_id: &EventId,
+        acknowledged_event_id: Option<&EventId>,
         user_id: &UserId,
         events: impl Iterator<Item = &'a TimelineEvent>,
     ) -> bool {
-        let mut counting_receipts = false;
+        // If `acknowledged_event_id` is `None`, we want to count all processed
+        // events, otherwise, we want to find the start.
+        let mut counting_receipts = acknowledged_event_id.is_none();
 
         for event in events {
             // Sliding sync sometimes sends the same event multiple times, so it
             // can be at the beginning and end of a batch, for instance. In that
             // case, just reset every time we see the event matching the
             // receipt.
-            if event.event_id() == Some(receipt_event_id) {
+
+            let event_id = event.event_id();
+
+            // The event is invalid: should be unreachable, but let's skip
+            // it.
+            if event_id.is_none() {
+                continue;
+            };
+
+            if event_id == acknowledged_event_id {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
@@ -360,8 +371,6 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        // We want to prioritize an `Unthreaded` receipt over a `Main`-threaded
-        // one, for better compatibility with thread-unaware clients.
         for receipt_thread in [ReceiptThread::Unthreaded, ReceiptThread::Main] {
             let receipt_event = self
                 .state_store
@@ -418,10 +427,11 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
     }
 
     fn receipt_thread_matches(&self, receipt_thread: &ReceiptThread) -> bool {
-        matches!(
-            receipt_thread,
-            ReceiptThread::Thread(thread_id) if self.thread_id == thread_id
-        )
+        match receipt_thread {
+            ReceiptThread::Unthreaded => true,
+            ReceiptThread::Thread(thread_id) => self.thread_id == thread_id,
+            _ => false,
+        }
     }
 
     async fn stored_receipt_event_for_user(
@@ -429,16 +439,27 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        self.state_store
-            .get_user_room_receipt_event(
-                self.room_id,
-                receipt_type,
-                &ReceiptThread::Thread(self.thread_id.to_owned()),
-                user_id,
-            )
-            .await
-            .ok()
-            .flatten()
+        for receipt_thread in
+            [ReceiptThread::Unthreaded, ReceiptThread::Thread(self.thread_id.to_owned())]
+        {
+            let receipt_event = self
+                .state_store
+                .get_user_room_receipt_event(
+                    self.room_id,
+                    receipt_type.clone(),
+                    &receipt_thread,
+                    user_id,
+                )
+                .await
+                .ok()
+                .flatten();
+
+            if receipt_event.is_some() {
+                return receipt_event;
+            }
+        }
+
+        None
     }
 }
 
@@ -618,20 +639,22 @@ pub(crate) async fn compute_unread_counts<T>(
         read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
     );
 
-    if let Some(event_id) = better_receipt {
-        // We've found the id of an event to which the receipt attaches. The
+    if let Some(acknowledged_event_id) = better_receipt {
+        // We've found the ID of an event to which the receipt attaches. The
         // associated event may either come from the new batch of events
         // associated to this sync, or it may live in the past timeline events
         // we know about.
 
-        // First, save the event id as the latest one that has a read receipt.
-        trace!(%event_id, "Saving a new active read receipt");
-        read_receipts.latest_active = Some(LatestReadReceipt { event_id: event_id.clone() });
+        // First, save the acknowledged event id as the latest one that has a
+        // read receipt.
+        trace!(%acknowledged_event_id, "Saving a new active read receipt");
+        read_receipts.latest_active =
+            Some(LatestReadReceipt { event_id: acknowledged_event_id.clone() });
 
         // The event for the receipt is in the linked chunk, so we'll find it
         // and can count safely from here.
         read_receipts.find_and_process_events(
-            &event_id,
+            Some(&acknowledged_event_id),
             user_id,
             linked_chunk
                 .events()
@@ -659,12 +682,13 @@ pub(crate) async fn compute_unread_counts<T>(
     // events. Reset the number of unreads, and recount them all.
     read_receipts.reset();
 
-    for event in linked_chunk
-        .events()
-        .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event))
-    {
-        read_receipts.process_event(event, user_id);
-    }
+    read_receipts.find_and_process_events(
+        None,
+        user_id,
+        linked_chunk
+            .events()
+            .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event)),
+    );
 
     debug!(?read_receipts, "no better receipt");
 }
@@ -1007,7 +1031,7 @@ mod tests {
         // When provided with no events, we report not finding the event to
         // which the receipt relates.
         let mut receipts = ReadReceipts::default();
-        assert!(receipts.find_and_process_events(ev0, user_id, [].iter()).not());
+        assert!(receipts.find_and_process_events(Some(ev0), user_id, [].iter()).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1030,7 +1054,7 @@ mod tests {
         };
         assert!(
             receipts
-                .find_and_process_events(ev0, user_id, [make_event(event_id!("$1"))].iter())
+                .find_and_process_events(Some(ev0), user_id, [make_event(event_id!("$1"))].iter())
                 .not()
         );
         assert_eq!(receipts.num_unread, 42);
@@ -1046,7 +1070,7 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_process_events(ev0, user_id, [make_event(ev0)].iter()));
+        assert!(receipts.find_and_process_events(Some(ev0), user_id, [make_event(ev0)].iter()));
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1062,7 +1086,7 @@ mod tests {
         assert!(
             receipts
                 .find_and_process_events(
-                    ev0,
+                    Some(ev0),
                     user_id,
                     [
                         make_event(event_id!("$1")),
@@ -1087,7 +1111,7 @@ mod tests {
         };
         assert!(
             receipts.find_and_process_events(
-                ev0,
+                Some(ev0),
                 user_id,
                 [
                     make_event(event_id!("$1")),
@@ -1112,7 +1136,7 @@ mod tests {
         };
         assert!(
             receipts.find_and_process_events(
-                ev0,
+                Some(ev0),
                 user_id,
                 [
                     make_event(ev0),
