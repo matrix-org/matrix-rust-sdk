@@ -640,24 +640,64 @@ pub mod v10 {
     /// Upgrade database from `v10` to `v11`.
     pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
         v11::empty_event_cache(transaction)?;
+        v11::add_state_key_index_to_events_object_store(transaction)?;
+        v11::add_state_key_timestamp_index_to_events_object_store(transaction)?;
         Ok(Version::V11)
     }
 }
 
 pub mod v11 {
+    use indexed_db_futures::Build;
+
     use super::*;
 
     pub mod keys {
         // Re-use all the same keys from `v10`.
         pub use super::super::v10::keys::*;
+
+        pub const EVENTS_STATE_KEY: &str = "events_state_key";
+        pub const EVENTS_STATE_KEY_KEY_PATH: &str = "room_state_key";
+        pub const EVENTS_STATE_KEY_TIMESTAMP: &str = "events_state_key_timestamp";
+        pub const EVENTS_STATE_KEY_TIMESTAMP_KEY_PATH: &str = "state_key_timestamp";
     }
 
-    /// Empty the event cache, as events now store whether they are state events
-    /// (i.e. whether they have a `state_key`, even an empty one) in the new
-    /// `is_state_event` field, which can't be backfilled without reprocessing
-    /// every event. This clears the dependent `linked_chunks`, `gaps`, and
-    /// `threads` stores so rooms start fresh and properly re-sync, following
-    /// the same precedent as `v10`.
+    /// Add an index on the events object store tracking each event's room and
+    /// `state_key` (or lack thereof), so that events can be queried
+    /// efficiently by their `state_key` (e.g. only non-state events, or only
+    /// events with a given `state_key`).
+    pub fn add_state_key_index_to_events_object_store(
+        transaction: &Transaction<'_>,
+    ) -> Result<(), Error> {
+        let events = transaction.object_store(keys::EVENTS)?;
+        let _ = events
+            .create_index(keys::EVENTS_STATE_KEY, keys::EVENTS_STATE_KEY_KEY_PATH.into())
+            .build()?;
+        Ok(())
+    }
+
+    /// Add an index on the events object store tracking each event's room,
+    /// `state_key` (or lack thereof) and timestamp, so that events older than a
+    /// given cutoff can be queried efficiently while filtering on their
+    /// `state_key` (e.g. only non-state events, or only events with a given
+    /// `state_key`).
+    pub fn add_state_key_timestamp_index_to_events_object_store(
+        transaction: &Transaction<'_>,
+    ) -> Result<(), Error> {
+        let events = transaction.object_store(keys::EVENTS)?;
+        let _ = events
+            .create_index(
+                keys::EVENTS_STATE_KEY_TIMESTAMP,
+                keys::EVENTS_STATE_KEY_TIMESTAMP_KEY_PATH.into(),
+            )
+            .build()?;
+        Ok(())
+    }
+
+    /// Empty the event cache, as events now store their (possibly hashed)
+    /// `state_key`, if any, in the new `state_key` field, which can't be
+    /// backfilled without reprocessing every event. This clears the dependent
+    /// `linked_chunks`, `gaps`, and `threads` stores so rooms start fresh
+    /// and properly re-sync, following the same precedent as `v10`.
     pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
         let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
         linked_chunks.clear()?;

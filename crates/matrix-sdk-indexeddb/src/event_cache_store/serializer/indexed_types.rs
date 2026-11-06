@@ -94,6 +94,9 @@ pub type IndexedRelationType = String;
 /// which is suitable for use in an IndexedDB key
 pub type IndexedEventTimestamp = u64;
 
+/// A (possibly) hashed representation of the `state_key` of an [`Event`]
+pub type IndexedEventStateKey = String;
+
 /// A (possibly) encrypted representation of an [`Event`]
 pub type IndexedEventContent = MaybeEncrypted;
 
@@ -342,12 +345,17 @@ pub struct IndexedEvent {
     /// An indexed key on the object store, which represents the
     /// timestamp of the event (from `TimelineEvent::timestamp()`), if known.
     pub timestamp: Option<IndexedEventTimestampKey>,
-    /// Whether the event is a state event, i.e. it has a `state_key` (even if
-    /// it's an empty string).
-    ///
-    /// Note that this is not an index, as booleans are not valid IndexedDB
-    /// keys.
-    pub is_state_event: bool,
+    /// The (possibly) hashed `state_key` of the event, if it is a state event.
+    /// An empty `state_key` is still encoded and stored, so this is only
+    /// `None` if the event has no `state_key`.
+    pub state_key: Option<IndexedEventStateKey>,
+    /// An indexed key on the object store, which represents the room and the
+    /// `state_key` (or lack thereof) of the event.
+    pub room_state_key: IndexedEventRoomKeyStateKey,
+    /// An indexed key on the object store, which represents the room, the
+    /// `state_key` (or lack thereof) and the timestamp of the event, if the
+    /// timestamp is known.
+    pub state_key_timestamp: Option<IndexedEventStateKeyTimestampKey>,
     /// The (possibly) encrypted content of the event.
     pub content: IndexedEventContent,
 }
@@ -400,7 +408,19 @@ impl Indexed for Event {
             out_of_band,
             relation,
             timestamp,
-            is_state_event: self.is_state_event(),
+            state_key: self
+                .state_key()
+                .map(|state_key| serializer.encode_key_as_string(keys::EVENTS, state_key)),
+            room_state_key: IndexedEventRoomKeyStateKey::encode(
+                (self.room_id(), self.state_key().as_deref()),
+                serializer,
+            ),
+            state_key_timestamp: self.timestamp().map(|timestamp| {
+                IndexedEventStateKeyTimestampKey::encode(
+                    (self.room_id(), self.state_key().as_deref(), timestamp),
+                    serializer,
+                )
+            }),
             content: serializer.maybe_encrypt_value(self)?,
         })
     }
@@ -698,6 +718,84 @@ impl IndexedKey<Event> for IndexedEventTimestampKey {
     ) -> Self {
         let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
         Self(room_id, u64::from(timestamp.get()))
+    }
+}
+
+/// A (possibly) hashed `state_key`, wrapped in an array so it can be part of an
+/// IndexedDB key: the array is empty if the event has no `state_key`, and
+/// contains a single element otherwise (even if the `state_key` is an empty
+/// string). This is needed because IndexedDB doesn't index records whose key
+/// contains a missing value, but non-state events need to be indexed too.
+pub type IndexedEventMaybeStateKey = Vec<IndexedEventStateKey>;
+
+fn encode_maybe_state_key(
+    state_key: Option<&str>,
+    serializer: &SafeEncodeSerializer,
+) -> IndexedEventMaybeStateKey {
+    state_key
+        .map(|state_key| serializer.encode_key_as_string(keys::EVENTS, state_key))
+        .into_iter()
+        .collect()
+}
+
+/// The value associated with the
+/// [`room_state_key`](IndexedEvent::room_state_key) index of the [`EVENTS`][1]
+/// object store, which is constructed from:
+///
+/// - The (possibly) hashed Room ID
+/// - The (possibly) hashed `state_key` of the event, if any, see
+///   [`IndexedEventMaybeStateKey`]
+///
+/// [1]: crate::event_cache_store::migrations::v11::add_state_key_index_to_events_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedEventRoomKeyStateKey(IndexedRoomId, IndexedEventMaybeStateKey);
+
+impl IndexedKey<Event> for IndexedEventRoomKeyStateKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_STATE_KEY);
+
+    type KeyComponents<'a> = (&'a RoomId, Option<&'a str>);
+
+    fn encode(
+        (room_id, state_key): Self::KeyComponents<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        Self(room_id, encode_maybe_state_key(state_key, serializer))
+    }
+}
+
+/// The value associated with the
+/// [`state_key_timestamp`](IndexedEvent::state_key_timestamp) index of the
+/// [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed Room ID
+/// - The (possibly) hashed `state_key` of the event, if any, see
+///   [`IndexedEventMaybeStateKey`]
+/// - The timestamp of the event (from `TimelineEvent::timestamp()`), in
+///   milliseconds since the Unix epoch
+///
+/// Events with no known timestamp are not entered into this index at all (see
+/// [`IndexedEvent::state_key_timestamp`]).
+///
+/// [1]: crate::event_cache_store::migrations::v11::add_state_key_timestamp_index_to_events_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedEventStateKeyTimestampKey(
+    IndexedRoomId,
+    IndexedEventMaybeStateKey,
+    IndexedEventTimestamp,
+);
+
+impl IndexedKey<Event> for IndexedEventStateKeyTimestampKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_STATE_KEY_TIMESTAMP);
+
+    type KeyComponents<'a> = (&'a RoomId, Option<&'a str>, MilliSecondsSinceUnixEpoch);
+
+    fn encode(
+        (room_id, state_key, timestamp): Self::KeyComponents<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        Self(room_id, encode_maybe_state_key(state_key, serializer), u64::from(timestamp.get()))
     }
 }
 

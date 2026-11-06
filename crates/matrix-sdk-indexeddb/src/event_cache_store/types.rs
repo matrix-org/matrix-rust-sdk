@@ -125,12 +125,12 @@ impl Event {
         }
     }
 
-    /// Whether the underlying event is a state event, i.e. it has a
-    /// `state_key`.
-    pub fn is_state_event(&self) -> bool {
+    /// The `state_key` of the underlying event, if it is a state event. An
+    /// empty `state_key` is still returned as `Some`.
+    pub fn state_key(&self) -> Option<String> {
         match self {
-            Event::InBand(e) => e.is_state_event(),
-            Event::OutOfBand(e) => e.is_state_event(),
+            Event::InBand(e) => e.state_key(),
+            Event::OutOfBand(e) => e.state_key(),
         }
     }
 
@@ -212,10 +212,10 @@ impl<P> GenericEvent<P> {
         self.content.timestamp
     }
 
-    /// Whether the underlying event is a state event, i.e. it has a
-    /// `state_key`.
-    pub fn is_state_event(&self) -> bool {
-        self.content.raw().get_field::<String>("state_key").ok().flatten().is_some()
+    /// The `state_key` of the underlying event, if it is a state event. An
+    /// empty `state_key` is still returned as `Some`.
+    pub fn state_key(&self) -> Option<String> {
+        self.content.raw().get_field::<String>("state_key").ok().flatten()
     }
 }
 
