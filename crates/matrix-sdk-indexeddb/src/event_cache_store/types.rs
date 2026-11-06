@@ -125,6 +125,15 @@ impl Event {
         }
     }
 
+    /// The `state_key` of the underlying event, if it is a state event. An
+    /// empty `state_key` is still returned as `Some`.
+    pub fn state_key(&self) -> Option<String> {
+        match self {
+            Event::InBand(e) => e.state_key(),
+            Event::OutOfBand(e) => e.state_key(),
+        }
+    }
+
     /// The [`OwnedEventId`] and
     /// [`RelationType`](ruma::events::relation::RelationType) of the underlying
     /// event as a [`String`].
@@ -201,6 +210,12 @@ impl<P> GenericEvent<P> {
     /// The timestamp of the underlying event, if known.
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         self.content.timestamp
+    }
+
+    /// The `state_key` of the underlying event, if it is a state event. An
+    /// empty `state_key` is still returned as `Some`.
+    pub fn state_key(&self) -> Option<String> {
+        self.content.raw().get_field::<String>("state_key").ok().flatten()
     }
 }
 
