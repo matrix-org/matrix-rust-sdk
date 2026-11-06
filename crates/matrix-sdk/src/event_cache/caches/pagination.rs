@@ -80,7 +80,12 @@ where
                     "restarting back-pagination, because we haven't reached \
                      the start or obtained enough events yet"
                 );
+                continue;
             }
+
+            // The events from earlier rounds belong to the timeline that was
+            // reset; don't stitch them with the ones from the new timeline.
+            events.clear();
 
             debug!("restarting back-pagination because of a timeline reset.");
         }
