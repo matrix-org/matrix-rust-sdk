@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use matrix_sdk_base::{sleep::sleep, store::RoomLoadSettings, ttl::TtlValue};
-use matrix_sdk_test::async_test;
+use matrix_sdk_test::{TestDevice, User, async_test};
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
     DeviceId, ServerName, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
@@ -842,8 +842,8 @@ fn test_oauth_session_serialization() {
         json,
         serde_json::json!({
             "client_id": "test_client_id",
-            "user_id": "@example:localhost",
-            "device_id": "DEVICEID",
+            "user_id": User::Default,
+            "device_id": TestDevice::Default,
             "access_token": "1234",
             "refresh_token": "ZYXWV",
         })
