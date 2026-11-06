@@ -48,14 +48,14 @@ async fn test_user_profile_after_being_banned() {
                 .add_timeline_event(
                     f.member(User::Bob)
                         .display_name("Bob")
-                        .avatar_url("mxc://123".into())
+                        .avatar_url("mxc://123")
                         .membership(MembershipState::Join),
                 )
                 // Alice accepts an invite into the room
                 .add_timeline_event(
                     f.member(User::Alice)
                         .display_name("*profanities*")
-                        .avatar_url("mxc://456".into())
+                        .avatar_url("mxc://456")
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
@@ -71,7 +71,7 @@ async fn test_user_profile_after_being_banned() {
                         .previous(
                             PreviousMembership::new(MembershipState::Join)
                                 .display_name("*profanities*")
-                                .avatar_url("mxc://456".into()),
+                                .avatar_url("mxc://456"),
                         ),
                 ),
         )
@@ -120,14 +120,14 @@ async fn test_user_profile_after_leaving() {
                 .add_timeline_event(
                     f.member(User::Bob)
                         .display_name("Bob")
-                        .avatar_url("mxc://...".into())
+                        .avatar_url("mxc://...")
                         .membership(MembershipState::Join),
                 )
                 // Alice accepts an invite into the room
                 .add_timeline_event(
                     f.member(User::Alice)
                         .display_name("Alice")
-                        .avatar_url("mxc://...".into())
+                        .avatar_url("mxc://...")
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
@@ -139,7 +139,7 @@ async fn test_user_profile_after_leaving() {
                     f.member(User::Alice).membership(MembershipState::Leave).previous(
                         PreviousMembership::new(MembershipState::Join)
                             .display_name("Alice")
-                            .avatar_url("mxc://...".into()),
+                            .avatar_url("mxc://..."),
                     ),
                 ),
         )

@@ -25,7 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
     TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
-    EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
+    EventId, Int, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
     OwnedRoomAliasId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, OwnedVoipId,
     RoomVersionId, TransactionId, UInt, VoipVersionId,
     events::{
@@ -1700,8 +1700,8 @@ impl PresenceBuilder {
     }
 
     /// Set the avatar URL.
-    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
-        self.content.avatar_url = Some(url.to_owned());
+    pub fn avatar_url(mut self, url: impl Into<OwnedMxcUri>) -> Self {
+        self.content.avatar_url = Some(url.into());
         self
     }
 
@@ -1826,8 +1826,8 @@ impl EventBuilder<RoomMemberEventContent> {
     }
 
     /// Set the avatar URL of the `m.room.member` event.
-    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
-        self.content.avatar_url = Some(url.to_owned());
+    pub fn avatar_url(mut self, url: impl Into<OwnedMxcUri>) -> Self {
+        self.content.avatar_url = Some(url.into());
         self
     }
 
@@ -1870,8 +1870,8 @@ impl EventBuilder<RoomMemberEventContent> {
 
 impl EventBuilder<RoomAvatarEventContent> {
     /// Defines the URL for the room avatar.
-    pub fn url(mut self, url: &MxcUri) -> Self {
-        self.content.url = Some(url.to_owned());
+    pub fn url(mut self, url: impl Into<OwnedMxcUri>) -> Self {
+        self.content.url = Some(url.into());
         self
     }
 
@@ -2040,8 +2040,8 @@ impl PreviousMembership {
         Self { state, avatar_url: None, display_name: None }
     }
 
-    pub fn avatar_url(mut self, url: &MxcUri) -> Self {
-        self.avatar_url = Some(url.to_owned());
+    pub fn avatar_url(mut self, url: impl Into<OwnedMxcUri>) -> Self {
+        self.avatar_url = Some(url.into());
         self
     }
 
