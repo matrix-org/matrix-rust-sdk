@@ -6,7 +6,7 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -47,7 +47,7 @@ async fn test_room_attachment_send() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -85,7 +85,7 @@ async fn test_room_attachment_send_in_encrypted_room_has_binary_mime_type() {
     mock.mock_get_members().ok(Vec::new()).mock_once().mount().await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().encrypted().mount().await;
 
     let response = room
@@ -129,7 +129,7 @@ async fn test_room_attachment_send_info() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -180,7 +180,7 @@ async fn test_room_attachment_send_wrong_info() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Here, using `AttachmentInfo::Video`…
@@ -240,7 +240,7 @@ async fn test_room_attachment_send_info_thumbnail() {
     mock.mock_upload().expect_mime_type("image/jpeg").ok(&media_mxc).mock_once().mount().await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Preconditions: nothing is found in the cache.
@@ -336,7 +336,7 @@ async fn test_room_attachment_send_mentions() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -395,7 +395,7 @@ async fn test_room_attachment_reply_outside_thread() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -462,7 +462,7 @@ async fn test_room_attachment_start_thread() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -530,7 +530,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -599,7 +599,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -650,7 +650,7 @@ async fn test_room_attachment_send_is_animated() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -697,7 +697,7 @@ async fn test_room_attachment_send_circle_video() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -740,7 +740,7 @@ async fn test_room_attachment_send_extra_content() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([

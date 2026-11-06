@@ -1443,7 +1443,7 @@ async fn test_dms_are_processed_in_any_sync_response() {
     assert!(room_1.is_direct().await.unwrap());
 
     // Now perform a sync without new account data
-    let room_2 = server.sync_joined_room(&client, room_id_2.into()).await;
+    let room_2 = server.sync_joined_room(&client, room_id_2).await;
     assert!(room_2.is_direct().await.unwrap());
 }
 

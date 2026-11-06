@@ -305,7 +305,7 @@ impl MatrixMockServer {
     ///     .await;
     /// # anyhow::Ok(()) });
     /// ```
-    pub async fn sync_joined_room(&self, client: &Client, room_id: &RoomId) -> Room {
+    pub async fn sync_joined_room(&self, client: &Client, room_id: impl Into<OwnedRoomId>) -> Room {
         self.sync_room(client, JoinedRoomBuilder::new(room_id)).await
     }
 
