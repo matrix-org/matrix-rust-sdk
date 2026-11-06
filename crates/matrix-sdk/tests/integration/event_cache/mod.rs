@@ -1654,7 +1654,7 @@ async fn test_lazy_loading() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev0_{nth}")).unwrap())
                                 .into_event()
                         })
                         .collect::<Vec<_>>(),
@@ -1679,7 +1679,7 @@ async fn test_lazy_loading() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev2_{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev2_{nth}")).unwrap())
                                 .into_event()
                         })
                         .collect::<Vec<_>>(),
@@ -1697,7 +1697,7 @@ async fn test_lazy_loading() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev3_{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev3_{nth}")).unwrap())
                                 .into_event()
                         })
                         .collect::<Vec<_>>(),
@@ -1815,7 +1815,7 @@ async fn test_lazy_loading() {
                     .map(|nth| {
                         event_factory
                             .text_msg("foo")
-                            .event_id(&EventId::parse(format!("$ev1_{nth}")).unwrap())
+                            .event_id(EventId::parse(format!("$ev1_{nth}")).unwrap())
                     })
                     .collect::<Vec<_>>(),
             ))
@@ -1946,7 +1946,7 @@ async fn test_lazy_loading() {
                     .map(|nth| {
                         event_factory
                             .text_msg("foo")
-                            .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
+                            .event_id(EventId::parse(format!("$ev0_{nth}")).unwrap())
                     })
                     .collect::<Vec<_>>(),
             ))
@@ -2024,7 +2024,7 @@ async fn test_deduplication() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev0_{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev0_{nth}")).unwrap())
                                 .into_event()
                         })
                         .collect::<Vec<_>>(),
@@ -2042,7 +2042,7 @@ async fn test_deduplication() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev1_{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev1_{nth}")).unwrap())
                                 .into_event()
                         })
                         .collect::<Vec<_>>(),
