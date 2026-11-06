@@ -91,6 +91,13 @@ pub enum QueuedRequestKind {
         /// The content of the message-like event we'd like to send.
         content: SerializableEventContent,
 
+        /// Additional fields to merge into the content when the event is sent.
+        ///
+        /// They are kept apart from `content`, so that editing the queued event
+        /// doesn't lose them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+
         /// How long the event should be sticky for, if it is to be sent as a
         /// sticky event.
         #[cfg(feature = "unstable-msc4354")]
@@ -139,6 +146,7 @@ impl From<SerializableEventContent> for QueuedRequestKind {
     fn from(content: SerializableEventContent) -> Self {
         Self::Event {
             content,
+            extra_content: None,
             #[cfg(feature = "unstable-msc4354")]
             sticky_duration: None,
         }
@@ -245,6 +253,11 @@ pub enum DependentQueuedRequestKind {
     EditEvent {
         /// The new event for the content.
         new_content: SerializableEventContent,
+
+        /// The additional fields the edited event was queued with, see
+        /// [`QueuedRequestKind::Event`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     },
 
     /// The event should be redacted/aborted/removed.
@@ -571,7 +584,39 @@ mod tests {
 
     use strass::assert_let;
 
-    use super::DependentQueuedRequestKind;
+    use super::{DependentQueuedRequestKind, QueuedRequestKind};
+
+    #[test]
+    fn test_event_extra_content_storage_compatibility() {
+        let content = serde_json::json!({
+            "event": { "msgtype": "m.text", "body": "hello" },
+            "event_type": "m.room.message",
+        });
+        let extra_content = serde_json::json!({ "com.example.key": true });
+
+        // A queued event stored before the extra content had its own field.
+        let legacy = serde_json::json!({ "Event": { "content": content } });
+        let kind: QueuedRequestKind = serde_json::from_value(legacy.clone()).unwrap();
+        assert_matches!(&kind, QueuedRequestKind::Event { extra_content: None, .. });
+        assert_eq!(serde_json::to_value(&kind).unwrap(), legacy);
+
+        let mut with_extra = legacy;
+        with_extra["Event"]["extra_content"] = extra_content.clone();
+        let kind: QueuedRequestKind = serde_json::from_value(with_extra.clone()).unwrap();
+        assert_matches!(&kind, QueuedRequestKind::Event { extra_content: Some(_), .. });
+        assert_eq!(serde_json::to_value(&kind).unwrap(), with_extra);
+
+        // Same for the edit of an event that is being sent.
+        let legacy = serde_json::json!({ "EditEvent": { "new_content": content } });
+        let kind: DependentQueuedRequestKind = serde_json::from_value(legacy.clone()).unwrap();
+        assert_matches!(&kind, DependentQueuedRequestKind::EditEvent { extra_content: None, .. });
+        assert_eq!(serde_json::to_value(&kind).unwrap(), legacy);
+
+        let mut with_extra = legacy;
+        with_extra["EditEvent"]["extra_content"] = extra_content;
+        let kind: DependentQueuedRequestKind = serde_json::from_value(with_extra.clone()).unwrap();
+        assert_eq!(serde_json::to_value(kind).unwrap(), with_extra);
+    }
 
     #[cfg(feature = "unstable-msc4274")]
     #[test]

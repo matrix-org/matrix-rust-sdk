@@ -1815,6 +1815,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             MilliSecondsSinceUnixEpoch::now(),
             QueuedRequestKind::Event {
                 content,
+                extra_content: None,
                 sticky_duration: Some(StickyDurationMs::new_clamped(300_000u32)),
             },
             0,
@@ -1953,6 +1954,7 @@ impl StateStoreIntegrationTests for DynStateStore {
                 new_content: SerializableEventContent::new(
                     &RoomMessageEventContent::text_plain("edit").into(),
                 )?,
+                extra_content: None,
             },
         )
         .await?;
