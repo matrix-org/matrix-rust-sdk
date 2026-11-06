@@ -16,11 +16,6 @@ ALTER TABLE "events" ADD COLUMN
     "state_key" BLOB NULL
 ;
 
--- Index to support efficient queries filtering by state key,
--- e.g. `WHERE room_id = ? AND state_key = ?`.
-CREATE INDEX "events_state_key_idx"
-    ON "events" ("room_id", "state_key");
-
 -- Index to support efficient queries filtering by state key and timestamp,
 -- e.g. `WHERE room_id = ? AND state_key IS NULL AND timestamp < ?` or
 -- `WHERE room_id = ? AND state_key = ? AND timestamp < ?`.
