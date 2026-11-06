@@ -4,10 +4,10 @@ use std::{fmt, hash::Hash, sync::LazyLock};
 
 use indexmap::Equivalent;
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedRoomOrAliasId, OwnedUserId, RoomId, RoomOrAliasId,
-    UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomAliasId, OwnedRoomId, OwnedRoomOrAliasId, OwnedUserId,
+    RoomAliasId, RoomId, RoomOrAliasId, UserId,
     events::direct::{DirectUserIdentifier, OwnedDirectUserIdentifier},
-    owned_device_id, owned_room_id, owned_user_id,
+    owned_device_id, owned_room_alias_id, owned_room_id, owned_user_id,
 };
 use serde::Serialize;
 
@@ -357,6 +357,165 @@ impl Serialize for TestRoom {
 }
 
 impl fmt::Display for TestRoom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.id().fmt(f)
+    }
+}
+
+/// A Matrix test room alias.
+///
+/// This can be converted to the following types with `.into()`:
+///
+/// - `&'static RoomAliasId`
+/// - `OwnedRoomAliasId`
+/// - `&'static RoomOrAliasId`
+/// - `OwnedRoomOrAliasId`
+///
+/// It implements `PartialEq` with all the ID types above, as well as with
+/// `serde_json::Value` to use with the `assert_eq!` macro.
+///
+/// It implements `Serialize` and `Into<String>` to use it with the `json!`
+/// macro.
+///
+/// It implements `Hash` and `Equivalent<OwnedRoomAliasId>` as well to be able
+/// to use it with methods like `IndexMap::get()` or `IndexMap::contains_key()`.
+///
+/// It can also be converted to a borrowed string with `.as_str()` to use it
+/// with methods like `HashMap::get()` or `HashSet::contains()`.
+#[derive(Debug, Clone, Copy)]
+pub enum TestRoomAlias {
+    /// A canonical room alias, `#canonical:localhost`.
+    Canonical,
+
+    /// An alternate room alias, `#alt_alias:localhost`.
+    Alt,
+}
+
+/// Canonical room alias.
+static CANONICAL_ROOM_ALIAS: LazyLock<OwnedRoomAliasId> =
+    LazyLock::new(|| owned_room_alias_id!("#canonical:localhost"));
+/// Alternate room alias.
+static ALT_ROOM_ALIAS: LazyLock<OwnedRoomAliasId> =
+    LazyLock::new(|| owned_room_alias_id!("#alt_alias:localhost"));
+
+impl TestRoomAlias {
+    /// The room's alias.
+    ///
+    /// This unconventional return type allows to either clone the owned ID or
+    /// dereference it.
+    fn id(&self) -> &'static OwnedRoomAliasId {
+        match self {
+            Self::Canonical => &CANONICAL_ROOM_ALIAS,
+            Self::Alt => &ALT_ROOM_ALIAS,
+        }
+    }
+
+    /// The room's alias as a `&str`.
+    pub fn as_str(&self) -> &'static str {
+        self.id().as_str()
+    }
+}
+
+impl From<TestRoomAlias> for OwnedRoomAliasId {
+    fn from(alias: TestRoomAlias) -> Self {
+        alias.id().clone()
+    }
+}
+
+impl From<TestRoomAlias> for &'static RoomAliasId {
+    fn from(alias: TestRoomAlias) -> Self {
+        alias.id()
+    }
+}
+
+impl From<TestRoomAlias> for OwnedRoomOrAliasId {
+    fn from(alias: TestRoomAlias) -> Self {
+        alias.id().clone().into()
+    }
+}
+
+impl From<TestRoomAlias> for &'static RoomOrAliasId {
+    fn from(alias: TestRoomAlias) -> Self {
+        <&RoomAliasId>::from(alias).into()
+    }
+}
+
+impl From<TestRoomAlias> for String {
+    fn from(alias: TestRoomAlias) -> Self {
+        alias.as_str().to_owned()
+    }
+}
+
+impl PartialEq<OwnedRoomAliasId> for TestRoomAlias {
+    fn eq(&self, other: &OwnedRoomAliasId) -> bool {
+        self.id().eq(other)
+    }
+}
+
+impl PartialEq<TestRoomAlias> for OwnedRoomAliasId {
+    fn eq(&self, other: &TestRoomAlias) -> bool {
+        self.eq(other.id())
+    }
+}
+
+impl PartialEq<&OwnedRoomAliasId> for TestRoomAlias {
+    fn eq(&self, other: &&OwnedRoomAliasId) -> bool {
+        self.id().eq(*other)
+    }
+}
+
+impl PartialEq<TestRoomAlias> for &OwnedRoomAliasId {
+    fn eq(&self, other: &TestRoomAlias) -> bool {
+        (*self).eq(other.id())
+    }
+}
+
+impl PartialEq<&RoomAliasId> for TestRoomAlias {
+    fn eq(&self, other: &&RoomAliasId) -> bool {
+        self.id().eq(other)
+    }
+}
+
+impl PartialEq<TestRoomAlias> for &RoomAliasId {
+    fn eq(&self, other: &TestRoomAlias) -> bool {
+        self.eq(other.id())
+    }
+}
+
+impl PartialEq<serde_json::Value> for TestRoomAlias {
+    fn eq(&self, other: &serde_json::Value) -> bool {
+        self.as_str().eq(other)
+    }
+}
+
+impl PartialEq<TestRoomAlias> for serde_json::Value {
+    fn eq(&self, other: &TestRoomAlias) -> bool {
+        self.eq(other.as_str())
+    }
+}
+
+impl Equivalent<OwnedRoomAliasId> for TestRoomAlias {
+    fn equivalent(&self, key: &OwnedRoomAliasId) -> bool {
+        key.eq(self.id())
+    }
+}
+
+impl Hash for TestRoomAlias {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id().hash(state);
+    }
+}
+
+impl Serialize for TestRoomAlias {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.id().serialize(serializer)
+    }
+}
+
+impl fmt::Display for TestRoomAlias {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.id().fmt(f)
     }
