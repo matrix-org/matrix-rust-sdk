@@ -261,6 +261,15 @@ impl RequestContent<'_> {
             Self::Room(r) => &r.methods,
         }
     }
+
+    /// The user the request is intended for, only present for in-room
+    /// requests.
+    pub fn to(&self) -> Option<&UserId> {
+        match self {
+            Self::ToDevice(_) => None,
+            Self::Room(r) => Some(&r.to),
+        }
+    }
 }
 
 #[derive(Debug)]
