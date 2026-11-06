@@ -132,7 +132,7 @@ use tracing::{debug, error, warn};
 use url::Url;
 
 use super::{
-    room::{Room, room_info::RoomInfo},
+    room::{RequestConfigOverride, Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
 use crate::{
@@ -2698,15 +2698,24 @@ impl Client {
     ///
     /// * `action` - What should happen to the delayed event.
     ///
+    /// * `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [`Room::send_delayed_event`]: crate::room::Room::send_delayed_event
     /// [`Room::send_delayed_state_event`]: crate::room::Room::send_delayed_state_event
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn update_delayed_event(
         &self,
         delay_id: String,
         action: DelayedEventUpdateAction,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<(), ClientError> {
-        self.inner.update_delayed_event(delay_id, action.into()).await?;
+        let request_config = request_config_override.map(|request_config_override| {
+            request_config_override.apply_to(self.inner.request_config())
+        });
+
+        self.inner.update_delayed_event(delay_id, action.into(), request_config).await?;
 
         Ok(())
     }

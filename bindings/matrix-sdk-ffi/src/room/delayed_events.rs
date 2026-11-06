@@ -18,7 +18,7 @@
 
 use std::time::Duration;
 
-use super::Room;
+use super::{RequestConfigOverride, Room};
 use crate::error::ClientError;
 
 #[matrix_sdk_ffi_macros::export]
@@ -42,24 +42,31 @@ impl Room {
     /// * `delay_ms` - How long, in milliseconds, the homeserver should hold on
     ///   to the event.
     ///
+    /// * `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
     /// Returns the `delay_id` identifying the scheduled event.
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [`Client::update_delayed_event`]: crate::client::Client::update_delayed_event
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn send_delayed_event(
         &self,
         event_type: String,
         content: String,
         delay_ms: u64,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(matrix_sdk::Error::SerdeJson)?;
 
-        let response = self
-            .inner
-            .send_raw(&event_type, content_json)
-            .into_delayed(Duration::from_millis(delay_ms))
-            .await?;
+        let mut request = self.inner.send_raw(&event_type, content_json);
+        if let Some(request_config_override) = request_config_override {
+            request = request.with_request_config(
+                request_config_override.apply_to(self.inner.client().request_config()),
+            );
+        }
+        let response = request.into_delayed(Duration::from_millis(delay_ms)).await?;
 
         Ok(response.delay_id)
     }
@@ -81,24 +88,31 @@ impl Room {
     /// * `delay_ms` - How long, in milliseconds, the homeserver should hold on
     ///   to the event.
     ///
+    /// * `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
     /// Returns the `delay_id` identifying the scheduled event.
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn send_delayed_state_event(
         &self,
         event_type: String,
         state_key: String,
         content: String,
         delay_ms: u64,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(matrix_sdk::Error::SerdeJson)?;
 
-        let response = self
-            .inner
-            .send_state_event_raw(&event_type, &state_key, content_json)
-            .into_delayed(Duration::from_millis(delay_ms))
-            .await?;
+        let mut request = self.inner.send_state_event_raw(&event_type, &state_key, content_json);
+        if let Some(request_config_override) = request_config_override {
+            request = request.with_request_config(
+                request_config_override.apply_to(self.inner.client().request_config()),
+            );
+        }
+        let response = request.into_delayed(Duration::from_millis(delay_ms)).await?;
 
         Ok(response.delay_id)
     }
@@ -128,27 +142,36 @@ impl Room {
     /// * `sticky_duration_ms` - How long the event stays sticky for once it is
     ///   sent, in milliseconds, clamped to one hour.
     ///
+    /// * `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
     /// Returns the `delay_id` identifying the scheduled event.
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
     /// [`Client::is_sticky_events_supported`]: crate::client::Client::is_sticky_events_supported
+    #[uniffi::method(default(request_config_override = None))]
     pub async fn send_sticky_delayed_event(
         &self,
         event_type: String,
         content: String,
         delay_ms: u64,
         sticky_duration_ms: u64,
+        request_config_override: Option<RequestConfigOverride>,
     ) -> Result<String, ClientError> {
         let content_json: serde_json::Value =
             serde_json::from_str(&content).map_err(matrix_sdk::Error::SerdeJson)?;
 
-        let response = self
+        let mut request = self
             .inner
             .send_raw(&event_type, content_json)
-            .with_sticky_duration(Duration::from_millis(sticky_duration_ms))
-            .into_delayed(Duration::from_millis(delay_ms))
-            .await?;
+            .with_sticky_duration(Duration::from_millis(sticky_duration_ms));
+        if let Some(request_config_override) = request_config_override {
+            request = request.with_request_config(
+                request_config_override.apply_to(self.inner.client().request_config()),
+            );
+        }
+        let response = request.into_delayed(Duration::from_millis(delay_ms)).await?;
 
         Ok(response.delay_id)
     }

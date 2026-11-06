@@ -3230,6 +3230,10 @@ impl Client {
     ///
     /// * `action` - What to do with the delayed event.
     ///
+    /// * `request_config` - The [`RequestConfig`] to use for this request, for
+    ///   example to control retries. If `None`, the client's default request
+    ///   config is used.
+    ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [`SendRawMessageLikeEvent::into_delayed`]: crate::room::futures::SendRawMessageLikeEvent::into_delayed
     /// [`SendRawStateEvent::into_delayed`]: crate::room::futures::SendRawStateEvent::into_delayed
@@ -3238,13 +3242,16 @@ impl Client {
         &self,
         delay_id: String,
         action: update_delayed_event::UpdateAction,
+        request_config: Option<RequestConfig>,
     ) -> Result<update_delayed_event::unstable_v2::Response> {
         let request = update_delayed_event::unstable_v2::Request::new(delay_id, action);
 
         // Ruma declares this endpoint as not requiring authentication, but the
         // homeserver only lets the owner of the delayed event update it, so the
         // access token must be sent anyway.
-        Ok(self.send(request).with_request_config(RequestConfig::default().force_auth()).await?)
+        let request_config = request_config.unwrap_or_else(|| self.request_config()).force_auth();
+
+        Ok(self.send(request).with_request_config(request_config).await?)
     }
 
     /// Get information of all our own devices.

@@ -2,8 +2,10 @@
 //! `send_state_event_raw(..).into_delayed(..)` and
 //! `Client::update_delayed_event`.
 
+use assert_matches::assert_matches;
 use matrix_sdk::{
-    ruma::api::client::delayed_events::update_delayed_event::UpdateAction,
+    config::RequestConfig,
+    ruma::api::{client::delayed_events::update_delayed_event::UpdateAction, error::ErrorKind},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::async_test;
@@ -54,6 +56,41 @@ async fn test_send_raw_into_delayed() {
         .unwrap();
 
     assert_eq!(response.delay_id, "1234");
+}
+
+/// When the user has reached the homeserver's maximum number of scheduled
+/// delayed events, the homeserver answers with `M_LIMIT_EXCEEDED` and a
+/// `Retry-After` set to the send time of the user's next delayed event, which
+/// can be far away. With retries disabled, the error is returned right away
+/// so the caller can decide what to do.
+#[async_test]
+async fn test_send_raw_into_delayed_max_scheduled_without_retry() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+    let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(delayed_event_path("m.room.message")))
+        .respond_with(
+            ResponseTemplate::new(429).insert_header("Retry-After", "1200").set_body_json(json!({
+                "errcode": "M_LIMIT_EXCEEDED",
+                "error": "The maximum number of delayed events has been reached.",
+            })),
+        )
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    let error = room
+        .send_raw("m.room.message", json!({ "msgtype": "m.text", "body": "hello" }))
+        .with_request_config(RequestConfig::new().disable_retry())
+        .into_delayed(Duration::from_millis(1000))
+        .await
+        .unwrap_err();
+
+    assert_matches!(error.client_api_error_kind(), Some(ErrorKind::LimitExceeded(_)));
 }
 
 /// A delayed message-like event can be sticky ([MSC4354]): the sticky duration
@@ -207,6 +244,6 @@ async fn test_update_delayed_event() {
             .mount_as_scoped(server.server())
             .await;
 
-        client.update_delayed_event("1234".to_owned(), action).await.unwrap();
+        client.update_delayed_event("1234".to_owned(), action, None).await.unwrap();
     }
 }
