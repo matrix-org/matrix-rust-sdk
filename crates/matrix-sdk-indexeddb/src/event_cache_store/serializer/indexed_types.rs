@@ -410,6 +410,7 @@ impl Indexed for Event {
             relation,
             timestamp,
             state_key: maybe_state_key
+                .as_ref()
                 .map(|state_key| serializer.encode_key_as_string(keys::EVENTS, state_key)),
             room_state_key: IndexedEventRoomKeyStateKey::encode(
                 (self.room_id(), maybe_state_key.as_deref()),
