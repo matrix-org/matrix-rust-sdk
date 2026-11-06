@@ -437,6 +437,34 @@ impl Timeline {
         Ok(())
     }
 
+    /// Get the ID of the closest visible event at or before the user's
+    /// `m.fully_read` marker, or the marker's own event ID if neither is
+    /// loaded.
+    ///
+    /// See [`matrix_sdk_ui::timeline::Timeline::fully_read_event_id`].
+    pub fn fully_read_event_id(&self) -> Option<String> {
+        self.inner.fully_read_event_id().map(|id| id.to_string())
+    }
+
+    /// Subscribe to changes of [`Self::fully_read_event_id`]. The listener is
+    /// called with the current value right away.
+    ///
+    /// See [`matrix_sdk_ui::timeline::Timeline::subscribe_fully_read_event_id`].
+    pub fn subscribe_to_fully_read_event_id(
+        &self,
+        listener: Box<dyn FullyReadEventIdListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_fully_read_event_id();
+
+        listener.on_update(subscriber.get().map(|id| id.to_string()));
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(event_id) = subscriber.next().await {
+                listener.on_update(event_id.map(|id| id.to_string()));
+            }
+        })))
+    }
+
     /// Returns the latest [`EventId`] in the timeline.
     pub async fn latest_event_id(&self) -> Option<String> {
         self.inner.latest_event_id().await.as_deref().map(ToString::to_string)
@@ -1010,6 +1038,11 @@ pub trait TimelineListener: SyncOutsideWasm + SendOutsideWasm {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait PaginationStatusListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: PaginationStatus);
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait FullyReadEventIdListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, event_id: Option<String>);
 }
 
 #[derive(Clone, uniffi::Enum)]
