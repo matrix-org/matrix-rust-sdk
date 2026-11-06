@@ -27,7 +27,7 @@ use matrix_sdk_common::deserialized_responses::{
 use ruma::{
     EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId, OwnedMxcUri,
     OwnedRoomAliasId, OwnedRoomId, OwnedServerName, OwnedTransactionId, OwnedUserId, OwnedVoipId,
-    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
+    RoomVersionId, TransactionId, UInt, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyStateEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -1329,8 +1329,14 @@ impl EventFactory {
     }
 
     /// Create a typing notification event.
-    pub fn typing(&self, user_ids: Vec<&UserId>) -> EventBuilder<TypingEventContent> {
-        self.event(TypingEventContent::new(user_ids.into_iter().map(ToOwned::to_owned).collect()))
+    pub fn typing<U>(
+        &self,
+        user_ids: impl IntoIterator<Item = U>,
+    ) -> EventBuilder<TypingEventContent>
+    where
+        U: Into<OwnedUserId>,
+    {
+        self.event(TypingEventContent::new(user_ids.into_iter().map(Into::into).collect()))
             .format(EventFormat::Ephemeral)
     }
 
@@ -1668,8 +1674,8 @@ pub struct PresenceBuilder {
 
 impl PresenceBuilder {
     /// Set the sender of the presence event.
-    pub fn sender(mut self, sender: &UserId) -> Self {
-        self.sender = Some(sender.to_owned());
+    pub fn sender(mut self, sender: impl Into<OwnedUserId>) -> Self {
+        self.sender = Some(sender.into());
         self
     }
 

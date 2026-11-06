@@ -766,7 +766,9 @@ async fn test_subscribe_to_typing_notifications() {
         .await;
 
     // Then send a typing notification with no user typing
-    server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_typing(f.typing(vec![]))).await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_typing(f.typing::<User>([])))
+        .await;
 
     join_handle.await.unwrap();
     assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
