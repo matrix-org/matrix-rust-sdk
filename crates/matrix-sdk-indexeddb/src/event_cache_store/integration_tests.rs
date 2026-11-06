@@ -20,16 +20,14 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
 };
 use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, event_id, room_id, user_id};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, event_id, user_id};
 use web_sys::IdbTransactionMode;
 
 use crate::{
     event_cache_store::{
         IndexeddbEventCacheStore,
         migrations::current::keys,
-        serializer::indexed_types::{
-            IndexedEvent, IndexedEventRoomKeyStateKey, IndexedEventStateKeyTimestampKey,
-        },
+        serializer::indexed_types::{IndexedEvent, IndexedEventStateKeyTimestampKey},
         types::Event,
     },
     serializer::indexed_type::{
@@ -113,70 +111,6 @@ pub async fn test_state_key_field(store: IndexeddbEventCacheStore) {
     assert_eq!(state_keys[message_id], None);
     assert_eq!(state_keys[empty_state_key_id], Some(encoded_state_key("")));
     assert_eq!(state_keys[state_key_id], Some(encoded_state_key(state_key.as_str())));
-}
-
-pub async fn test_state_key_index(store: IndexeddbEventCacheStore) {
-    let room_id = *DEFAULT_TEST_ROOM_ID;
-    let other_room_id = room_id!("!other:localhost");
-    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:localhost"));
-    let state_key = user_id!("@bob:localhost");
-
-    let message_id = event_id!("$message");
-    let empty_state_key_id = event_id!("$empty_state_key");
-    let state_key_id = event_id!("$state_key");
-    let other_state_key_id = event_id!("$other_state_key");
-    let other_room_message_id = event_id!("$other_room_message");
-    let other_room_state_key_id = event_id!("$other_room_state_key");
-
-    for event in [
-        f.text_msg("hello").event_id(message_id).into_event(),
-        f.room_topic("topic").state_key("").event_id(empty_state_key_id).into_event(),
-        f.member(state_key).event_id(state_key_id).into_event(),
-        f.member(user_id!("@carol:localhost")).event_id(other_state_key_id).into_event(),
-    ] {
-        store.save_event(room_id, event).await.unwrap();
-    }
-
-    let f = f.room(other_room_id);
-    for event in [
-        f.text_msg("hello").event_id(other_room_message_id).into_event(),
-        f.member(state_key).event_id(other_room_state_key_id).into_event(),
-    ] {
-        store.save_event(other_room_id, event).await.unwrap();
-    }
-
-    // Find the IDs of the events in `room_id` with the given `state_key`, using
-    // the index.
-    let find = async |room_id: &RoomId, state_key: Option<&str>| {
-        let transaction = store.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly).unwrap();
-        let key = IndexedEventRoomKeyStateKey::encode(
-            (room_id, state_key),
-            transaction.serializer().inner(),
-        );
-        transaction
-            .get_items_by_key::<Event, IndexedEventRoomKeyStateKey>(IndexedKeyRange::Only(key))
-            .await
-            .unwrap()
-            .iter()
-            .map(|event| event.event_id().unwrap().to_owned())
-            .collect::<Vec<_>>()
-    };
-    let ids = |ids: &[&EventId]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
-
-    // Non-state events.
-    assert_eq!(find(room_id, None).await, ids(&[message_id]));
-    assert_eq!(find(other_room_id, None).await, ids(&[other_room_message_id]));
-
-    // State events with an empty `state_key`.
-    assert_eq!(find(room_id, Some("")).await, ids(&[empty_state_key_id]));
-    assert_eq!(find(other_room_id, Some("")).await, ids(&[]));
-
-    // State events with a non-empty `state_key`.
-    assert_eq!(find(room_id, Some(state_key.as_str())).await, ids(&[state_key_id]));
-    assert_eq!(
-        find(other_room_id, Some(state_key.as_str())).await,
-        ids(&[other_room_state_key_id])
-    );
 }
 
 pub async fn test_state_key_timestamp_index(store: IndexeddbEventCacheStore) {
@@ -284,12 +218,6 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
                 let store = get_event_cache_store().await.expect("Failed to get event cache store");
                 $crate::event_cache_store::integration_tests::test_linked_chunk_update_is_a_transaction(store)
                     .await
-            }
-
-            #[async_test]
-            async fn test_state_key_index() {
-                let store = get_event_cache_store().await.expect("Failed to get event cache store");
-                $crate::event_cache_store::integration_tests::test_state_key_index(store).await
             }
 
             #[async_test]

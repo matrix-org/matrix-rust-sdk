@@ -640,7 +640,6 @@ pub mod v10 {
     /// Upgrade database from `v10` to `v11`.
     pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
         v11::empty_event_cache(transaction)?;
-        v11::add_state_key_index_to_events_object_store(transaction)?;
         v11::add_state_key_timestamp_index_to_events_object_store(transaction)?;
         Ok(Version::V11)
     }
@@ -655,24 +654,8 @@ pub mod v11 {
         // Re-use all the same keys from `v10`.
         pub use super::super::v10::keys::*;
 
-        pub const EVENTS_STATE_KEY: &str = "events_state_key";
-        pub const EVENTS_STATE_KEY_KEY_PATH: &str = "room_state_key";
         pub const EVENTS_STATE_KEY_TIMESTAMP: &str = "events_state_key_timestamp";
         pub const EVENTS_STATE_KEY_TIMESTAMP_KEY_PATH: &str = "state_key_timestamp";
-    }
-
-    /// Add an index on the events object store tracking each event's room and
-    /// `state_key` (or lack thereof), so that events can be queried
-    /// efficiently by their `state_key` (e.g. only non-state events, or only
-    /// events with a given `state_key`).
-    pub fn add_state_key_index_to_events_object_store(
-        transaction: &Transaction<'_>,
-    ) -> Result<(), Error> {
-        let events = transaction.object_store(keys::EVENTS)?;
-        let _ = events
-            .create_index(keys::EVENTS_STATE_KEY, keys::EVENTS_STATE_KEY_KEY_PATH.into())
-            .build()?;
-        Ok(())
     }
 
     /// Add an index on the events object store tracking each event's room,
