@@ -23,7 +23,14 @@ pub enum LatestEventValue {
         event_id: Option<OwnedEventId>,
 
         /// The timestamp of the invite event.
-        timestamp: MilliSecondsSinceUnixEpoch,
+        ///
+        /// Usually `None`: invites arrive as stripped state events, which carry
+        /// no `origin_server_ts`. Room-list ordering then falls back to the
+        /// room's recency (bump) stamp, which the server derives from the
+        /// invite's arrival. Synthesising a timestamp here (e.g. `now()`)
+        /// instead makes every invite sort at whatever moment the value was
+        /// first computed - all bunched at login time on a fresh session.
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
 
         /// The user ID of the inviter.
         inviter: Option<OwnedUserId>,
@@ -52,8 +59,8 @@ impl LatestEventValue {
     ///
     /// - If it's [`None`], it returns `None`.
     /// - If it's [`Remote`], it returns the [`TimelineEvent::timestamp`].
-    /// - If it's [`RemoteInvite`], it returns the
-    ///   [`SyncOrStrippedState::timestamp`].
+    /// - If it's [`RemoteInvite`], it returns its `timestamp`, usually `None`
+    ///   for stripped state.
     /// - If it's [`LocalIsSending`],[`LocalHasBeenSent`] or
     ///   [`LocalCannotBeSent`], it returns the
     ///   [`LocalLatestEventValue::timestamp`] value.
@@ -64,12 +71,11 @@ impl LatestEventValue {
     /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
     /// [`LocalHasBeenSent`]: LatestEventValue::LocalHasBeenSent
     /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
-    /// [`SyncOrStrippedState::timestamp`]: crate::deserialized_responses::SyncOrStrippedState::timestamp
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             Self::None => None,
             Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
-            Self::RemoteInvite { timestamp, .. } => Some(*timestamp),
+            Self::RemoteInvite { timestamp, .. } => *timestamp,
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
             | Self::LocalHasBeenSent { value: LocalLatestEventValue { timestamp, .. }, .. }
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),

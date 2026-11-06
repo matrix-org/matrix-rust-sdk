@@ -644,6 +644,32 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_timestamp_less_invite_is_slotted_by_bump_stamp() {
+        let [mut old, mut invite, mut new] = rooms([
+            (room_id!("!old:x.y"), 10),
+            (room_id!("!invite:x.y"), 20),
+            (room_id!("!new:x.y"), 30),
+        ])
+        .await;
+
+        set_latest_event(&mut old, remote(100)).await;
+        set_latest_event(&mut new, remote(300)).await;
+
+        // A stripped-state invite has no timestamp: it must sit between the
+        // two rooms by its bump stamp.
+        set_latest_event(
+            &mut invite,
+            LatestEventValue::RemoteInvite { event_id: None, timestamp: None, inviter: None },
+        )
+        .await;
+
+        assert_eq!(
+            sorted(&[&old, &invite, &new]),
+            room_ids(&["!new:x.y", "!invite:x.y", "!old:x.y"]),
+        );
+    }
+
+    #[async_test]
     async fn test_set_without_sort_key_change_does_not_reorder() {
         let [room_a, room_b] = rooms([(room_id!("!a:x.y"), 1), (room_id!("!b:x.y"), 2)]).await;
 
