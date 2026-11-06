@@ -259,8 +259,8 @@ impl<E: StaticEventContent<IsPrefix = False>> EventBuilder<E> {
         self
     }
 
-    pub fn event_id(mut self, event_id: &EventId) -> Self {
-        self.event_id = Some(event_id.to_owned());
+    pub fn event_id(mut self, event_id: impl Into<OwnedEventId>) -> Self {
+        self.event_id = Some(event_id.into());
         self.no_event_id = false;
         self
     }
@@ -461,24 +461,32 @@ impl EventBuilder<RoomEncryptedEventContent> {
 
 impl EventBuilder<RoomMessageEventContent> {
     /// Adds a reply relation to the current event.
-    pub fn reply_to(mut self, event_id: &EventId) -> Self {
-        self.content.relates_to = Some(Relation::Reply(Reply::with_event_id(event_id.to_owned())));
+    pub fn reply_to(mut self, event_id: impl Into<OwnedEventId>) -> Self {
+        self.content.relates_to = Some(Relation::Reply(Reply::with_event_id(event_id.into())));
         self
     }
 
     /// Adds a thread relation to the root event, setting the reply fallback to
     /// the latest in-thread event.
-    pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
+    pub fn in_thread(
+        mut self,
+        root: impl Into<OwnedEventId>,
+        latest_thread_event: impl Into<OwnedEventId>,
+    ) -> Self {
         self.content.relates_to =
-            Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
+            Some(Relation::Thread(Thread::plain(root.into(), latest_thread_event.into())));
         self
     }
 
     /// Adds a thread relation to the root event, that's a non-fallback reply to
     /// another thread event.
-    pub fn in_thread_reply(mut self, root: &EventId, replied_to: &EventId) -> Self {
+    pub fn in_thread_reply(
+        mut self,
+        root: impl Into<OwnedEventId>,
+        replied_to: impl Into<OwnedEventId>,
+    ) -> Self {
         self.content.relates_to =
-            Some(Relation::Thread(Thread::reply(root.to_owned(), replied_to.to_owned())));
+            Some(Relation::Thread(Thread::reply(root.into(), replied_to.into())));
         self
     }
 
@@ -492,11 +500,11 @@ impl EventBuilder<RoomMessageEventContent> {
     /// passed.
     pub fn edit(
         mut self,
-        edited_event_id: &EventId,
+        edited_event_id: impl Into<OwnedEventId>,
         new_content: RoomMessageEventContentWithoutRelation,
     ) -> Self {
         self.content.relates_to =
-            Some(Relation::Replacement(Replacement::new(edited_event_id.to_owned(), new_content)));
+            Some(Relation::Replacement(Replacement::new(edited_event_id.into(), new_content)));
         self
     }
 
@@ -534,18 +542,22 @@ impl EventBuilder<RoomMessageEventContent> {
 
 impl EventBuilder<UnstablePollStartEventContent> {
     /// Adds a reply relation to the current event.
-    pub fn reply_to(mut self, event_id: &EventId) -> Self {
+    pub fn reply_to(mut self, event_id: impl Into<OwnedEventId>) -> Self {
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
             content.relates_to =
-                Some(RelationWithoutReplacement::Reply(Reply::with_event_id(event_id.to_owned())));
+                Some(RelationWithoutReplacement::Reply(Reply::with_event_id(event_id.into())));
         }
         self
     }
 
     /// Adds a thread relation to the root event, setting the reply to
     /// event id as well.
-    pub fn in_thread(mut self, root: &EventId, reply_to_event_id: &EventId) -> Self {
-        let thread = Thread::reply(root.to_owned(), reply_to_event_id.to_owned());
+    pub fn in_thread(
+        mut self,
+        root: impl Into<OwnedEventId>,
+        reply_to_event_id: impl Into<OwnedEventId>,
+    ) -> Self {
+        let thread = Thread::reply(root.into(), reply_to_event_id.into());
 
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
             content.relates_to = Some(RelationWithoutReplacement::Thread(thread));
@@ -576,9 +588,13 @@ impl EventBuilder<RoomCreateEventContent> {
 
 impl EventBuilder<StickerEventContent> {
     /// Add reply [`Thread`] relation to root event and set replied-to event id.
-    pub fn reply_thread(mut self, root: &EventId, reply_to_event: &EventId) -> Self {
+    pub fn reply_thread(
+        mut self,
+        root: impl Into<OwnedEventId>,
+        reply_to_event: impl Into<OwnedEventId>,
+    ) -> Self {
         self.content.relates_to =
-            Some(Relation::Thread(Thread::reply(root.to_owned(), reply_to_event.to_owned())));
+            Some(Relation::Thread(Thread::reply(root.into(), reply_to_event.into())));
         self
     }
 }
@@ -1149,22 +1165,23 @@ impl EventFactory {
     /// Add a reaction to an event.
     pub fn reaction(
         &self,
-        event_id: &EventId,
+        event_id: impl Into<OwnedEventId>,
         annotation: impl Into<String>,
     ) -> EventBuilder<ReactionEventContent> {
-        self.event(ReactionEventContent::new(Annotation::new(
-            event_id.to_owned(),
-            annotation.into(),
-        )))
+        self.event(ReactionEventContent::new(Annotation::new(event_id.into(), annotation.into())))
     }
 
     /// Create a live redaction for the given event id.
     ///
     /// Note: this is not a redacted event, but a redaction event, that will
     /// cause another event to be redacted.
-    pub fn redaction(&self, event_id: &EventId) -> EventBuilder<RoomRedactionEventContent> {
-        let mut builder = self.event(RoomRedactionEventContent::new_v11(event_id.to_owned()));
-        builder.redacts = Some(event_id.to_owned());
+    pub fn redaction(
+        &self,
+        event_id: impl Into<OwnedEventId>,
+    ) -> EventBuilder<RoomRedactionEventContent> {
+        let event_id = event_id.into();
+        let mut builder = self.event(RoomRedactionEventContent::new_v11(event_id.clone()));
+        builder.redacts = Some(event_id);
         builder
     }
 
@@ -1258,7 +1275,7 @@ impl EventFactory {
     /// Create a poll edit event given the new question and possible answers.
     pub fn poll_edit(
         &self,
-        edited_event_id: &EventId,
+        edited_event_id: impl Into<OwnedEventId>,
         poll_question: impl Into<String>,
         answers: Vec<impl Into<String>>,
     ) -> EventBuilder<ReplacementUnstablePollStartEventContent> {
@@ -1274,7 +1291,7 @@ impl EventFactory {
             UnstablePollStartContentBlock::new(poll_question, poll_answers);
         self.event(ReplacementUnstablePollStartEventContent::new(
             poll_start_content_block,
-            edited_event_id.to_owned(),
+            edited_event_id.into(),
         ))
     }
 
@@ -1283,11 +1300,11 @@ impl EventFactory {
     pub fn poll_response(
         &self,
         answers: Vec<impl Into<String>>,
-        poll_start_id: &EventId,
+        poll_start_id: impl Into<OwnedEventId>,
     ) -> EventBuilder<UnstablePollResponseEventContent> {
         self.event(UnstablePollResponseEventContent::new(
             answers.into_iter().map(Into::into).collect(),
-            poll_start_id.to_owned(),
+            poll_start_id.into(),
         ))
     }
 
@@ -1296,9 +1313,9 @@ impl EventFactory {
     pub fn poll_end(
         &self,
         content: impl Into<String>,
-        poll_start_id: &EventId,
+        poll_start_id: impl Into<OwnedEventId>,
     ) -> EventBuilder<UnstablePollEndEventContent> {
-        self.event(UnstablePollEndEventContent::new(content.into(), poll_start_id.to_owned()))
+        self.event(UnstablePollEndEventContent::new(content.into(), poll_start_id.into()))
     }
 
     /// Creates a plain (unencrypted) image event content referencing the given
@@ -1507,7 +1524,7 @@ impl EventFactory {
     // Creates a new `org.matrix.msc4310.rtc.decline` event.
     pub fn call_decline(
         &self,
-        notification_event_id: &EventId,
+        notification_event_id: impl Into<OwnedEventId>,
     ) -> EventBuilder<RtcDeclineEventContent> {
         self.event(RtcDeclineEventContent::new(notification_event_id))
     }
@@ -1627,8 +1644,11 @@ impl EventFactory {
     }
 
     /// Create a new `m.fully_read` room account data event.
-    pub fn fully_read(&self, event_id: &EventId) -> EventBuilder<FullyReadEventContent> {
-        self.room_account_data(FullyReadEventContent::new(event_id.to_owned()))
+    pub fn fully_read(
+        &self,
+        event_id: impl Into<OwnedEventId>,
+    ) -> EventBuilder<FullyReadEventContent> {
+        self.room_account_data(FullyReadEventContent::new(event_id.into()))
     }
 
     /// Create a new `m.marked_unread` room account data event.
@@ -1967,7 +1987,7 @@ impl ReadReceiptBuilder<'_> {
     /// Add a single read receipt to the event.
     pub fn add(
         self,
-        event_id: &EventId,
+        event_id: impl Into<OwnedEventId>,
         user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
@@ -1979,13 +1999,13 @@ impl ReadReceiptBuilder<'_> {
     /// Add a single read receipt to the event, with an optional timestamp.
     pub fn add_with_timestamp(
         mut self,
-        event_id: &EventId,
+        event_id: impl Into<OwnedEventId>,
         user_id: impl Into<OwnedUserId>,
         tyype: ReceiptType,
         thread: ReceiptThread,
         ts: Option<MilliSecondsSinceUnixEpoch>,
     ) -> Self {
-        let by_event = self.content.0.entry(event_id.to_owned()).or_default();
+        let by_event = self.content.0.entry(event_id.into()).or_default();
         let by_type = by_event.entry(tyype).or_default();
 
         let mut receipt = Receipt::default();
