@@ -2283,6 +2283,68 @@ impl Client {
             .map(|transports| transports.iter().map(Into::into).collect()))
     }
 
+    /// Obtain a JWT to authenticate with a LiveKit SFU, through the
+    /// homeserver's `/rtc/livekit/get_token` endpoint (MSC4195).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU to obtain a token for.
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the user's own
+    ///   `m.rtc.member` event.
+    /// * `server_name` - The server name of the sender of the `m.rtc.member`
+    ///   event that advertised the SFU. If `None`, the homeserver uses its own
+    ///   server name.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error.
+    pub async fn rtc_livekit_get_token(
+        &self,
+        url: String,
+        room_id: String,
+        slot_id: String,
+        member_id: String,
+        server_name: Option<String>,
+    ) -> Result<String, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let server_name = server_name.map(ServerName::parse).transpose()?;
+        let response =
+            self.inner.rtc_livekit_get_token(url, room_id, slot_id, member_id, server_name).await?;
+        Ok(response.jwt)
+    }
+
+    /// Hand the delayed leave event of a MatrixRTC session over to the
+    /// homeserver, through its `/rtc/livekit/delegate_delayed_leave` endpoint
+    /// (MSC4195).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU that the user has
+    ///   connected to.
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the `m.rtc.member` event.
+    /// * `delay_id` - The ID of the delayed `m.rtc.member` leave event to
+    ///   delegate.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error.
+    pub async fn rtc_livekit_delegate_delayed_leave(
+        &self,
+        url: String,
+        room_id: String,
+        slot_id: String,
+        member_id: String,
+        delay_id: String,
+    ) -> Result<(), ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.inner
+            .rtc_livekit_delegate_delayed_leave(url, room_id, slot_id, member_id, delay_id)
+            .await?;
+        Ok(())
+    }
+
     /// Checks if the server supports the Profiles sliding sync extension.
     pub async fn is_profiles_sliding_sync_extension_supported(&self) -> Result<bool, ClientError> {
         Ok(self.inner.is_global_profile_sync_enabled().await?)

@@ -69,7 +69,11 @@ use ruma::{
             presence::set_presence as set_presence_status,
             retention::get_retention_configuration,
             room::create_room,
-            rtc::{RtcTransport, transports},
+            rtc::{
+                RtcTransport,
+                livekit::{delegate_delayed_leave, get_token},
+                transports,
+            },
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
             threads::get_thread_subscriptions_changes,
@@ -3163,6 +3167,70 @@ impl Client {
         // returns `None` when well-known discovery is disabled, which correctly
         // collapses into "nothing was discovered".
         Ok(self.well_known().await.map(|well_known| well_known.rtc_foci))
+    }
+
+    /// Obtain a token to authenticate with a LiveKit SFU, by calling the
+    /// homeserver's `/rtc/livekit/get_token` endpoint
+    /// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU to obtain a token for, as
+    ///   advertised by a LiveKit [`RtcTransport`].
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the user's own
+    ///   `m.rtc.member` event.
+    /// * `server_name` - The server name of the sender of the `m.rtc.member`
+    ///   event that advertised the SFU. If `None`, the homeserver uses its own
+    ///   server name.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error, which is returned as-is.
+    pub async fn rtc_livekit_get_token(
+        &self,
+        url: String,
+        room_id: OwnedRoomId,
+        slot_id: String,
+        member_id: String,
+        server_name: Option<OwnedServerName>,
+    ) -> HttpResult<get_token::v1::Response> {
+        let request =
+            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
+        self.send(request).await
+    }
+
+    /// Hand the delayed leave event of a MatrixRTC session over to the
+    /// homeserver, by calling its `/rtc/livekit/delegate_delayed_leave`
+    /// endpoint ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
+    ///
+    /// The homeserver then takes care of keeping the delayed event alive
+    /// while the user is connected to the LiveKit SFU, and lets it be sent
+    /// once the user disconnects.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU that the user has
+    ///   connected to.
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the `m.rtc.member` event.
+    /// * `delay_id` - The ID of the delayed `m.rtc.member` leave event to
+    ///   delegate.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error, which is returned as-is.
+    pub async fn rtc_livekit_delegate_delayed_leave(
+        &self,
+        url: String,
+        room_id: OwnedRoomId,
+        slot_id: String,
+        member_id: String,
+        delay_id: String,
+    ) -> HttpResult<delegate_delayed_leave::v1::Response> {
+        let request =
+            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
+        self.send(request).await
     }
 
     /// Get information about the homeserver's advertised map tile server, if
