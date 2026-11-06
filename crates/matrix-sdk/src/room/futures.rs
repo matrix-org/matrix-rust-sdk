@@ -231,7 +231,7 @@ impl<'a> SendRawMessageLikeEvent<'a> {
     ///
     /// The homeserver holds on to the event and only distributes it to the room
     /// once `delay` elapses. Until then the event can be cancelled, restarted
-    /// or sent immediately with [`Room::update_delayed_event`], using the
+    /// or sent immediately with [`Client::update_delayed_event`], using the
     /// `delay_id` from the response.
     ///
     /// The event is prepared exactly like an immediate one: in particular it
@@ -247,6 +247,7 @@ impl<'a> SendRawMessageLikeEvent<'a> {
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
+    /// [`Client::update_delayed_event`]: crate::Client::update_delayed_event
     pub fn into_delayed(self, delay: Duration) -> SendDelayedRawMessageLikeEvent<'a> {
         SendDelayedRawMessageLikeEvent { inner: self, delay }
     }
@@ -552,7 +553,7 @@ impl<'a> SendRawStateEvent<'a> {
     ///
     /// The homeserver holds on to the event and only distributes it to the room
     /// once `delay` elapses. Until then the event can be cancelled, restarted
-    /// or sent immediately with [`Room::update_delayed_event`], using the
+    /// or sent immediately with [`Client::update_delayed_event`], using the
     /// `delay_id` from the response.
     ///
     /// The event is prepared exactly like an immediate one: in particular,
@@ -561,6 +562,7 @@ impl<'a> SendRawStateEvent<'a> {
     /// is *scheduled*, and restarting the delay does not re-encrypt it.
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`Client::update_delayed_event`]: crate::Client::update_delayed_event
     pub fn into_delayed(self, delay: Duration) -> SendDelayedRawStateEvent<'a> {
         SendDelayedRawStateEvent { inner: self, delay }
     }

@@ -18,34 +18,8 @@
 
 use std::time::Duration;
 
-use ruma::api::client::delayed_events::update_delayed_event::UpdateAction;
-
 use super::Room;
 use crate::error::ClientError;
-
-/// What to do with a delayed event that hasn't been distributed to the room
-/// yet ([MSC4140]).
-///
-/// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
-#[derive(Clone, Copy, Debug, uniffi::Enum)]
-pub enum DelayedEventUpdateAction {
-    /// Cancel the delayed event: it will never be sent to the room.
-    Cancel,
-    /// Restart the delay timeout, keeping the event scheduled.
-    Restart,
-    /// Send the event to the room right away.
-    Send,
-}
-
-impl From<DelayedEventUpdateAction> for UpdateAction {
-    fn from(value: DelayedEventUpdateAction) -> Self {
-        match value {
-            DelayedEventUpdateAction::Cancel => Self::Cancel,
-            DelayedEventUpdateAction::Restart => Self::Restart,
-            DelayedEventUpdateAction::Send => Self::Send,
-        }
-    }
-}
 
 #[matrix_sdk_ffi_macros::export]
 impl Room {
@@ -53,7 +27,7 @@ impl Room {
     ///
     /// The homeserver holds on to the event and only distributes it to the room
     /// once `delay_ms` has elapsed, unless the delayed event is updated
-    /// beforehand with [`Room::update_delayed_event`].
+    /// beforehand with [`Client::update_delayed_event`].
     ///
     /// If the room is encrypted, the content is encrypted when the event is
     /// scheduled, like [`Room::send_raw`] does. A member joining the room
@@ -71,6 +45,7 @@ impl Room {
     /// Returns the `delay_id` identifying the scheduled event.
     ///
     /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`Client::update_delayed_event`]: crate::client::Client::update_delayed_event
     pub async fn send_delayed_event(
         &self,
         event_type: String,
@@ -126,27 +101,6 @@ impl Room {
             .await?;
 
         Ok(response.delay_id)
-    }
-
-    /// Cancel, restart or immediately send a previously scheduled delayed
-    /// event ([MSC4140]).
-    ///
-    /// # Arguments
-    ///
-    /// * `delay_id` - The identifier returned by [`Room::send_delayed_event`]
-    ///   or [`Room::send_delayed_state_event`].
-    ///
-    /// * `action` - What should happen to the delayed event.
-    ///
-    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
-    pub async fn update_delayed_event(
-        &self,
-        delay_id: String,
-        action: DelayedEventUpdateAction,
-    ) -> Result<(), ClientError> {
-        self.inner.update_delayed_event(delay_id, action.into()).await?;
-
-        Ok(())
     }
 }
 

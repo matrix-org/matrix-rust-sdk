@@ -59,6 +59,7 @@ use ruma::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
             authenticated_media,
+            delayed_events::update_delayed_event,
             device::{self, delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{discover_homeserver, get_supported_versions},
@@ -3213,6 +3214,37 @@ impl Client {
     #[cfg(feature = "unstable-msc4354")]
     pub async fn supports_sticky_events(&self) -> HttpResult<bool> {
         Ok(self.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4354")))
+    }
+
+    /// Update a delayed event that was previously scheduled with
+    /// [`SendRawMessageLikeEvent::into_delayed`] or
+    /// [`SendRawStateEvent::into_delayed`] ([MSC4140]).
+    ///
+    /// Depending on the `action` this cancels the delayed event, restarts its
+    /// timeout, or sends it to the room right away.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_id` - The identifier of the delayed event, as returned by the
+    ///   homeserver when the event was scheduled.
+    ///
+    /// * `action` - What to do with the delayed event.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`SendRawMessageLikeEvent::into_delayed`]: crate::room::futures::SendRawMessageLikeEvent::into_delayed
+    /// [`SendRawStateEvent::into_delayed`]: crate::room::futures::SendRawStateEvent::into_delayed
+    #[instrument(skip_all)]
+    pub async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: update_delayed_event::UpdateAction,
+    ) -> Result<update_delayed_event::unstable_v2::Response> {
+        let request = update_delayed_event::unstable_v2::Request::new(delay_id, action);
+
+        // Ruma declares this endpoint as not requiring authentication, but the
+        // homeserver only lets the owner of the delayed event update it, so the
+        // access token must be sent anyway.
+        Ok(self.send(request).with_request_config(RequestConfig::default().force_auth()).await?)
     }
 
     /// Get information of all our own devices.

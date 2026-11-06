@@ -86,6 +86,7 @@ use ruma::{
     api::{
         client::{
             alias::get_alias,
+            delayed_events::update_delayed_event::UpdateAction,
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
@@ -2659,6 +2660,56 @@ impl Client {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait TotalUnreadNotificationsListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, count: u64);
+}
+
+/// What to do with a delayed event that hasn't been distributed to the room
+/// yet ([MSC4140]).
+///
+/// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum DelayedEventUpdateAction {
+    /// Cancel the delayed event: it will never be sent to the room.
+    Cancel,
+    /// Restart the delay timeout, keeping the event scheduled.
+    Restart,
+    /// Send the event to the room right away.
+    Send,
+}
+
+impl From<DelayedEventUpdateAction> for UpdateAction {
+    fn from(value: DelayedEventUpdateAction) -> Self {
+        match value {
+            DelayedEventUpdateAction::Cancel => Self::Cancel,
+            DelayedEventUpdateAction::Restart => Self::Restart,
+            DelayedEventUpdateAction::Send => Self::Send,
+        }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// Cancel, restart or immediately send a previously scheduled delayed
+    /// event ([MSC4140]).
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_id` - The identifier returned by [`Room::send_delayed_event`]
+    ///   or [`Room::send_delayed_state_event`].
+    ///
+    /// * `action` - What should happen to the delayed event.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`Room::send_delayed_event`]: crate::room::Room::send_delayed_event
+    /// [`Room::send_delayed_state_event`]: crate::room::Room::send_delayed_state_event
+    pub async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: DelayedEventUpdateAction,
+    ) -> Result<(), ClientError> {
+        self.inner.update_delayed_event(delay_id, action.into()).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "unstable-msc4354")]
