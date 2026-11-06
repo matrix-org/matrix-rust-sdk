@@ -349,9 +349,6 @@ pub struct IndexedEvent {
     /// An empty `state_key` is still encoded and stored, so this is only
     /// `None` if the event has no `state_key`.
     pub state_key: Option<IndexedEventStateKey>,
-    /// An indexed key on the object store, which represents the room and the
-    /// `state_key` (or lack thereof) of the event.
-    pub room_state_key: IndexedEventRoomKeyStateKey,
     /// An indexed key on the object store, which represents the room, the
     /// `state_key` (or lack thereof) and the timestamp of the event, if the
     /// timestamp is known.
@@ -412,10 +409,6 @@ impl Indexed for Event {
             state_key: maybe_state_key
                 .as_ref()
                 .map(|state_key| serializer.encode_key_as_string(keys::EVENTS, state_key)),
-            room_state_key: IndexedEventRoomKeyStateKey::encode(
-                (self.room_id(), maybe_state_key.as_deref()),
-                serializer,
-            ),
             state_key_timestamp: self.timestamp().map(|timestamp| {
                 IndexedEventStateKeyTimestampKey::encode(
                     (self.room_id(), maybe_state_key.as_deref(), timestamp),
@@ -737,32 +730,6 @@ fn encode_maybe_state_key(
         .map(|state_key| serializer.encode_key_as_string(keys::EVENTS, state_key))
         .into_iter()
         .collect()
-}
-
-/// The value associated with the
-/// [`room_state_key`](IndexedEvent::room_state_key) index of the [`EVENTS`][1]
-/// object store, which is constructed from:
-///
-/// - The (possibly) hashed Room ID
-/// - The (possibly) hashed `state_key` of the event, if any, see
-///   [`IndexedEventMaybeStateKey`]
-///
-/// [1]: crate::event_cache_store::migrations::v11::add_state_key_index_to_events_object_store
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventRoomKeyStateKey(IndexedRoomId, IndexedEventMaybeStateKey);
-
-impl IndexedKey<Event> for IndexedEventRoomKeyStateKey {
-    const INDEX: Option<&'static str> = Some(keys::EVENTS_STATE_KEY);
-
-    type KeyComponents<'a> = (&'a RoomId, Option<&'a str>);
-
-    fn encode(
-        (room_id, state_key): Self::KeyComponents<'_>,
-        serializer: &SafeEncodeSerializer,
-    ) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
-        Self(room_id, encode_maybe_state_key(state_key, serializer))
-    }
 }
 
 /// The value associated with the
