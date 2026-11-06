@@ -4,50 +4,6 @@ use std::sync::LazyLock;
 
 use serde_json::{Value as JsonValue, json};
 
-/// `GET /_matrix/client/v3/devices`
-pub static DEVICES: LazyLock<JsonValue> = LazyLock::new(|| {
-    json!({
-        "devices": [
-            {
-                "device_id": "BNYQQWUMXO",
-                "display_name": "Client 1",
-                "last_seen_ip": "-",
-                "last_seen_ts": 1596117733037u64,
-                "user_id": "@example:localhost"
-            },
-            {
-                "device_id": "LEBKSEUSNR",
-                "display_name": "Client 2",
-                "last_seen_ip": "-",
-                "last_seen_ts": 1599057006985u64,
-                "user_id": "@example:localhost"
-            }
-        ]
-    })
-});
-
-/// `GET /_matrix/client/v3/device/{deviceId}`
-pub static DEVICE: LazyLock<JsonValue> = LazyLock::new(|| {
-    json!({
-        "device_id": "QBUAZIFURK",
-        "display_name": "android",
-        "last_seen_ip": "1.2.3.4",
-        "last_seen_ts": 1474491775024u64
-    })
-});
-
-/// `GET /_matrix/client/v3/directory/room/{roomAlias}`
-pub static GET_ALIAS: LazyLock<JsonValue> = LazyLock::new(|| {
-    json!({
-        "room_id": "!lUbmUPdxdXxEQurqOs:example.net",
-        "servers": [
-          "example.org",
-          "example.net",
-          "matrix.org",
-        ]
-    })
-});
-
 /// `POST /_matrix/client/v3/keys/query`
 pub static KEYS_QUERY: LazyLock<JsonValue> = LazyLock::new(|| {
     json!({
@@ -362,21 +318,6 @@ pub static VERSIONS: LazyLock<JsonValue> = LazyLock::new(|| {
             "org.matrix.msc4028": true,
             "org.matrix.simplified_msc3575": true,
         }
-    })
-});
-
-/// `GET /.well-known/matrix/client`
-pub static WELL_KNOWN: LazyLock<JsonValue> = LazyLock::new(|| {
-    json!({
-        "m.homeserver": {
-            "base_url": "HOMESERVER_URL"
-        },
-        "m.rtc_foci": [
-            {
-                "type": "livekit",
-                "livekit_service_url": "https://livekit.example.com",
-            }
-        ]
     })
 });
 
