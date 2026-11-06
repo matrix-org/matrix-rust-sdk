@@ -298,6 +298,27 @@ pub trait StateStore: AsyncTraitDeps {
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error>;
 
+    /// Get the read receipts of several events for a given room, receipt type,
+    /// and thread.
+    ///
+    /// Events without receipts are absent from the returned map.
+    ///
+    /// # Arguments
+    ///
+    /// - `room_id` - The id of the room for which the receipts should be
+    ///   fetched.
+    /// - `receipt_type` - The type of the receipts.
+    /// - `receipt_thread` - The thread a receipt applies to.
+    /// - `event_ids` - The ids of the events for which the receipts should be
+    ///   fetched.
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error>;
+
     /// Get arbitrary data from the custom store
     ///
     /// # Arguments
@@ -715,6 +736,18 @@ impl<T: StateStore> StateStore for &T {
         (*self).get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id).await
     }
 
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
+        (*self)
+            .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
+            .await
+    }
+
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
         (*self).get_custom_value(key).await
     }
@@ -1045,6 +1078,18 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
         self.deref()
             .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
+    }
+
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
+        self.deref()
+            .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
             .await
     }
 
@@ -1389,6 +1434,19 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
         self.0
             .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
+        self.0
+            .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
             .await
             .map_err(Into::into)
     }
@@ -1797,6 +1855,18 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
         self.store
             .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
+    }
+
+    async fn get_event_room_receipt_events_batch<'a>(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        receipt_thread: &ReceiptThread,
+        event_ids: &[&'a EventId],
+    ) -> Result<BTreeMap<&'a EventId, Vec<(OwnedUserId, Receipt)>>, Self::Error> {
+        self.store
+            .get_event_room_receipt_events_batch(room_id, receipt_type, receipt_thread, event_ids)
             .await
     }
 
