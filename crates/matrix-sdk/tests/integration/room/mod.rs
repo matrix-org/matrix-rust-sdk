@@ -3,6 +3,7 @@ mod beacon;
 mod beacon_info;
 mod calls;
 mod common;
+mod delayed_events;
 mod joined;
 mod left;
 mod notification_mode;
