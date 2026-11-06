@@ -368,7 +368,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn reload(
         &mut self,
         preprocessing: ReloadPreprocessing,
-    ) -> Result<(Vec<VectorDiff<Event>>, ThreadSummary)> {
+    ) -> Result<(Vec<VectorDiff<Event>>, Option<ThreadSummary>)> {
         match preprocessing {
             ReloadPreprocessing::ForgetAll => {
                 // Clear the `LinkedChunk` and broadcast the updates to the
@@ -546,7 +546,9 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
-    pub(super) async fn update_thread_summary(&mut self) -> Result<ThreadSummary> {
+    ///
+    /// Returns `None` if we haven't seen any of the thread's replies yet.
+    pub(super) async fn update_thread_summary(&mut self) -> Result<Option<ThreadSummary>> {
         // Read the latest number of thread replies from the store.
         //
         // Implementation note: since this is based on the `m.relates_to`
@@ -558,6 +560,12 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
             .await?
             .len();
+
+        // Having no replies locally doesn't mean the thread has none, so we
+        // keep the count unknown until we've seen at least one.
+        if num_replies == 0 && self.state.thread_info.read().await.number_of_replies.is_none() {
+            return Ok(None);
+        }
 
         // Find the latest event ID, if and only if we consider there is at
         // least 1 reply.
@@ -626,11 +634,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
 
         self.update_thread_info(|thread_info| {
             thread_info.latest_event = thread_summary.latest_reply.clone();
-            thread_info.number_of_replies = thread_summary.num_replies;
+            thread_info.number_of_replies = Some(thread_summary.num_replies);
         })
         .await?;
 
-        Ok(thread_summary)
+        Ok(Some(thread_summary))
     }
 
     /// Update the [`ThreadInfo`].
