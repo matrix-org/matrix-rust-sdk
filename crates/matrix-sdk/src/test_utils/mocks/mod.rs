@@ -423,10 +423,14 @@ impl MatrixMockServer {
     /// );
     /// # anyhow::Ok(()) });
     /// ```
-    pub fn mock_room_join(&self, room_id: &RoomId) -> MockEndpoint<'_, JoinRoomEndpoint> {
+    pub fn mock_room_join(
+        &self,
+        room_id: impl Into<OwnedRoomId>,
+    ) -> MockEndpoint<'_, JoinRoomEndpoint> {
+        let room_id = room_id.into();
         let mock = Mock::given(method("POST"))
-            .and(path_regex(format!("^/_matrix/client/v3/rooms/{room_id}/join")));
-        self.mock_endpoint(mock, JoinRoomEndpoint { room_id: room_id.to_owned() })
+            .and(path(format!("/_matrix/client/v3/rooms/{room_id}/join")));
+        self.mock_endpoint(mock, JoinRoomEndpoint { room_id })
     }
 
     /// Creates a prebuilt mock for joining a room by ID or alias.
