@@ -429,6 +429,13 @@ impl BaseClient {
         Ok(())
     }
 
+    /// Check whether the crypto store already holds an Olm account, i.e. the
+    /// device keys of a previously activated session.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn has_stored_olm_account(&self) -> Result<bool> {
+        Ok(self.crypto_store.load_account().await?.is_some())
+    }
+
     /// Recreate an `OlmMachine` from scratch.
     ///
     /// In particular, this will clear all its caches.
