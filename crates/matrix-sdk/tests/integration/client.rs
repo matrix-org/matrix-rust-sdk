@@ -156,7 +156,7 @@ async fn test_join_room_by_id() {
     let client = server.client_builder().build().await;
     let room_id = TestRoom::Default;
 
-    server.mock_room_join(room_id.into()).ok().expect(1).mount().await;
+    server.mock_room_join(room_id).ok().expect(1).mount().await;
 
     assert_eq!(
         // this is the `join_by_room_id::Response` but since no PartialEq we
