@@ -441,6 +441,16 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, JoinRoomByIdOrAliasEndpoint)
     }
 
+    /// Creates a prebuilt mock for knocking on a room.
+    pub fn mock_room_knock<'b>(
+        &self,
+        room_or_alias_id: impl Into<&'b RoomOrAliasId>,
+    ) -> MockEndpoint<'_, RoomKnockEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path(format!("/_matrix/client/v3/knock/{}", room_or_alias_id.into())));
+        self.mock_endpoint(mock, RoomKnockEndpoint)
+    }
+
     /// Creates a prebuilt mock for sending an event in a room.
     ///
     /// Note: works with _any_ room.
@@ -5192,6 +5202,19 @@ impl<'a> MockEndpoint<'a, JoinRoomEndpoint> {
 pub struct JoinRoomByIdOrAliasEndpoint;
 
 impl<'a> MockEndpoint<'a, JoinRoomByIdOrAliasEndpoint> {
+    /// Returns a successful response using the given [`RoomId`].
+    pub fn ok<'b>(self, room_id: impl Into<&'b RoomId>) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "room_id": room_id.into(),
+        }))
+    }
+}
+
+/// A prebuilt mock for `POST /_matrix/client/v3/knock/{roomIdOrAlias}`
+/// requests.
+pub struct RoomKnockEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomKnockEndpoint> {
     /// Returns a successful response using the given [`RoomId`].
     pub fn ok<'b>(self, room_id: impl Into<&'b RoomId>) -> MatrixMock<'a> {
         self.ok_json(json!({
