@@ -137,7 +137,10 @@ where
 
         // Update the first chunk.
         {
-            let first_chunk = links.first_chunk_mut();
+            // SAFETY: No other reference to a linked chunk is alive while
+            // `first_chunk` is used, and its neighbours are never reached
+            // through `Chunk::previous` or `Chunk::next` in this block.
+            let first_chunk = unsafe { links.first_chunk_mut() };
 
             debug_assert!(
                 first_chunk.previous.is_none(),
@@ -146,6 +149,10 @@ where
 
             // Move the `lazy_previous` if any.
             first_chunk.lazy_previous = None;
+
+            // SAFETY: `new_first_chunk` has just been allocated by
+            // `Chunk::new_leaked` and is not linked yet, so nothing else refers
+            // to it, and it is distinct from `first_chunk`.
             unsafe { new_first_chunk.as_mut() }.lazy_previous = lazy_previous;
 
             // Link one way: `new_first_chunk` becomes the previous chunk of the
@@ -163,7 +170,10 @@ where
 
             // Link the other way: `old_first_chunk` becomes the next chunk of
             // the first chunk.
-            links.first_chunk_mut().next = Some(old_first_chunk);
+            //
+            // SAFETY: No other reference to a chunk is alive, and the reference
+            // is dropped right away.
+            unsafe { links.first_chunk_mut() }.next = Some(old_first_chunk);
 
             debug_assert!(
                 links.first_chunk().previous.is_none(),
@@ -573,7 +583,10 @@ mod tests {
 
         let mut linked_chunk = LinkedChunk::<5, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(vec!['a', 'b']);
-        linked_chunk.links.first_chunk_mut().lazy_previous = Some(ChunkIdentifier::new(1));
+        // SAFETY: No other reference to a chunk is alive, and the reference is
+        // dropped right away.
+        unsafe { linked_chunk.links.first_chunk_mut() }.lazy_previous =
+            Some(ChunkIdentifier::new(1));
 
         // Drain initial updates.
         let _ = linked_chunk.updates().unwrap().take();
@@ -632,7 +645,10 @@ mod tests {
 
         let mut linked_chunk = LinkedChunk::<5, char, ()>::new_with_update_history();
         linked_chunk.push_items_back(vec!['a', 'b']);
-        linked_chunk.links.first_chunk_mut().lazy_previous = Some(ChunkIdentifier::new(1));
+        // SAFETY: No other reference to a chunk is alive, and the reference is
+        // dropped right away.
+        unsafe { linked_chunk.links.first_chunk_mut() }.lazy_previous =
+            Some(ChunkIdentifier::new(1));
 
         // Drain initial updates.
         let _ = linked_chunk.updates().unwrap().take();
