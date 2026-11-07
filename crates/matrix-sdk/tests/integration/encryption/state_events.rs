@@ -1,4 +1,7 @@
-use matrix_sdk::{encryption::EncryptionSettings, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{
+    encryption::EncryptionSettings,
+    test_utils::{mocked_device_encryption_settings, mocks::MatrixMockServer},
+};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     RoomVersionId, device_id, event_id,
@@ -19,8 +22,10 @@ async fn test_room_encrypted_state_event_send() {
     matrix_mock_server.mock_crypto_endpoints_preset().await;
     matrix_mock_server.mock_room_state_encryption().state_encrypted().mount().await;
 
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        ..mocked_device_encryption_settings()
+    };
 
     let alice = matrix_mock_server
         .client_builder_for_crypto_end_to_end(alice_user_id, alice_device_id)
