@@ -281,6 +281,18 @@ pub struct EncryptionSettings {
 
     /// Automatically create a backup version if no backup exists.
     pub auto_enable_backups: bool,
+
+    /// Allow restoring a session whose device keys aren't in the crypto store.
+    ///
+    /// By default, [`Client::restore_session()`] fails with
+    /// [`Error::MissingDeviceKeys`] when the crypto store holds no Olm
+    /// account, because the client would otherwise create new device keys
+    /// for a device that already published its keys to the homeserver.
+    ///
+    /// Only set this if the client never needs to use end-to-end encryption
+    /// with the restored session, e.g. when borrowing an access token from
+    /// another client to make plain API requests.
+    pub allow_restore_without_device_keys: bool,
 }
 
 /// Settings for end-to-end encryption features.
@@ -2555,6 +2567,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
+
+        use crate::test_utils::mocked_device_encryption_settings;
         let tmp_dir = tempfile::tempdir().unwrap();
         let sqlite_path = tmp_dir.path().join("generation_counter_sqlite.db");
         let session = mock_matrix_session();
@@ -2563,6 +2577,7 @@ mod tests {
             .homeserver_url("http://localhost:1234")
             .request_config(RequestConfig::new().disable_retry())
             .sqlite_store(&sqlite_path, None)
+            .with_encryption_settings(mocked_device_encryption_settings())
             .build()
             .await
             .unwrap();
@@ -2662,6 +2677,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
+
+        use crate::test_utils::mocked_device_encryption_settings;
         let tmp_dir = tempfile::tempdir().unwrap();
         let sqlite_path = tmp_dir.path().join("generation_counter_no_spurious_invalidations.db");
         let session = mock_matrix_session();
@@ -2670,6 +2687,7 @@ mod tests {
             .homeserver_url("http://localhost:1234")
             .request_config(RequestConfig::new().disable_retry())
             .sqlite_store(&sqlite_path, None)
+            .with_encryption_settings(mocked_device_encryption_settings())
             .build()
             .await
             .unwrap();

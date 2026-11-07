@@ -310,6 +310,19 @@ pub enum Error {
     #[error("The olm machine has already been initialized")]
     BadCryptoStoreState,
 
+    /// Attempting to restore a session whose device keys aren't in the crypto
+    /// store.
+    ///
+    /// See [`EncryptionSettings::allow_restore_without_device_keys`].
+    ///
+    /// [`EncryptionSettings::allow_restore_without_device_keys`]: crate::encryption::EncryptionSettings::allow_restore_without_device_keys
+    #[cfg(feature = "e2e-encryption")]
+    #[error(
+        "the crypto store holds no device keys for the restored session; \
+         restore with the same persistent store the session was created with"
+    )]
+    MissingDeviceKeys,
+
     /// Attempting to access the olm-machine but it is not yet available.
     #[cfg(feature = "e2e-encryption")]
     #[error("The olm machine isn't yet available")]

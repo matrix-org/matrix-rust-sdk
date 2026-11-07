@@ -2,7 +2,9 @@ use std::{assert_matches, pin::pin, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
-    assert_next_with_timeout, encryption::EncryptionSettings, test_utils::mocks::MatrixMockServer,
+    assert_next_with_timeout,
+    encryption::EncryptionSettings,
+    test_utils::{mocked_device_encryption_settings, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineItem};
@@ -26,8 +28,10 @@ async fn test_redecryption(
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
 
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        ..mocked_device_encryption_settings()
+    };
 
     // First we create some clients.
 

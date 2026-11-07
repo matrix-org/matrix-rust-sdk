@@ -1150,6 +1150,7 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
         auto_enable_cross_signing: true,
         auto_enable_backups: true,
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        allow_restore_without_device_keys: false,
     };
 
     // Set up sync for user Alice, and create a room.
@@ -1288,6 +1289,7 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
         auto_enable_cross_signing: true,
         auto_enable_backups: true,
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        allow_restore_without_device_keys: false,
     };
 
     // Set up sync for user Alice, and create a room.
@@ -1402,6 +1404,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
         auto_enable_cross_signing: true,
         auto_enable_backups: true,
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
+        allow_restore_without_device_keys: false,
     };
 
     // Set up sync for user Alice, and create a room.

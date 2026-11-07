@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use matrix_sdk::{
     AuthSession, Client, SessionMeta, SessionTokens,
     authentication::matrix::MatrixSession,
-    encryption::secret_storage::SecretStore,
+    encryption::{EncryptionSettings, secret_storage::SecretStore},
     ruma::{OwnedDeviceId, OwnedUserId, events::secret::request::SecretName},
 };
 use url::Url;
@@ -107,7 +107,11 @@ async fn import_known_secrets(client: Client, secret_store: SecretStore) -> Resu
 }
 
 async fn restore_client(cli: &Cli) -> Result<Client> {
-    let builder = Client::builder().homeserver_url(&cli.homeserver);
+    // The device keys of the borrowed session live in the other client's
+    // store, not in this client's in-memory one.
+    let builder = Client::builder().homeserver_url(&cli.homeserver).with_encryption_settings(
+        EncryptionSettings { allow_restore_without_device_keys: true, ..Default::default() },
+    );
 
     let builder = if let Some(proxy) = cli.proxy.as_ref() { builder.proxy(proxy) } else { builder };
     let client = builder.build().await?;

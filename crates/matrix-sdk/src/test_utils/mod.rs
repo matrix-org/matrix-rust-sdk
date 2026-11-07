@@ -41,7 +41,23 @@ pub fn test_client_builder(homeserver_url: Option<String>) -> ClientBuilder {
     let homeserver = homeserver_url
         .map(|url| Url::try_from(url.as_str()).unwrap())
         .unwrap_or_else(|| Url::try_from("http://localhost:1234").unwrap());
-    Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0])
+    let builder =
+        Client::builder().homeserver_url(homeserver).server_versions([MatrixVersion::V1_0]);
+    #[cfg(feature = "e2e-encryption")]
+    let builder = builder.with_encryption_settings(mocked_device_encryption_settings());
+    builder
+}
+
+/// [`EncryptionSettings`] for test clients that restore a mocked session whose
+/// device keys were never stored.
+///
+/// [`EncryptionSettings`]: crate::encryption::EncryptionSettings
+#[cfg(feature = "e2e-encryption")]
+pub fn mocked_device_encryption_settings() -> crate::encryption::EncryptionSettings {
+    crate::encryption::EncryptionSettings {
+        allow_restore_without_device_keys: true,
+        ..Default::default()
+    }
 }
 
 /// A [`Client`] using the given `homeserver_url` (or localhost:1234), that will

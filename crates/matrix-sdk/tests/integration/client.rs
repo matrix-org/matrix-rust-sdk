@@ -3,7 +3,7 @@ use std::{assert_matches, collections::BTreeMap, ops::Not as _, pin::pin, time::
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
+    Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
     assert_let_timeout,
     authentication::oauth::{OAuthError, error::OAuthTokenRevocationError},
     config::{RequestConfig, StoreConfig},
@@ -12,7 +12,7 @@ use matrix_sdk::{
     sleep::sleep,
     store::{RoomLoadSettings, ThreadSubscriptionStatus},
     sync::{RoomUpdate, State},
-    test_utils::{client::mock_matrix_session, mocks::MatrixMockServer},
+    test_utils::{client::mock_matrix_session, mocks::MatrixMockServer, test_client_builder},
 };
 use matrix_sdk_base::{RoomState, read_receipts::ReadReceipts, sync::RoomUpdates};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
@@ -1506,8 +1506,7 @@ async fn test_restore_room() {
 
     // Build a client with that store.
     let store_config = StoreConfig::new(CrossProcessLockConfig::SingleProcess).state_store(store);
-    let client = Client::builder()
-        .homeserver_url("http://localhost:1234")
+    let client = test_client_builder(None)
         .request_config(RequestConfig::new().disable_retry())
         .store_config(store_config)
         .build()

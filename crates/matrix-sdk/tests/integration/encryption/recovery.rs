@@ -56,6 +56,7 @@ async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
             auto_enable_cross_signing: true,
             backup_download_strategy: BackupDownloadStrategy::Manual,
             auto_enable_backups: true,
+            allow_restore_without_device_keys: true,
         })
         .build()
         .await

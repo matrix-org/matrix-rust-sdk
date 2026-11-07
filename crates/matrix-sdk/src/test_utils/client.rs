@@ -44,6 +44,9 @@ impl MockClientBuilder {
         let default_builder = Client::builder()
             .homeserver_url(homeserver)
             .request_config(RequestConfig::new().disable_retry());
+        #[cfg(feature = "e2e-encryption")]
+        let default_builder =
+            default_builder.with_encryption_settings(super::mocked_device_encryption_settings());
 
         Self {
             builder: default_builder,

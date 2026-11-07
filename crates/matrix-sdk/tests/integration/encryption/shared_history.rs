@@ -3,7 +3,7 @@ use matrix_sdk::{
     Client, assert_decrypted_message_eq, assert_next_matches_with_timeout,
     deserialized_responses::{TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason},
     encryption::EncryptionSettings,
-    test_utils::mocks::MatrixMockServer,
+    test_utils::{mocked_device_encryption_settings, mocks::MatrixMockServer},
 };
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::{
@@ -66,8 +66,10 @@ async fn setup_shared_history(
     matrix_mock_server.mock_crypto_endpoints_preset().await;
     matrix_mock_server.mock_invite_user_by_id().ok().mock_once().mount().await;
 
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        ..mocked_device_encryption_settings()
+    };
 
     let alice = matrix_mock_server
         .client_builder_for_crypto_end_to_end(alice_user_id, alice_device_id)
@@ -291,8 +293,10 @@ async fn test_shared_history_crash_before_import() {
     // Use a common store path for Bob so we can persist invite acceptance
     // details over the crash.
     let bob_sqlite_path = tempdir().unwrap();
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        ..mocked_device_encryption_settings()
+    };
 
     let Test {
         matrix_mock_server, alice, bob, event_id, bundle, bundle_info, event_receiver, ..
@@ -434,8 +438,10 @@ async fn test_room_key_rotation_on_gappy_sync_v3() {
     let matrix_mock_server = MatrixMockServer::new().await;
     matrix_mock_server.mock_crypto_endpoints_preset().await;
 
-    let encryption_settings =
-        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        ..mocked_device_encryption_settings()
+    };
 
     let alice = matrix_mock_server
         .client_builder_for_crypto_end_to_end(alice_id, device_id!("BOBDEVICE"))

@@ -915,6 +915,7 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             auto_enable_cross_signing: true,
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
             auto_enable_backups: true,
+            allow_restore_without_device_keys: false,
         })
         .with_enable_share_history_on_invite(true)
         .with_enable_automatic_back_pagination(true)

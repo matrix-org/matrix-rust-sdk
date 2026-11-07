@@ -222,6 +222,7 @@ impl ClientBuilder {
                 backup_download_strategy:
                     matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
                 auto_enable_backups: false,
+                allow_restore_without_device_keys: false,
             },
             room_key_recipient_strategy: Default::default(),
             decryption_settings: DecryptionSettings {

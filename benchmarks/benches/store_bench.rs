@@ -4,7 +4,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use matrix_sdk::{
     Client, RoomInfo, RoomState, SessionTokens, StateChanges,
     authentication::matrix::MatrixSession, config::StoreConfig,
-    cross_process_lock::CrossProcessLockConfig,
+    cross_process_lock::CrossProcessLockConfig, test_utils::mocked_device_encryption_settings,
 };
 use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
 use matrix_sdk_sqlite::SqliteStateStore;
@@ -75,6 +75,7 @@ pub fn restore_session(c: &mut Criterion) {
         b.to_async(&runtime).iter(|| async {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
+                .with_encryption_settings(mocked_device_encryption_settings())
                 .store_config(
                     StoreConfig::new(CrossProcessLockConfig::multi_process(
                         "cross-process-store-locks-holder-name",
@@ -107,6 +108,7 @@ pub fn restore_session(c: &mut Criterion) {
                 b.to_async(&runtime).iter(|| async {
                     let client = Client::builder()
                         .homeserver_url("https://matrix.example.com")
+                        .with_encryption_settings(mocked_device_encryption_settings())
                         .store_config(
                             StoreConfig::new(CrossProcessLockConfig::multi_process(
                                 "cross-process-store-locks-holder-name",

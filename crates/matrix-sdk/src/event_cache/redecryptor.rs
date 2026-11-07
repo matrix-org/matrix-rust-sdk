@@ -1334,7 +1334,7 @@ mod tests {
             DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
             TimelineVectorDiffs,
         },
-        test_utils::mocks::MatrixMockServer,
+        test_utils::{mocked_device_encryption_settings, mocks::MatrixMockServer},
     };
 
     async fn set_up_clients(
@@ -1355,7 +1355,7 @@ mod tests {
 
         let encryption_settings = EncryptionSettings {
             auto_enable_cross_signing: alice_enables_cross_signing,
-            ..Default::default()
+            ..mocked_device_encryption_settings()
         };
 
         // Create some clients for Alice and Bob.
@@ -1371,8 +1371,10 @@ mod tests {
             .instrument(alice_span.clone())
             .await;
 
-        let encryption_settings =
-            EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+        let encryption_settings = EncryptionSettings {
+            auto_enable_cross_signing: true,
+            ..mocked_device_encryption_settings()
+        };
 
         let (store_config, store) = if use_delayed_store {
             let store = ControlledMemoryStore::new();

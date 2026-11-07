@@ -662,10 +662,11 @@ impl MatrixAuth {
     /// login (for example via [`ClientBuilder::sqlite_store()`]) must be
     /// configured on the [`ClientBuilder`] when the session is restored,
     /// otherwise the encryption keys and room state will not be available. When
-    /// the `e2e-encryption` feature is enabled, restoring on top of an
-    /// in-memory store will leave the client unable to send or receive
-    /// encrypted messages. See the [`persist_session`] example for a full
-    /// walk-through.
+    /// the `e2e-encryption` feature is enabled, restoring on top of a store
+    /// that doesn't hold the session's device keys fails with
+    /// [`Error::MissingDeviceKeys`], unless
+    /// [`EncryptionSettings::allow_restore_without_device_keys`] is set. See
+    /// the [`persist_session`] example for a full walk-through.
     ///
     /// # Arguments
     ///
@@ -734,6 +735,8 @@ impl MatrixAuth {
     /// [`ClientBuilder`]: crate::ClientBuilder
     /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
     /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
+    /// [`Error::MissingDeviceKeys`]: crate::Error::MissingDeviceKeys
+    /// [`EncryptionSettings::allow_restore_without_device_keys`]: crate::encryption::EncryptionSettings::allow_restore_without_device_keys
     #[instrument(skip_all)]
     pub async fn restore_session(
         &self,
@@ -741,6 +744,8 @@ impl MatrixAuth {
         room_load_settings: RoomLoadSettings,
     ) -> Result<()> {
         debug!("Restoring Matrix auth session");
+        #[cfg(feature = "e2e-encryption")]
+        self.client.ensure_device_keys_for_restore().await?;
         self.set_session(
             session,
             room_load_settings,

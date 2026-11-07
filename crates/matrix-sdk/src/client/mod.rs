@@ -637,6 +637,20 @@ impl Client {
         Ok(())
     }
 
+    /// Fail if the crypto store holds no device keys for a session being
+    /// restored, unless
+    /// [`EncryptionSettings::allow_restore_without_device_keys`] is set.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) async fn ensure_device_keys_for_restore(&self) -> Result<()> {
+        if self.inner.e2ee.encryption_settings.allow_restore_without_device_keys
+            || self.base_client().has_stored_olm_account().await?
+        {
+            Ok(())
+        } else {
+            Err(Error::MissingDeviceKeys)
+        }
+    }
+
     /// Create a [`WeakClient`], i.e. a weak reference to the [`Client`], for
     /// use in background tasks.
     ///
@@ -1833,9 +1847,9 @@ impl Client {
     /// [`ClientBuilder::sqlite_store()`]), the same store must be configured
     /// when the session is restored, otherwise the encryption keys and room
     /// state will not be available. In particular, when the `e2e-encryption`
-    /// feature is enabled, restoring on top of an in-memory store will leave
-    /// the client unable to send or receive encrypted messages, since the Olm
-    /// and outbound group session state cannot be recovered.
+    /// feature is enabled, restoring on top of a store that doesn't hold the
+    /// session's device keys fails with [`Error::MissingDeviceKeys`], unless
+    /// [`EncryptionSettings::allow_restore_without_device_keys`] is set.
     ///
     /// See the [`persist_session`] example for an end-to-end sample of how to
     /// persist a session and its store across runs.
@@ -1843,6 +1857,8 @@ impl Client {
     /// [`ClientBuilder`]: crate::ClientBuilder
     /// [`ClientBuilder::sqlite_store()`]: crate::ClientBuilder::sqlite_store
     /// [`persist_session`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/persist_session
+    /// [`Error::MissingDeviceKeys`]: crate::Error::MissingDeviceKeys
+    /// [`EncryptionSettings::allow_restore_without_device_keys`]: crate::encryption::EncryptionSettings::allow_restore_without_device_keys
     ///
     /// # Panics
     ///
@@ -4433,6 +4449,31 @@ pub(crate) mod tests {
         media::MediaError,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
     };
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_restore_session_without_stored_device_keys() {
+        use crate::{
+            authentication::AuthSession,
+            test_utils::client::{
+                mock_matrix_session, mock_session_tokens_with_refresh, oauth::mock_session,
+            },
+        };
+
+        let sessions: [AuthSession; 2] =
+            [mock_matrix_session().into(), mock_session(mock_session_tokens_with_refresh()).into()];
+
+        for session in sessions {
+            let client =
+                Client::builder().homeserver_url("http://localhost").build().await.unwrap();
+
+            assert_matches!(client.restore_session(session).await, Err(Error::MissingDeviceKeys));
+            // The client must not have generated new device keys in the
+            // process.
+            assert!(!client.base_client().has_stored_olm_account().await.unwrap());
+            assert!(client.session_meta().is_none());
+        }
+    }
 
     #[async_test]
     async fn test_sync_presence_is_shared_by_client_clones_and_notification_child() {

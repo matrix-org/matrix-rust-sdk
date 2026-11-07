@@ -921,6 +921,7 @@ pub(super) async fn assert_can_perform_interactive_verification(
         auto_enable_cross_signing: true,
         auto_enable_backups: true,
         backup_download_strategy,
+        allow_restore_without_device_keys: false,
     };
 
     let first_client = SyncTokenAwareClient::new(

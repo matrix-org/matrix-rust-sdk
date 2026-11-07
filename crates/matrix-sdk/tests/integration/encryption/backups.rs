@@ -27,8 +27,8 @@ use matrix_sdk::{
         secret_storage::{SecretStorageError, SecretStore},
     },
     test_utils::{
-        client::mock_session_tokens, no_retry_test_client_with_server,
-        test_client_builder_with_server,
+        client::mock_session_tokens, mocked_device_encryption_settings,
+        no_retry_test_client_with_server, test_client_builder_with_server,
     },
 };
 use matrix_sdk_base::crypto::{
@@ -713,7 +713,8 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> TestResult {
     let server = wiremock::MockServer::start().await;
     let builder = Client::builder()
         .homeserver_url(server.uri())
-        .server_versions([ruma::api::MatrixVersion::V1_0]);
+        .server_versions([ruma::api::MatrixVersion::V1_0])
+        .with_encryption_settings(mocked_device_encryption_settings());
 
     let client = builder.request_config(RequestConfig::new().disable_retry()).build().await?;
 
@@ -912,7 +913,7 @@ async fn test_enable_from_secret_storage() -> TestResult {
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -1046,7 +1047,7 @@ async fn test_enable_from_secret_storage_no_existing_backup() -> TestResult {
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -1085,7 +1086,7 @@ async fn test_enable_from_secret_storage_mismatched_key() -> TestResult {
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -1140,7 +1141,7 @@ async fn test_enable_from_secret_storage_missing_key() -> TestResult {
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::OneShot,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -1217,7 +1218,7 @@ async fn test_enable_from_secret_storage_and_manual_download() -> TestResult {
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::Manual,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -1335,7 +1336,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd() -> TestResult 
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
@@ -1447,7 +1448,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
         backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
-        ..Default::default()
+        ..mocked_device_encryption_settings()
     };
     let client = builder
         .request_config(RequestConfig::new().disable_retry())

@@ -5050,6 +5050,8 @@ mod tests {
         use matrix_sdk_base::store::RoomLoadSettings;
         use matrix_sdk_test::{TestRoom, message_like_event_content};
 
+        use crate::test_utils::mocked_device_encryption_settings;
+
         let tmp_dir = tempfile::tempdir().unwrap();
         let sqlite_path = tmp_dir.path().join("cache_invalidation_while_encrypt.db");
         let session = mock_matrix_session();
@@ -5058,6 +5060,7 @@ mod tests {
             .homeserver_url("http://localhost:1234")
             .request_config(RequestConfig::new().disable_retry())
             .sqlite_store(&sqlite_path, None)
+            .with_encryption_settings(mocked_device_encryption_settings())
             .build()
             .await
             .unwrap();

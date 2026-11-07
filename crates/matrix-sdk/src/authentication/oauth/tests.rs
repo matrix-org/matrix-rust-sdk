@@ -591,17 +591,18 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     let prev_tokens = mock_prev_session_tokens_with_refresh();
     let next_tokens = mock_session_tokens_with_refresh();
 
-    for client in [
+    for builder in [
         // Create an insecure client with the homeserver_url method.
-        Client::builder().homeserver_url(&server_url).build().await?,
+        Client::builder().homeserver_url(&server_url),
         // Create an insecure client with the insecure_server_name_no_tls method.
-        Client::builder()
-            .insecure_server_name_no_tls(&ServerName::parse(
-                server_url.strip_prefix("http://").unwrap(),
-            )?)
-            .build()
-            .await?,
+        Client::builder().insecure_server_name_no_tls(&ServerName::parse(
+            server_url.strip_prefix("http://").unwrap(),
+        )?),
     ] {
+        #[cfg(feature = "e2e-encryption")]
+        let builder = builder
+            .with_encryption_settings(crate::test_utils::mocked_device_encryption_settings());
+        let client = builder.build().await?;
         let oauth = client.oauth();
 
         // Restore the previous session so we have an existing set of refresh
