@@ -1136,7 +1136,6 @@ async fn test_edits_touches_threads() {
 }
 
 #[async_test]
-#[should_panic(expected = "the reaction on the thread root didn't reach the thread")]
 async fn test_reaction_on_thread_root_reaches_thread_timeline() {
     // A reaction to the thread root received over sync must reach the thread,
     // so a thread timeline displays it, like the room timeline does.
@@ -1185,9 +1184,8 @@ async fn test_reaction_on_thread_root_reaches_thread_timeline() {
         .await;
 
     // The thread receives the reaction.
-    let update = tokio::time::timeout(Duration::from_millis(100), thread_stream.recv()).await;
-    let Ok(Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }))) =
-        update
+    assert_let_timeout!(Duration::from_millis(100), Ok(update) = thread_stream.recv());
+    let ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) = update
     else {
         panic!("the reaction on the thread root didn't reach the thread");
     };

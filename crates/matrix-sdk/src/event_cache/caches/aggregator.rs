@@ -94,9 +94,20 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
                 | RelationType::Replacement
                 | RelationType::Reference
                 | _ => {
-                    // First, look for the related event in `timeline`
+                    // The related event may be the thread root itself. It may
+                    // not be included in the sync results, so it must be
+                    // matched against the known threads directly.
+                    if existing_threads.contains_key(&related_event_id) {
+                        new_events_by_thread
+                            .entry(related_event_id)
+                            .or_insert_with(default_entry)
+                            .0
+                            .events
+                            .push(event.clone());
+                    }
+                    // Otherwise, look for the related event in `timeline`
                     // backwards.
-                    if let Some(thread_root) = match timeline.events[..nth]
+                    else if let Some(thread_root) = match timeline.events[..nth]
                         .iter()
                         .rev()
                         .find(|event| event.event_id() == Some(&related_event_id))
