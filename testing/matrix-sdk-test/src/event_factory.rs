@@ -1589,24 +1589,24 @@ impl EventFactory {
     /// Create a new `m.space.child` state event.
     pub fn space_child(
         &self,
-        parent: OwnedRoomId,
-        child: OwnedRoomId,
+        parent: impl Into<OwnedRoomId>,
+        child: impl Into<OwnedRoomId> + Into<String>,
     ) -> EventBuilder<SpaceChildEventContent> {
         let mut event = self.event(SpaceChildEventContent::new(vec![]));
-        event.room = Some(parent);
-        event.state_key = Some(child.to_string());
+        event.room = Some(parent.into());
+        event.state_key = Some(child.into());
         event
     }
 
     /// Create a new `m.space.parent` state event.
     pub fn space_parent(
         &self,
-        parent: OwnedRoomId,
-        child: OwnedRoomId,
+        parent: impl Into<OwnedRoomId> + Into<String>,
+        child: impl Into<OwnedRoomId>,
     ) -> EventBuilder<SpaceParentEventContent> {
         let mut event = self.event(SpaceParentEventContent::new(vec![]));
-        event.state_key = Some(parent.to_string());
-        event.room = Some(child);
+        event.state_key = Some(parent.into());
+        event.room = Some(child.into());
         event
     }
 
