@@ -3363,7 +3363,7 @@ impl Client {
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
-    pub async fn get_retention_configuration(
+    pub async fn fetch_retention_configuration(
         &self,
     ) -> HttpResult<get_retention_configuration::msc1763::Response> {
         self.send(get_retention_configuration::msc1763::Request::default()).await
@@ -6545,7 +6545,7 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_get_retention_configuration() {
+    async fn test_fetch_retention_configuration() {
         use wiremock::{
             Mock, ResponseTemplate,
             matchers::{method, path},
@@ -6564,7 +6564,7 @@ pub(crate) mod tests {
             .mount(server.server())
             .await;
 
-        let response = client.get_retention_configuration().await;
+        let response = client.fetch_retention_configuration().await;
         assert!(response.is_ok());
         let response = response.unwrap();
         assert!(response.policies.is_empty());

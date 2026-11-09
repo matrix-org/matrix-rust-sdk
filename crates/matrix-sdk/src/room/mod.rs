@@ -4353,7 +4353,7 @@ impl Room {
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
     pub async fn effective_retention(&self) -> Result<Option<RoomRetentionEventContent>> {
-        let config = match self.client.get_retention_configuration().await {
+        let config = match self.client.fetch_retention_configuration().await {
             Ok(config) => config,
             Err(e) if e.is_endpoint_not_implemented() => {
                 debug!(
