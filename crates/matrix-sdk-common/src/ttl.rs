@@ -15,6 +15,8 @@
 //! Types to implement TTL caches which can be used to persist data for a fixed
 //! duration.
 
+use std::time::Duration;
+
 use ruma::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
@@ -67,9 +69,20 @@ impl<T> TtlValue<T> {
         TtlValue { data: f(self.data), last_fetch_ts: self.last_fetch_ts }
     }
 
-    /// Whether this value has expired.
+    /// Whether this value has expired, using the default
+    /// [`Self::STALE_THRESHOLD`].
     pub fn has_expired(&self) -> bool {
-        self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= Self::STALE_THRESHOLD)
+        self.has_expired_with_threshold_ms(Self::STALE_THRESHOLD)
+    }
+
+    /// Whether this value has expired, using the given time-to-live instead of
+    /// the default [`Self::STALE_THRESHOLD`].
+    pub fn has_expired_after(&self, ttl: Duration) -> bool {
+        self.has_expired_with_threshold_ms(ttl.as_secs_f64() * 1000.0)
+    }
+
+    fn has_expired_with_threshold_ms(&self, threshold_ms: f64) -> bool {
+        self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= threshold_ms)
     }
 
     /// Mark this value has expired.
@@ -109,6 +122,8 @@ fn default_timestamp() -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
@@ -130,6 +145,26 @@ mod tests {
         // Cannot be stale.
         let ttl_value = TtlValue::without_expiry(());
         assert!(!ttl_value.has_expired());
+    }
+
+    #[test]
+    fn test_ttl_value_expiry_with_custom_ttl() {
+        let ttl = Duration::from_secs(60 * 60);
+        let ttl_ms = ttl.as_secs_f64() * 1000.0;
+
+        // Stale with the custom TTL, but not with the default one.
+        let ttl_value =
+            TtlValue { data: (), last_fetch_ts: Some(now_timestamp_ms() - ttl_ms - 1.0) };
+        assert!(ttl_value.has_expired_after(ttl));
+        assert!(!ttl_value.has_expired());
+
+        // Not stale.
+        let ttl_value = TtlValue::new(());
+        assert!(!ttl_value.has_expired_after(ttl));
+
+        // Cannot be stale.
+        let ttl_value = TtlValue::without_expiry(());
+        assert!(!ttl_value.has_expired_after(Duration::ZERO));
     }
 
     #[test]
