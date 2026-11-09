@@ -156,6 +156,10 @@ pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
 use crate::search_index::SearchIndex;
 
+/// How long the cached homeserver message retention configuration is
+/// considered fresh: 6 hours.
+const RETENTION_CONFIGURATION_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 #[cfg(target_family = "wasm")]
@@ -476,6 +480,7 @@ impl ClientInner {
         base_client: BaseClient,
         supported_versions: CachedValue<TtlValue<SupportedVersions>>,
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
+        retention_configuration: Option<TtlValue<get_retention_configuration::msc1763::Response>>,
         respect_login_well_known: bool,
         well_known_lookup_disabled: bool,
         enable_automatic_back_pagination: bool,
@@ -494,6 +499,7 @@ impl ClientInner {
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
             rtc_transports: Cache::new(),
+            retention_configuration: SharedObservable::new(retention_configuration),
         };
 
         let client = Self {
@@ -3355,10 +3361,15 @@ impl Client {
         self.send(request).await
     }
 
-    /// Get the server's message retention policy configuration.
+    /// Fetch the server's message retention policy configuration.
     ///
     /// Returns the server-level retention policy limits and any per-room
     /// overrides defined by the server.
+    ///
+    /// This always makes a request to the homeserver. On success, the
+    /// response is stored in the client's cache, so it can be read with
+    /// [`Self::retention_configuration`] and observed with
+    /// [`Self::subscribe_to_retention_configuration`].
     ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
@@ -3366,7 +3377,49 @@ impl Client {
     pub async fn fetch_retention_configuration(
         &self,
     ) -> HttpResult<get_retention_configuration::msc1763::Response> {
-        self.send(get_retention_configuration::msc1763::Request::default()).await
+        let response = self.send(get_retention_configuration::msc1763::Request::default()).await?;
+
+        self.inner.caches.retention_configuration.set(Some(TtlValue::new(response.clone())));
+
+        Ok(response)
+    }
+
+    /// Get the server's message retention policy configuration, from the cache
+    /// if possible.
+    ///
+    /// If the cached value is missing or older than 6 hours, it is re-fetched
+    /// from the homeserver with [`Self::fetch_retention_configuration`].
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn retention_configuration(
+        &self,
+    ) -> HttpResult<get_retention_configuration::msc1763::Response> {
+        if let Some(cached) = self.inner.caches.retention_configuration.get()
+            && !cached.has_expired_after(RETENTION_CONFIGURATION_TTL)
+        {
+            return Ok(cached.into_data());
+        }
+
+        self.fetch_retention_configuration().await
+    }
+
+    /// Subscribe to changes of the cached server message retention policy
+    /// configuration.
+    ///
+    /// The value is `None` until it has been successfully fetched at least
+    /// once with
+    /// [`Self::fetch_retention_configuration`] (or
+    /// [`Self::retention_configuration`]).
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub fn subscribe_to_retention_configuration(
+        &self,
+    ) -> Subscriber<Option<TtlValue<get_retention_configuration::msc1763::Response>>> {
+        self.inner.caches.retention_configuration.subscribe()
     }
 
     /// Delete the given devices from the server.
@@ -4000,6 +4053,7 @@ impl Client {
                     .await?,
                 self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.value(),
+                self.inner.caches.retention_configuration.get(),
                 self.inner.respect_login_well_known,
                 self.well_known_lookup_disabled(),
                 false,
@@ -6570,6 +6624,40 @@ pub(crate) mod tests {
         assert!(response.policies.is_empty());
         assert!(response.limits.max_lifetime.is_none());
         assert!(response.limits.min_lifetime.is_none());
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_is_cached_and_observable() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let mut subscriber = client.subscribe_to_retention_configuration();
+        assert!(subscriber.get().is_none());
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "policies": {},
+                "limits": {},
+            })))
+            // Only the first call hits the network, the second one uses the cache.
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        client.retention_configuration().await.unwrap();
+
+        assert_next_matches!(subscriber, Some(cached) => {
+            assert!(!cached.has_expired_after(super::RETENTION_CONFIGURATION_TTL));
+        });
+
+        client.retention_configuration().await.unwrap();
+        assert_pending!(subscriber);
     }
 
     #[async_test]

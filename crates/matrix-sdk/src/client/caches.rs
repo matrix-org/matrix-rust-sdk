@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use eyeball::SharedObservable;
 use matrix_sdk_base::store::WellKnownResponse;
 use matrix_sdk_common::{locks::Mutex, ttl::TtlValue};
 use ruma::api::{
@@ -23,6 +24,7 @@ use ruma::api::{
             get_authorization_server_metadata::v1::AuthorizationServerMetadata,
             get_capabilities::v3::Capabilities,
         },
+        retention::get_retention_configuration,
         rtc::RtcTransport,
     },
 };
@@ -53,6 +55,16 @@ pub(crate) struct ClientCaches {
     /// discovery endpoint, as distinct from one that advertises no transports
     /// (`Some(vec![])`).
     pub(crate) rtc_transports: Cache<Option<Vec<RtcTransport>>, Arc<HttpError>>,
+    /// The homeserver's message retention configuration
+    /// ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)).
+    ///
+    /// It is updated every time it's successfully fetched with
+    /// `Client::fetch_retention_configuration`.
+    ///
+    /// `None` if it has never been fetched, or if it couldn't be fetched
+    /// because the homeserver doesn't support it.
+    pub(crate) retention_configuration:
+        SharedObservable<Option<TtlValue<get_retention_configuration::msc1763::Response>>>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion
