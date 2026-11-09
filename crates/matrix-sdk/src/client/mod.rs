@@ -3367,9 +3367,10 @@ impl Client {
     /// overrides defined by the server.
     ///
     /// This always makes a request to the homeserver. On success, the
-    /// response is stored in the client's cache, so it can be read with
-    /// [`Self::retention_configuration`] and observed with
-    /// [`Self::subscribe_to_retention_configuration`].
+    /// response is stored in the client's cache and persisted in the state
+    /// store, so it can be read with [`Self::retention_configuration`] and
+    /// observed with [`Self::subscribe_to_retention_configuration`], even
+    /// after a restart without connectivity.
     ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
@@ -3378,8 +3379,20 @@ impl Client {
         &self,
     ) -> HttpResult<get_retention_configuration::msc1763::Response> {
         let response = self.send(get_retention_configuration::msc1763::Request::default()).await?;
+        let value = TtlValue::new(response.clone());
 
-        self.inner.caches.retention_configuration.set(Some(TtlValue::new(response.clone())));
+        if let Err(error) = self
+            .state_store()
+            .set_kv_data(
+                StateStoreDataKey::RetentionConfiguration,
+                StateStoreDataValue::RetentionConfiguration(value.clone().map(Into::into)),
+            )
+            .await
+        {
+            warn!("error when persisting the retention configuration: {error}");
+        }
+
+        self.inner.caches.retention_configuration.set(Some(value));
 
         Ok(response)
     }
@@ -3388,7 +3401,11 @@ impl Client {
     /// if possible.
     ///
     /// If the cached value is missing or older than 6 hours, it is re-fetched
-    /// from the homeserver with [`Self::fetch_retention_configuration`].
+    /// from the homeserver with [`Self::fetch_retention_configuration`]. If
+    /// that request fails (e.g. because there is no connectivity) and a stale
+    /// value is cached, the stale value is returned instead. The only
+    /// exception is when the homeserver doesn't implement the endpoint, in
+    /// which case the error is always returned.
     ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
@@ -3396,20 +3413,35 @@ impl Client {
     pub async fn retention_configuration(
         &self,
     ) -> HttpResult<get_retention_configuration::msc1763::Response> {
-        if let Some(cached) = self.inner.caches.retention_configuration.get()
+        let cached = self.inner.caches.retention_configuration.get();
+
+        if let Some(cached) = &cached
             && !cached.has_expired_after(RETENTION_CONFIGURATION_TTL)
         {
-            return Ok(cached.into_data());
+            return Ok(cached.data().clone());
         }
 
-        self.fetch_retention_configuration().await
+        match self.fetch_retention_configuration().await {
+            Ok(response) => Ok(response),
+            Err(error) if error.is_endpoint_not_implemented() => Err(error),
+            Err(error) => match cached {
+                Some(cached) => {
+                    warn!(
+                        "failed to refresh the retention configuration, using the stale cached \
+                         value: {error}"
+                    );
+                    Ok(cached.into_data())
+                }
+                None => Err(error),
+            },
+        }
     }
 
     /// Subscribe to changes of the cached server message retention policy
     /// configuration.
     ///
-    /// The value is `None` until it has been successfully fetched at least
-    /// once with
+    /// The initial value is the one persisted in the state store, if any. It is
+    /// `None` until it has been successfully fetched at least once with
     /// [`Self::fetch_retention_configuration`] (or
     /// [`Self::retention_configuration`]).
     ///
@@ -6658,6 +6690,120 @@ pub(crate) mod tests {
 
         client.retention_configuration().await.unwrap();
         assert_pending!(subscriber);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_is_persisted() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let memory_store = Arc::new(MemoryStore::new());
+        let build_client = || {
+            server
+                .client_builder()
+                .on_builder(|builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                            .state_store(memory_store.clone()),
+                    )
+                })
+                .build()
+        };
+
+        {
+            let _guard = Mock::given(method("GET"))
+                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "policies": { "*": { "max_lifetime": 86_400_000 } },
+                    "limits": {},
+                })))
+                .expect(1)
+                .mount_as_scoped(server.server())
+                .await;
+
+            let client = build_client().await;
+            assert!(client.subscribe_to_retention_configuration().get().is_none());
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // A new client using the same store gets the persisted value, without
+        // any request to the homeserver.
+        let client = build_client().await;
+
+        let cached = client
+            .subscribe_to_retention_configuration()
+            .get()
+            .expect("the retention configuration should have been loaded from the store");
+        assert_eq!(cached.data().policies.len(), 1);
+
+        let config = client.retention_configuration().await.unwrap();
+        assert_eq!(config.policies.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_falls_back_to_stale_value() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().disable_retry()))
+            .build()
+            .await;
+
+        {
+            let _guard = Mock::given(method("GET"))
+                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "policies": { "*": { "max_lifetime": 86_400_000 } },
+                    "limits": {},
+                })))
+                .expect(1)
+                .mount_as_scoped(server.server())
+                .await;
+
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // Expire the cached value.
+        let mut cached = client.inner.caches.retention_configuration.get().unwrap();
+        cached.expire();
+        client.inner.caches.retention_configuration.set(Some(cached));
+
+        // The homeserver is unreachable: the stale value is returned.
+        {
+            let _guard = Mock::given(method("GET"))
+                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+                .respond_with(ResponseTemplate::new(503))
+                .expect(1)
+                .mount_as_scoped(server.server())
+                .await;
+
+            let config = client.retention_configuration().await.unwrap();
+            assert_eq!(config.policies.len(), 1);
+        }
+
+        // The homeserver doesn't implement the endpoint: the error is returned.
+        {
+            let _guard = Mock::given(method("GET"))
+                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+                .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                    "errcode": "M_UNRECOGNIZED",
+                    "error": "Unrecognized request",
+                })))
+                .expect(1)
+                .mount_as_scoped(server.server())
+                .await;
+
+            let error = client.retention_configuration().await.unwrap_err();
+            assert!(error.is_endpoint_not_implemented());
+        }
     }
 
     #[async_test]
