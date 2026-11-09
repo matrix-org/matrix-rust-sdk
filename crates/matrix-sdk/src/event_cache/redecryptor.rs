@@ -1381,7 +1381,10 @@ mod tests {
     use eyeball_im::VectorDiff;
     use futures_util::future::join_all;
     use matrix_sdk_base::{
-        crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
+        crypto::{
+            store::types::RoomKeyInfo,
+            types::{EventEncryptionAlgorithm, events::room::encrypted::EncryptedToDeviceEvent},
+        },
         deserialized_responses::{TimelineEventKind, UnableToDecryptReason, VerificationState},
         event_cache::store::ControlledMemoryStore,
         locks::Mutex,
@@ -1403,13 +1406,14 @@ mod tests {
                 AddMentions, ReplyMetadata, ReplyWithinThread, RoomMessageEventContent,
             },
         },
-        room_id,
+        owned_room_id, room_id,
         serde::Raw,
         user_id,
     };
     use serde_json::json;
     use strass::assert_let;
     use tracing::{Instrument, info};
+    use vodozemac::Curve25519PublicKey;
     use wiremock::{Request, Respond, ResponseTemplate};
 
     use crate::{
@@ -1417,7 +1421,7 @@ mod tests {
         encryption::EncryptionSettings,
         event_cache::{
             DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
-            TimelineVectorDiffs,
+            TimelineVectorDiffs, redecryptor::CollatorState,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -1530,6 +1534,34 @@ mod tests {
             .await;
 
         (alice, bob, matrix_mock_server, store)
+    }
+
+    #[async_test]
+    async fn test_room_key_collator_deduplicates_room_key_info_while_preserving_arrival_order() {
+        let mut collator = CollatorState::default();
+        let key1 = RoomKeyInfo {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id: owned_room_id!("!example:matrix.org"),
+            sender_key: Curve25519PublicKey::from(b"i love coyotes! i love coyotes!!".to_owned()),
+            session_id: "session1".to_owned(),
+        };
+
+        let key2 = RoomKeyInfo {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id: owned_room_id!("!example:matrix.org"),
+            sender_key: Curve25519PublicKey::from(b"i really love coyotes! coyotes!!".to_owned()),
+            session_id: "session2".to_owned(),
+        };
+
+        // Add the same key twice.
+        collator.add_key(key1.clone());
+        collator.add_key(key2);
+        collator.add_key(key1);
+        // It should only have kept one copy and preserved the arrival order of
+        // `key1` and `key2`.
+        assert_eq!(collator.room_keys.len(), 2);
+        assert_eq!(collator.room_keys[0].session_id, "session1");
+        assert_eq!(collator.room_keys[1].session_id, "session2");
     }
 
     #[async_test]
