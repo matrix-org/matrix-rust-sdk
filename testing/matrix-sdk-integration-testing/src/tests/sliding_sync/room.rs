@@ -82,7 +82,7 @@ async fn test_left_room() -> Result<()> {
         .network_timeout(Duration::from_secs(3))
         .add_list(
             SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=20))
                 .required_state(vec![(StateEventType::RoomMember, "$ME".to_owned())]),
         )
         .build()
@@ -175,7 +175,7 @@ async fn test_room_avatar_group_conversation() -> Result<()> {
         .network_timeout(Duration::from_secs(2))
         .add_list(
             SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=20))
                 .required_state(vec![(StateEventType::RoomAvatar, "".to_owned())]),
         )
         .build()
@@ -436,7 +436,7 @@ async fn test_room_notification_count() -> Result<()> {
             )
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=20))
                     .required_state(vec![(StateEventType::RoomMember, "$ME".to_owned())]),
             )
             .build()
@@ -938,7 +938,7 @@ async fn test_room_preview() -> Result<()> {
         .network_timeout(Duration::from_secs(30))
         .add_list(
             SlidingSyncList::builder("all")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=20))
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=20))
                 .required_state(vec![
                     // Explicitly request all the state events we need to get a preview for a known
                     // room.

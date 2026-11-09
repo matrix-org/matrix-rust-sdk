@@ -230,7 +230,7 @@ impl RoomListService {
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(
                         SlidingSyncMode::new_selective()
-                            .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
+                            .set_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                     )
                     .timeline_limit(timeline_limit)
                     .required_state(

@@ -174,10 +174,10 @@ impl Client {
         let list = assign!(http::request::List::default(), {
             // Only fetch the first room. The default `room_details` requests
             // no state and no timeline events.
-            ranges: vec![(uint!(0), uint!(0))],
+            range: Some((uint!(0), uint!(0))),
             filters: Some(assign!(http::request::ListFilters::default(), {
                 is_encrypted: Some(true),
-                is_invite: Some(false),
+                is_invited: Some(false),
                 not_room_types: vec![RoomTypeFilter::Space],
             })),
         });
@@ -560,7 +560,7 @@ mod tests {
             )
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
             )
             .build()
             .await?;
@@ -734,7 +734,7 @@ mod tests {
             .sliding_sync("test")?
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
             )
             .build()
             .await?;

@@ -768,7 +768,7 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> TestResult {
         .network_timeout(Duration::from_secs(3))
         .add_list(
             matrix_sdk::SlidingSyncList::builder("all")
-                .sync_mode(matrix_sdk::SlidingSyncMode::new_selective().add_range(0..=20)),
+                .sync_mode(matrix_sdk::SlidingSyncMode::new_selective().set_range(0..=20)),
         )
         .build()
         .await?;

@@ -676,7 +676,7 @@ impl NotificationClient {
         ];
 
         let invites = SlidingSyncList::builder("invites")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=16))
+            .sync_mode(SlidingSyncMode::new_selective().set_range(0..=16))
             .timeline_limit(8)
             .required_state(required_state.clone())
             .filters(Some(assign!(http::request::ListFilters::default(), {

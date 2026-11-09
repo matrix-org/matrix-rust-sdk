@@ -5,8 +5,8 @@
 //!
 //! In [`SlidingSyncMode::Selective`], it's pretty straightforward:
 //!
-//! * There is a set of ranges,
-//! * Each request asks to load the particular ranges.
+//! * There is an optional range,
+//! * Each request asks to load the particular range.
 //!
 //! In [`SlidingSyncMode::Paging`]:
 //!
@@ -30,7 +30,7 @@
 
 use std::cmp::min;
 
-use super::{Range, Ranges, SlidingSyncMode};
+use super::{Range, SlidingSyncMode};
 use crate::{SlidingSyncListLoadingState, sliding_sync::Error};
 
 /// The kind of request generator.
@@ -76,7 +76,7 @@ pub struct SlidingSyncListRequestGenerator {
     /// The current ranges used by this request generator.
     ///
     /// Note there's only one range in the `Growing` and `Paging` mode.
-    ranges: Ranges,
+    range: Option<Range>,
 
     /// The kind of request generator.
     kind: SlidingSyncListRequestGeneratorKind,
@@ -87,7 +87,7 @@ impl SlidingSyncListRequestGenerator {
     pub(super) fn new(sync_mode: SlidingSyncMode) -> Self {
         match sync_mode {
             SlidingSyncMode::Paging { batch_size, maximum_number_of_rooms_to_fetch } => Self {
-                ranges: Vec::new(),
+                range: None,
                 kind: SlidingSyncListRequestGeneratorKind::Paging {
                     batch_size,
                     maximum_number_of_rooms_to_fetch,
@@ -98,7 +98,7 @@ impl SlidingSyncListRequestGenerator {
             },
 
             SlidingSyncMode::Growing { batch_size, maximum_number_of_rooms_to_fetch } => Self {
-                ranges: Vec::new(),
+                range: None,
                 kind: SlidingSyncListRequestGeneratorKind::Growing {
                     batch_size,
                     maximum_number_of_rooms_to_fetch,
@@ -108,8 +108,8 @@ impl SlidingSyncListRequestGenerator {
                 },
             },
 
-            SlidingSyncMode::Selective { ranges } => {
-                Self { ranges, kind: SlidingSyncListRequestGeneratorKind::Selective }
+            SlidingSyncMode::Selective { range } => {
+                Self { range, kind: SlidingSyncListRequestGeneratorKind::Selective }
             }
         }
     }
@@ -119,8 +119,8 @@ impl SlidingSyncListRequestGenerator {
     /// For generators in the selective mode, this is the initial set of ranges.
     /// For growing and paginated generators, this is the range committed in the
     /// latest response received from the server.
-    pub fn requested_ranges(&self) -> &[Range] {
-        &self.ranges
+    pub fn requested_range(&self) -> &Option<Range> {
+        &self.range
     }
 
     /// Return the kind of request generator is used by this generator.
@@ -130,10 +130,10 @@ impl SlidingSyncListRequestGenerator {
 
     /// Update internal state of the generator (namely, ranges) before the next
     /// sliding sync request.
-    pub(super) fn generate_next_ranges(
+    pub(super) fn generate_next_range(
         &mut self,
         maximum_number_of_rooms: Option<u32>,
-    ) -> Result<Ranges, Error> {
+    ) -> Result<Option<Range>, Error> {
         match &mut self.kind {
             // Cases where all rooms have been fully loaded.
             SlidingSyncListRequestGeneratorKind::Paging { fully_loaded: true, .. }
@@ -142,7 +142,7 @@ impl SlidingSyncListRequestGenerator {
                 // Nothing to do: we already have the full ranges, return the
                 // existing ranges. For the growing and paging modes, keep the
                 // current value of `requested_end`, which is still valid.
-                Ok(self.ranges.clone())
+                Ok(self.range.clone())
             }
 
             SlidingSyncListRequestGeneratorKind::Paging {
@@ -168,7 +168,7 @@ impl SlidingSyncListRequestGenerator {
 
                 *requested_end = Some(*next_range.end());
 
-                Ok(vec![next_range])
+                Ok(Some(next_range))
             }
 
             SlidingSyncListRequestGeneratorKind::Growing {
@@ -194,7 +194,7 @@ impl SlidingSyncListRequestGenerator {
 
                 *requested_end = Some(*next_range.end());
 
-                Ok(vec![next_range])
+                Ok(Some(next_range))
             }
         }
     }
@@ -250,7 +250,7 @@ impl SlidingSyncListRequestGenerator {
                     *fully_loaded = false;
 
                     // Update the range to cover from 0 to `range_end`.
-                    self.ranges = vec![0..=range_end];
+                    self.range = Some(0..=range_end);
 
                     // Finally, return the new state.
                     Ok(SlidingSyncListLoadingState::PartiallyLoaded)
@@ -266,7 +266,7 @@ impl SlidingSyncListRequestGenerator {
 
                     // The range is covering the entire list, from 0 to its
                     // maximum.
-                    self.ranges = vec![0..=range_maximum];
+                    self.range = Some(0..=range_maximum);
 
                     // Finally, let's update the list' state.
                     Ok(SlidingSyncListLoadingState::FullyLoaded)
@@ -401,7 +401,7 @@ mod tests {
         let sync_mode = SlidingSyncMode::new_selective();
         let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
-        assert!(request_generator.ranges.is_empty());
+        assert!(request_generator.range.is_none());
         assert_eq!(request_generator.kind, SlidingSyncListRequestGeneratorKind::Selective);
         assert!(request_generator.is_selective());
     }
@@ -411,7 +411,7 @@ mod tests {
         let sync_mode = SlidingSyncMode::new_paging(1).maximum_number_of_rooms_to_fetch(2);
         let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
-        assert!(request_generator.ranges.is_empty());
+        assert!(request_generator.range.is_none());
         assert_eq!(
             request_generator.kind,
             SlidingSyncListRequestGeneratorKind::Paging {
@@ -430,7 +430,7 @@ mod tests {
         let sync_mode = SlidingSyncMode::new_growing(1).maximum_number_of_rooms_to_fetch(2);
         let request_generator = SlidingSyncListRequestGenerator::new(sync_mode.into());
 
-        assert!(request_generator.ranges.is_empty());
+        assert!(request_generator.range.is_none());
         assert_eq!(
             request_generator.kind,
             SlidingSyncListRequestGeneratorKind::Growing {

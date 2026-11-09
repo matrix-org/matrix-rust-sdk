@@ -180,7 +180,7 @@ async fn set_all_rooms_to_selective_sync_mode(sliding_sync: &SlidingSync) -> Res
     sliding_sync
         .on_list(ALL_ROOMS_LIST_NAME, |list| {
             list.set_sync_mode(
-                SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
+                SlidingSyncMode::new_selective().set_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
             );
 
             ready(())

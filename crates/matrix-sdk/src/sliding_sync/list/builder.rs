@@ -7,7 +7,7 @@ use std::{
 };
 
 use eyeball::SharedObservable;
-use ruma::{api::client::sync::sync_events::v5 as http, events::StateEventType};
+use ruma::{api::client::sync::sync_events::v5 as http, assign, events::StateEventType};
 use tokio::sync::broadcast::Sender;
 
 use super::{
@@ -34,7 +34,7 @@ pub struct SlidingSyncListBuilder {
     requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> PollTimeout + Send + Sync>,
     #[cfg(target_family = "wasm")]
     requires_timeout: Arc<dyn Fn(&SlidingSyncListRequestGenerator) -> PollTimeout>,
-    required_state: Vec<(StateEventType, String)>,
+    required_state: http::request::RequiredStateRequest,
     filters: Option<http::request::ListFilters>,
     timeline_limit: Bound,
     pub(crate) name: String,
@@ -79,10 +79,12 @@ impl SlidingSyncListBuilder {
                     PollTimeout::None
                 }
             }),
-            required_state: vec![
-                (StateEventType::RoomEncryption, "".to_owned()),
-                (StateEventType::RoomTombstone, "".to_owned()),
-            ],
+            required_state: assign!(http::request::RequiredStateRequest::default(), {
+                include: vec![
+                    (StateEventType::RoomEncryption, "").into(),
+                    (StateEventType::RoomTombstone, "").into(),
+                ]
+            }),
             filters: None,
             timeline_limit: 1,
             name: name.into(),
@@ -155,7 +157,7 @@ impl SlidingSyncListBuilder {
     }
 
     /// Required states to return per room.
-    pub fn required_state(mut self, value: Vec<(StateEventType, String)>) -> Self {
+    pub fn required_state(mut self, value: http::request::RequiredStateRequest) -> Self {
         self.required_state = value;
         self
     }

@@ -431,7 +431,7 @@ impl Match for SlidingSyncMatcher {
 async fn test_timeline_basic() -> Result<()> {
     let (client, server, sliding_sync) = new_sliding_sync(vec![
         SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
     ])
     .await?;
 
@@ -481,7 +481,7 @@ async fn test_timeline_basic() -> Result<()> {
 async fn test_timeline_duplicated_events() -> Result<()> {
     let (client, server, sliding_sync) = new_sliding_sync(vec![
         SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
     ])
     .await?;
 
@@ -561,7 +561,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
     let (client, server, sliding_sync) = new_sliding_sync(vec![
         SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
     ])
     .await?;
 
@@ -661,7 +661,7 @@ async fn test_timeline_refreshes_sender_profile_on_global_profile_update() -> Re
 
     let (client, server, sliding_sync) = new_sliding_sync(vec![
         SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
     ])
     .await?;
 

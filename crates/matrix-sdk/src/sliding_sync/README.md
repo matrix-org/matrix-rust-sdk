@@ -62,7 +62,7 @@ and a unique name to be identified with.
 For example, a user might be part of thousands of rooms, but if the client
 app always starts by showing the most recent direct message conversations,
 loading all rooms is an inefficient approach. Instead with Sliding Sync one
-defines a list (e.g. named `"main_list"`) filtering for `is_invite`, ordered
+defines a list (e.g. named `"main_list"`) filtering for `is_invited`, ordered
 by recency and select to list the top 10 via `ranges: [ [0,9] ]` (indexes
 are **inclusive**) like so:
 
@@ -71,9 +71,9 @@ are **inclusive**) like so:
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 
 let list_builder = SlidingSyncList::builder("main_list")
-    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
+    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=9))
     .filters(Some(assign!(
-        http::request::ListFilters::default(), { is_invite: Some(true)}
+        http::request::ListFilters::default(), { is_invited: Some(true)}
     )));
 ```
 
@@ -344,18 +344,24 @@ let sliding_sync_builder = client
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
     .sync_mode(SlidingSyncMode::Growing { batch_size: 50, maximum_number_of_rooms_to_fetch: Some(500) }) // sync up by growing the window
-    .required_state(vec![
-        (StateEventType::RoomEncryption, "".to_owned())
-     ]); // only want to know if the room is encrypted
+    .required_state(
+        assign!(http::request::RequiredStateRequest::default(), {
+        include: vec![
+            (StateEventType::RoomEncryption, "").into(),
+        ]})
+    ); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
-    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))  // sync up the specific range only, first 10 items
+    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=9))  // sync up the specific range only, first 10 items
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
-    .required_state(vec![ // we want to know immediately:
-        (StateEventType::RoomEncryption, "".to_owned()), // is it encrypted
-        (StateEventType::RoomTopic, "".to_owned()),      // any topic if known
-        (StateEventType::RoomAvatar, "".to_owned()),     // avatar if set
-     ]);
+    .required_state( // we want to know immediately:
+        assign!(http::request::RequiredStateRequest::default(), {
+        include: vec![
+            (StateEventType::RoomEncryption, "").into(), // is it encrypted
+            (StateEventType::RoomTopic, "").into(),      // any topic if known
+            (StateEventType::RoomAvatar, "").into(),     // avatar if set
+        ]})
+     );
 
 let sliding_sync = sliding_sync_builder
     .add_list(active_list)

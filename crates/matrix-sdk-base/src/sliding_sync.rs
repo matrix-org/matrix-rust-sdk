@@ -363,7 +363,7 @@ mod tests {
         let user_id = client.session_meta().unwrap().user_id.to_owned();
 
         let mut room = http::response::Room::new();
-        room.invite_state = Some(invite_state_for(&user_id, MembershipState::Invite));
+        room.stripped_state = Some(invite_state_for(&user_id, MembershipState::Invite));
 
         let response = response_with_room(room_id, room);
 
@@ -408,7 +408,7 @@ mod tests {
         let user_id = client.session_meta().unwrap().user_id.to_owned();
 
         let mut room = http::response::Room::new();
-        room.invite_state = Some(invite_state_for(&user_id, MembershipState::Knock));
+        room.stripped_state = Some(invite_state_for(&user_id, MembershipState::Knock));
 
         let response = response_with_room(room_id, room);
 
@@ -1065,7 +1065,7 @@ mod tests {
         }))
         .expect("Failed to make raw event")
         .cast_unchecked();
-        room.invite_state = Some(vec![event]);
+        room.stripped_state = Some(vec![event]);
 
         let response = response_with_room(room_id, room);
         client
@@ -2916,7 +2916,6 @@ mod tests {
         let client = logged_in_base_client(Some(user_id)).await;
         let room_id_0 = room_id!("!r0");
         let room_id_1 = room_id!("!r1");
-        let room_id_2 = room_id!("!r2");
 
         // A room is considered encrypted when it receives a `m.room.encryption`
         // event, period.
@@ -2924,16 +2923,12 @@ mod tests {
         // A room is considered **not** encrypted when it receives no
         // `m.room.encryption` event but it was requested, period.
         //
-        // We are going to test three rooms:
+        // We are going to test two rooms:
         //
-        // - two of them receive a `m.room.encryption` event
-        // - the last one does not receive a `m.room.encryption`.
-        // - the first one is configured with a `required_state` for this event,
-        //   the others have nothing.
+        // - one of them receives a `m.room.encryption` event
+        // - the other one does not receive a `m.room.encryption`.
         //
-        // The trick is that, since sliding sync makes an union of all the
-        // `required_state`s, then all rooms are technically requesting a
-        // `m.room.encryption`.
+        // In both cases, we request the `m.room.encryption` state.
         let requested_required_states = RequestedRequiredStates::from(&{
             let mut request = http::Request::new();
 
@@ -2942,7 +2937,18 @@ mod tests {
 
                 room_subscription
                     .required_state
-                    .push((StateEventType::RoomEncryption, "".to_owned()));
+                    .include
+                    .push((StateEventType::RoomEncryption, "").into());
+
+                room_subscription
+            });
+            request.room_subscriptions.insert(room_id_1.to_owned(), {
+                let mut room_subscription = http::request::RoomSubscription::default();
+
+                room_subscription
+                    .required_state
+                    .include
+                    .push((StateEventType::RoomEncryption, "").into());
 
                 room_subscription
             });
@@ -2961,9 +2967,8 @@ mod tests {
             let mut encrypted_room = http::response::Room::new();
             set_room_is_encrypted(&mut encrypted_room, user_id);
 
-            response.rooms.insert(room_id_0.to_owned(), encrypted_room.clone());
-            response.rooms.insert(room_id_1.to_owned(), encrypted_room);
-            response.rooms.insert(room_id_2.to_owned(), not_encrypted_room);
+            response.rooms.insert(room_id_0.to_owned(), encrypted_room);
+            response.rooms.insert(room_id_1.to_owned(), not_encrypted_room);
         }
 
         client
@@ -2980,15 +2985,11 @@ mod tests {
             client.get_room(room_id_0).unwrap().encryption_state(),
             EncryptionState::Encrypted
         );
-        assert_matches!(
-            client.get_room(room_id_1).unwrap().encryption_state(),
-            EncryptionState::Encrypted
-        );
         // This one is not encrypted because it has received nothing.
         assert_matches!(
-            client.get_room(room_id_2).unwrap().encryption_state(),
+            client.get_room(room_id_1).unwrap().encryption_state(),
             EncryptionState::NotEncrypted
-        )
+        );
     }
 
     #[async_test]
@@ -3211,7 +3212,7 @@ mod tests {
         .expect("Failed to make raw event")
         .cast_unchecked();
 
-        room.invite_state = Some(vec![evt]);
+        room.stripped_state = Some(vec![evt]);
 
         // We expect that there will also be an invite event in the
         // required_state, assuming you've asked for this type of event.
@@ -3239,7 +3240,7 @@ mod tests {
         .expect("Failed to make raw event")
         .cast_unchecked();
 
-        room.invite_state = Some(vec![evt]);
+        room.stripped_state = Some(vec![evt]);
     }
 
     fn set_room_joined(room: &mut http::response::Room, user_id: &UserId) {

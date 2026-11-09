@@ -24,7 +24,9 @@ use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
     EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
     RoomAliasId, RoomId, RoomVersionId,
-    api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
+    api::client::sync::sync_events::{
+        v3::RoomSummary as RumaSummary, v5::request::RequiredStateRequest,
+    },
     events::{
         AnyPossiblyRedactedStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, StateEventType,
@@ -68,6 +70,7 @@ use super::{
 };
 use crate::{
     MinimalStateEvent, StateChanges, StoreError,
+    client::required_state_includes_state,
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
@@ -836,14 +839,12 @@ impl RoomInfo {
     }
 
     /// Handle the encryption state.
-    pub fn handle_encryption_state(
-        &mut self,
-        requested_required_states: &[(StateEventType, String)],
-    ) {
-        if requested_required_states
-            .iter()
-            .any(|(state_event, _)| state_event == &StateEventType::RoomEncryption)
-        {
+    pub fn handle_encryption_state(&mut self, required_state_request: RequiredStateRequest) {
+        if required_state_includes_state(
+            &required_state_request,
+            StateEventType::RoomEncryption,
+            "",
+        ) {
             // The `m.room.encryption` event was requested during the sync.
             // Whether we have received a `m.room.encryption` event in return
             // doesn't matter: we must mark the encryption state as synced; if

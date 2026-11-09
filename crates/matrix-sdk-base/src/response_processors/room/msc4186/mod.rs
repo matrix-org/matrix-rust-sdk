@@ -83,7 +83,7 @@ pub async fn update_any_room(
     let is_new_room = !state_store.room_exists(room_id);
 
     let mut raw_invite_state_events =
-        room_response.invite_state.as_ref().map(|events| state_events::stripped::collect(events));
+        room_response.stripped_state.as_ref().map(|events| state_events::stripped::collect(events));
 
     #[allow(unused_mut)] // Required for some feature flag combinations
     let (mut room, mut room_info, maybe_room_update_kind) = membership(
@@ -105,7 +105,8 @@ pub async fn update_any_room(
     }
 
     room_info.mark_state_partially_synced();
-    room_info.handle_encryption_state(requested_required_states.for_room(room_id));
+    room_info
+        .handle_encryption_state(requested_required_states.for_room(room_id, &room_response.lists));
 
     #[cfg(feature = "e2e-encryption")]
     let mut new_user_ids = BTreeSet::new();

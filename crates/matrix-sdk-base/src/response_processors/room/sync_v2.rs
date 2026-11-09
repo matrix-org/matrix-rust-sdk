@@ -56,7 +56,7 @@ pub async fn update_joined_room(
     room_info.update_from_ruma_summary(&joined_room.summary);
     room_info.set_prev_batch(joined_room.timeline.prev_batch.as_deref());
     room_info.mark_state_fully_synced();
-    room_info.handle_encryption_state(requested_required_states.for_room(room_id));
+    room_info.handle_encryption_state(requested_required_states.for_room(room_id, &[]));
 
     let mut new_user_ids = BTreeSet::new();
 
@@ -164,7 +164,7 @@ pub async fn update_left_room(
     let mut room_info = room.clone_info();
     room_info.mark_as_left();
     room_info.mark_state_partially_synced();
-    room_info.handle_encryption_state(requested_required_states.for_room(room_id));
+    room_info.handle_encryption_state(requested_required_states.for_room(room_id, &[]));
 
     let state = State::from_sync_v2(left_room.state);
     let raw_state_events = state.collect(&left_room.timeline.events);

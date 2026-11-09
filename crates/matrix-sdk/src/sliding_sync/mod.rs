@@ -1293,7 +1293,7 @@ mod tests {
     async fn test_add_room_subscriptions() -> Result<()> {
         let (server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1414,7 +1414,7 @@ mod tests {
     async fn test_add_remove_and_reset_room_subscriptions() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1484,7 +1484,7 @@ mod tests {
     async fn test_set_room_subscriptions_refreshes_the_settings() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1539,7 +1539,7 @@ mod tests {
     async fn test_set_room_subscriptions_cancels_the_in_flight_request() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1583,7 +1583,7 @@ mod tests {
     async fn test_reset_and_add_room_subscriptions_cancels_the_in_flight_request() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1626,7 +1626,7 @@ mod tests {
     async fn test_set_room_subscriptions() -> Result<()> {
         let (server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1756,7 +1756,7 @@ mod tests {
     async fn test_room_subscriptions_are_reset_when_session_expires() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1813,7 +1813,7 @@ mod tests {
     async fn test_add_list() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -1823,7 +1823,7 @@ mod tests {
         sliding_sync
             .add_list(
                 SlidingSyncList::builder("bar")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(50..=60)),
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(50..=60)),
             )
             .await?;
 
@@ -2340,7 +2340,7 @@ mod tests {
     async fn test_stop_sync_loop() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
@@ -2381,7 +2381,7 @@ mod tests {
             )
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=100)),
             )
             .build()
             .await?;
@@ -2467,7 +2467,7 @@ mod tests {
             )
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=100)),
             )
             .build()
             .await?;
@@ -2589,7 +2589,7 @@ mod tests {
             )
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=100)),
+                    .sync_mode(SlidingSyncMode::new_selective().set_range(0..=100)),
             )
             .build()
             .await?;
@@ -2874,7 +2874,7 @@ mod tests {
                 ))
                 .add_list(
                     SlidingSyncList::builder("another-list")
-                        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                        .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
                 )
                 .build()
                 .await?;
@@ -2888,7 +2888,7 @@ mod tests {
 
             cloned_sync
                 .on_list("another-list", |list| {
-                    list.set_sync_mode(SlidingSyncMode::new_selective().add_range(10..=20));
+                    list.set_sync_mode(SlidingSyncMode::new_selective().set_range(10..=20));
                     ready(())
                 })
                 .await;
@@ -2907,12 +2907,12 @@ mod tests {
                 continue;
             }
 
-            let another_list_ranges = if num_requests == 0 {
+            let another_list_range = if num_requests == 0 {
                 // First request
-                json!([[0, 10]])
+                json!([0, 10])
             } else {
                 // Second request
-                json!([[10, 20]])
+                json!([10, 20])
             };
 
             num_requests += 1;
@@ -2926,18 +2926,34 @@ mod tests {
                     "conn_id": "test",
                     "lists": {
                         "room-list": {
-                            "ranges": [[0, 9]],
-                            "required_state": [
-                                ["m.room.encryption", ""],
-                                ["m.room.tombstone", ""]
-                            ],
+                            "range": [0, 9],
+                            "required_state": {
+                                "include": [
+                                    {
+                                        "type": "m.room.encryption",
+                                        "state_key": ""
+                                    },
+                                    {
+                                        "type": "m.room.tombstone",
+                                        "state_key": ""
+                                    },
+                                ]
+                            },
                         },
                         "another-list": {
-                            "ranges": another_list_ranges,
-                            "required_state": [
-                                ["m.room.encryption", ""],
-                                ["m.room.tombstone", ""]
-                            ],
+                            "range": another_list_range,
+                            "required_state": {
+                                "include": [
+                                    {
+                                        "type": "m.room.encryption",
+                                        "state_key": ""
+                                    },
+                                    {
+                                        "type": "m.room.tombstone",
+                                        "state_key": ""
+                                    },
+                                ]
+                            },
                         },
                     }
                 }),
@@ -3015,7 +3031,7 @@ mod tests {
             SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_growing(10)),
             SlidingSyncList::builder("bar").sync_mode(SlidingSyncMode::new_paging(10)),
             SlidingSyncList::builder("baz")
-                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                .sync_mode(SlidingSyncMode::new_selective().set_range(0..=10)),
         ])
         .await?;
 
