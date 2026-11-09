@@ -337,9 +337,9 @@ let sliding_sync_builder = client
     .with_account_data_extension(
         assign!(http::request::AccountData::default(), { enabled: Some(true) }),
     ) // we enable the account-data extension
-    .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) })) // and the e2ee extension
+    .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true })) // and the e2ee extension
     .with_to_device_extension(
-        assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
+        assign!(http::request::ToDevice::default(), { enabled: true }),
     ); // and the to-device extension
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)

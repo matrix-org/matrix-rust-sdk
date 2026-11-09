@@ -192,7 +192,7 @@ impl RoomListService {
 
                 builder = builder.with_thread_subscriptions_extension(
                     assign!(http::request::ThreadSubscriptions::default(), {
-                        enabled: Some(true),
+                        enabled: true,
                         limit: Some(ruma::uint!(10))
                     }),
                 );
