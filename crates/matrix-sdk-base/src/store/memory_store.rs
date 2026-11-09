@@ -40,9 +40,9 @@ use ruma::{
 use tracing::{debug, instrument, warn};
 
 use super::{
-    DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
-    RoomLoadSettings, StateChanges, StateStore, StoreError, SupportedVersionsResponse,
-    WellKnownResponse,
+    DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result,
+    RetentionConfigurationResponse, RoomInfo, RoomLoadSettings, StateChanges, StateStore,
+    StoreError, SupportedVersionsResponse, WellKnownResponse,
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
     traits::ComposerDraft,
 };
@@ -97,6 +97,7 @@ struct MemoryStoreInner {
     global_profiles: HashMap<OwnedUserId, UserProfile>,
     unavailable_global_profiles: HashMap<OwnedUserId, MilliSecondsSinceUnixEpoch>,
     homeserver_capabilities: Option<TtlValue<Capabilities>>,
+    retention_configuration: Option<TtlValue<RetentionConfigurationResponse>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -212,6 +213,10 @@ impl StateStore for MemoryStore {
                 .homeserver_capabilities
                 .clone()
                 .map(StateStoreDataValue::HomeserverCapabilities),
+            StateStoreDataKey::RetentionConfiguration => inner
+                .retention_configuration
+                .clone()
+                .map(StateStoreDataValue::RetentionConfiguration),
         })
     }
 
@@ -294,6 +299,13 @@ impl StateStore for MemoryStore {
                         .expect("Session data is not a homeserver capabilities"),
                 );
             }
+            StateStoreDataKey::RetentionConfiguration => {
+                inner.retention_configuration = Some(
+                    value
+                        .into_retention_configuration()
+                        .expect("Session data is not a retention configuration"),
+                );
+            }
         }
 
         Ok(())
@@ -329,6 +341,7 @@ impl StateStore for MemoryStore {
                 inner.thread_subscriptions_catchup_tokens = None;
             }
             StateStoreDataKey::HomeserverCapabilities => inner.homeserver_capabilities = None,
+            StateStoreDataKey::RetentionConfiguration => inner.retention_configuration = None,
         }
         Ok(())
     }

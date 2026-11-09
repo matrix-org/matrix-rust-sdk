@@ -52,8 +52,8 @@ use strass::assert_let;
 #[cfg(feature = "unstable-msc4354")]
 use super::QueuedRequestKind;
 use super::{
-    DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
-    SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
+    DependentQueuedRequestKind, DisplayName, DynStateStore, RetentionConfigurationResponse,
+    RoomLoadSettings, SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
 };
 use crate::{
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
@@ -125,6 +125,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_supported_versions_saving(&self) -> TestResult;
     /// Test saving/restoring the well-known info of the server.
     async fn test_well_known_saving(&self) -> TestResult;
+    /// Test retention configuration saving.
+    async fn test_retention_configuration_saving(&self) -> TestResult;
     /// Test fetching room infos based on [`RoomLoadSettings`].
     async fn test_get_room_infos(&self) -> TestResult;
     /// Test loading thread subscriptions.
@@ -610,6 +612,45 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         let stored_well_known = stored_well_known.into_data();
         assert_eq!(stored_well_known, None);
+
+        Ok(())
+    }
+
+    async fn test_retention_configuration_saving(&self) -> TestResult {
+        assert_matches!(
+            self.get_kv_data(StateStoreDataKey::RetentionConfiguration).await,
+            Ok(None)
+        );
+
+        let json = json!({
+            "policies": {
+                "*": { "max_lifetime": 86_400_000 },
+                "!room:example.org": { "min_lifetime": 3_600_000 },
+            },
+            "limits": {
+                "max_lifetime": { "min": 3_600_000, "max": 864_000_000 },
+            },
+        });
+        let config: RetentionConfigurationResponse = serde_json::from_value(json.clone())?;
+
+        self.set_kv_data(
+            StateStoreDataKey::RetentionConfiguration,
+            StateStoreDataValue::RetentionConfiguration(TtlValue::new(config)),
+        )
+        .await?;
+
+        assert_let!(
+            Ok(Some(StateStoreDataValue::RetentionConfiguration(stored))) =
+                self.get_kv_data(StateStoreDataKey::RetentionConfiguration).await
+        );
+        assert!(!stored.has_expired());
+        assert_eq!(serde_json::to_value(stored.into_data())?, json);
+
+        self.remove_kv_data(StateStoreDataKey::RetentionConfiguration).await?;
+        assert_matches!(
+            self.get_kv_data(StateStoreDataKey::RetentionConfiguration).await,
+            Ok(None)
+        );
 
         Ok(())
     }
@@ -2570,6 +2611,12 @@ macro_rules! statestore_integration_tests {
             async fn test_well_known_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_well_known_saving().await
+            }
+
+            #[async_test]
+            async fn test_retention_configuration_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_retention_configuration_saving().await
             }
 
             #[async_test]
