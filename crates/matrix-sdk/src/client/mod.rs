@@ -2182,7 +2182,9 @@ impl Client {
     pub async fn create_room(&self, request: create_room::v3::Request) -> Result<Room> {
         let invite = request.invite.clone();
         let is_direct_room = request.is_direct;
-        let response = self.send(request).await?;
+
+        let request_config = self.request_config().disable_retry();
+        let response = self.send(request).with_request_config(request_config).await?;
 
         let base_room = self.base_client().get_or_create_room(&response.room_id, RoomState::Joined);
 
@@ -5588,6 +5590,23 @@ pub(crate) mod tests {
         timeout(Duration::from_secs(1), client.await_room_remote_echo(room.room_id()))
             .await
             .unwrap_err();
+    }
+
+    #[async_test]
+    async fn test_create_room_is_not_retried() {
+        let server = MatrixMockServer::new().await;
+
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
+            .build()
+            .await;
+
+        // Creating a room isn't idempotent, so retrying could create duplicate
+        // rooms.
+        server.mock_create_room().error500().expect(1).mount().await;
+
+        client.create_room(CreateRoomRequest::new()).await.unwrap_err();
     }
 
     #[async_test]
