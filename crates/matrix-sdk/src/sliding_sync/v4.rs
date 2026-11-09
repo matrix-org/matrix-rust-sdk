@@ -180,11 +180,16 @@ mod tests {
             ("*".into(), "*".to_owned()),
         ];
 
+        let mut subscription = http::request::RoomSubscription::default();
+        subscription.timeline_limit = uint!(20);
+        subscription.required_state = vec![("m.room.topic".into(), "".to_owned())];
+
         let request = assign!(http::Request::new(), {
             pos: Some("pos".to_owned()),
             conn_id: Some("room-list".to_owned()),
             txn_id: Some("txn".to_owned()),
             lists: [("all_rooms".to_owned(), list)].into(),
+            room_subscriptions: [(owned_room_id!("!room:example.org"), subscription)].into(),
             extensions: assign!(http::request::Extensions::default(), {
                 receipts: assign!(http::request::Receipts::default(), {
                     enabled: Some(true),
@@ -217,6 +222,14 @@ mod tests {
                 },
                 "timeline_limit": 1,
                 "filters": { "is_invited": false },
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&request.room_subscriptions[&owned_room_id!("!room:example.org")])
+                .unwrap(),
+            json!({
+                "required_state": { "include": [{ "type": "m.room.topic", "state_key": "" }] },
+                "timeline_limit": 20,
             })
         );
         assert_eq!(
