@@ -58,8 +58,10 @@ pub(crate) struct ClientCaches {
     /// The homeserver's message retention configuration
     /// ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)).
     ///
-    /// It is updated every time it's successfully fetched with
-    /// `Client::fetch_retention_configuration`.
+    /// It is loaded from the state store when the client is built, and updated
+    /// (in memory and in the store) every time it's successfully fetched with
+    /// `Client::fetch_retention_configuration`, so it's available even without
+    /// connectivity.
     ///
     /// `None` if it has never been fetched, or if it couldn't be fetched
     /// because the homeserver doesn't support it.
