@@ -19,6 +19,7 @@
 
 use std::{
     collections::BTreeMap,
+    fmt,
     sync::{Arc, Mutex, atomic::AtomicU32},
 };
 
@@ -670,6 +671,18 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/messages$"));
         self.mock_endpoint(mock, RoomMessagesEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuild mock for getting a state event.
+    pub fn mock_get_room_state_event(
+        &self,
+        event_type: &StateEventType,
+        state_key: impl fmt::Display,
+    ) -> MockEndpoint<'_, RoomStateEventEndpoint> {
+        let mock = Mock::given(method("GET")).and(path_regex(format!(
+            "^/_matrix/client/v3/rooms/.*/state/{event_type}/{state_key}$"
+        )));
+        self.mock_endpoint(mock, RoomStateEventEndpoint).expect_default_access_token()
     }
 
     /// Create a prebuilt mock for uploading media.
@@ -3546,6 +3559,28 @@ impl Default for RoomMessagesResponseTemplate {
             chunk: Default::default(),
             state: Default::default(),
         }
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}`.
+pub struct RoomStateEventEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomStateEventEndpoint> {
+    /// Returns a successful response with the given state event.
+    pub fn ok(self, event: impl Into<Raw<AnyStateEvent>>) -> MatrixMock<'a> {
+        self.ok_json(event.into())
+    }
+
+    /// Returns an error response for a missing state event.
+    pub fn error_not_found(self) -> MatrixMock<'a> {
+        self.respond_with_code_and_json(
+            404,
+            json!({
+              "errcode": "M_NOT_FOUND",
+              "error": "State event not found."
+            }),
+        )
     }
 }
 
