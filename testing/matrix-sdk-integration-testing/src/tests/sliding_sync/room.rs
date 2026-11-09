@@ -430,9 +430,9 @@ async fn test_room_notification_count() -> Result<()> {
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) }))
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
+                assign!(http::request::ToDevice::default(), { enabled: true }),
             )
             .add_list(
                 SlidingSyncList::builder("all")

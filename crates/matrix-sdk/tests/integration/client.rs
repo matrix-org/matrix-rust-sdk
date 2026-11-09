@@ -1942,7 +1942,7 @@ async fn test_sync_thread_subscriptions() {
             |config_builder| {
                 config_builder.with_thread_subscriptions_extension(
                     assign!(msc4186::request::ThreadSubscriptions::default(), {
-                        enabled: Some(true),
+                        enabled: true,
                         limit: Some(uint!(10)),
                     }),
                 )
@@ -2033,7 +2033,7 @@ async fn test_sync_thread_subscriptions_with_catchup() {
                 config_builder
                     .with_thread_subscriptions_extension(
                         assign!(msc4186::request::ThreadSubscriptions::default(), {
-                            enabled: Some(true),
+                            enabled: true,
                             limit: Some(uint!(10)),
                         }),
                     )
