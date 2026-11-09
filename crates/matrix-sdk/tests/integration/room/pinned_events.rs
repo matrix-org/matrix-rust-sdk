@@ -10,56 +10,48 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::{EventId, event_id, owned_event_id, room_id, user_id};
-use serde_json::json;
+use matrix_sdk_test::{JoinedRoomBuilder, TestRoom, User, async_test, event_factory::EventFactory};
+use ruma::{OwnedEventId, event_id, events::StateEventType, owned_event_id};
 use tokio::time::Duration;
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{header, method, path_regex},
-};
 
-struct PinningTestSetup<'a> {
-    event_id: &'a EventId,
-    room_id: &'a ruma::RoomId,
+struct PinningTestSetup {
+    event_id: OwnedEventId,
     room: Room,
     client: matrix_sdk::Client,
     server: MatrixMockServer,
 }
 
-impl PinningTestSetup<'_> {
+impl PinningTestSetup {
     async fn new() -> Self {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a98sd12bjh:example.org");
-        let room = server.sync_joined_room(&client, room_id).await;
+        let room = server.sync_default_joined_room(&client).await;
 
         server.mock_room_state_encryption().plain().mount().await;
 
         // This is necessary to get an empty list of pinned events when there
         // are no pinned events state event in the required state.
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.pinned_events/.*"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({})))
-            .mount(server.server())
+        server
+            .mock_get_room_state_event(&StateEventType::RoomPinnedEvents, "")
+            .error_not_found()
+            .mount()
             .await;
 
-        let event_id = event_id!("$a");
-        Self { event_id, room_id, client, server, room }
+        let event_id = owned_event_id!("$a");
+        Self { event_id, client, server, room }
     }
 
     async fn mock_sync(&mut self, include_pinned_state_event: bool) {
-        let f = EventFactory::new().room(self.room_id).sender(user_id!("@a:b.c"));
+        let f = EventFactory::new().default_room().sender(User::Alice);
 
-        let mut joined_room_builder = JoinedRoomBuilder::new(self.room_id)
-            .add_timeline_event(f.text_msg("A").event_id(self.event_id).into_raw_sync());
+        let mut joined_room_builder = JoinedRoomBuilder::default()
+            .add_timeline_event(f.text_msg("A").event_id(&self.event_id).into_raw_sync());
 
         if include_pinned_state_event {
             let pinned_events =
-                f.room_pinned_events(vec![owned_event_id!("$a"), owned_event_id!("$b")]);
-            joined_room_builder = joined_room_builder.add_state_bulk(vec![pinned_events.into()]);
+                f.room_pinned_events(vec![self.event_id.clone(), owned_event_id!("$b")]);
+            joined_room_builder = joined_room_builder.add_state_event(pinned_events);
         }
 
         self.server.sync_room(&self.client, joined_room_builder).await;
@@ -75,7 +67,7 @@ async fn test_pin_event_is_sent_successfully() {
     // Pinning a remote event succeeds.
     setup.server.mock_set_room_pinned_events().ok(owned_event_id!("$42")).mock_once().mount().await;
 
-    assert!(setup.room.pin_event(setup.event_id).await.unwrap());
+    assert!(setup.room.pin_event(&setup.event_id).await.unwrap());
 }
 
 #[async_test]
@@ -84,7 +76,7 @@ async fn test_pin_event_is_returning_false_because_is_already_pinned() {
 
     setup.mock_sync(true).await;
 
-    assert!(setup.room.pin_event(setup.event_id).await.unwrap().not());
+    assert!(setup.room.pin_event(&setup.event_id).await.unwrap().not());
 }
 
 #[async_test]
@@ -96,7 +88,7 @@ async fn test_pin_event_is_returning_an_error() {
     // Pinning a remote event fails.
     setup.server.mock_set_room_pinned_events().unauthorized().mock_once().mount().await;
 
-    assert!(setup.room.pin_event(setup.event_id).await.is_err());
+    assert!(setup.room.pin_event(&setup.event_id).await.is_err());
 }
 
 #[async_test]
@@ -108,7 +100,7 @@ async fn test_unpin_event_is_sent_successfully() {
     // Unpinning a remote event succeeds.
     setup.server.mock_set_room_pinned_events().ok(owned_event_id!("$42")).mock_once().mount().await;
 
-    assert!(setup.room.unpin_event(setup.event_id).await.unwrap());
+    assert!(setup.room.unpin_event(&setup.event_id).await.unwrap());
 }
 
 #[async_test]
@@ -117,7 +109,7 @@ async fn test_unpin_event_is_returning_false_because_is_not_pinned() {
 
     setup.mock_sync(false).await;
 
-    assert!(setup.room.unpin_event(setup.event_id).await.unwrap().not());
+    assert!(setup.room.unpin_event(&setup.event_id).await.unwrap().not());
 }
 
 #[async_test]
@@ -129,15 +121,15 @@ async fn test_unpin_event_is_returning_an_error() {
     // Unpinning a remote event fails.
     setup.server.mock_set_room_pinned_events().unauthorized().mock_once().mount().await;
 
-    assert!(setup.room.unpin_event(setup.event_id).await.is_err());
+    assert!(setup.room.unpin_event(&setup.event_id).await.is_err());
 }
 
 #[async_test]
 async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_storage() {
-    let room_id = room_id!("!galette:saucisse.bzh");
+    let room_id = TestRoom::Default;
     let pinned_event_id = event_id!("$pinned_event");
 
-    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+    let f = EventFactory::new().default_room().sender(User::Alice);
 
     // Create the pinned event.
     let pinned_event = f.text_msg("I'm pinned!").event_id(pinned_event_id).into_event();
@@ -183,13 +175,13 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         let _room = server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(room_id).add_state_bulk(vec![pinned_events_state.into()]),
+                JoinedRoomBuilder::default().add_state_bulk(vec![pinned_events_state.into()]),
             )
             .await;
 
         // Get the pinned events cache and subscribe to it.
         let (pinned_events_cache, _drop_handles) =
-            event_cache.pinned_events(room_id).await.unwrap();
+            event_cache.pinned_events(room_id.into()).await.unwrap();
 
         // Getting the pinned events cache triggers `PinnedEventsCache::new()`
         // which spawns a task that calls `reload_from_storage()` first.
@@ -231,10 +223,9 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
 
     let event_cache = client.event_cache().unwrap();
 
-    let _room = client.get_room(room_id).unwrap();
-
     // Get the pinned events cache and subscribe to it.
-    let (pinned_events_cache, _drop_handles) = event_cache.pinned_events(room_id).await.unwrap();
+    let (pinned_events_cache, _drop_handles) =
+        event_cache.pinned_events(room_id.into()).await.unwrap();
 
     // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
     // spawns a task that calls `reload_from_storage()` first.
@@ -262,11 +253,11 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
 
 #[async_test]
 async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
-    let room_id = room_id!("!galette:saucisse.bzh");
+    let room_id = TestRoom::Default;
     let pinned_event_id_0 = event_id!("$pinned_event_0");
     let pinned_event_id_1 = event_id!("$pinned_event_1");
 
-    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+    let f = EventFactory::new().default_room().sender(User::Alice);
 
     // Create the pinned events.
     let pinned_event_0 = f.text_msg("I'm pinned!").event_id(pinned_event_id_0).into_event();
@@ -276,7 +267,7 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
     let event_cache_store = MemoryStore::new();
     event_cache_store
         .handle_linked_chunk_updates(
-            LinkedChunkId::PinnedEvents(room_id),
+            LinkedChunkId::PinnedEvents(room_id.into()),
             vec![
                 Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
                 Update::PushItems {
@@ -314,10 +305,11 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
 
     let event_cache = client.event_cache().unwrap();
 
-    let _room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
+    let _room = server.sync_default_joined_room(&client).await;
 
     // Get the pinned events cache and subscribe to it.
-    let (pinned_events_cache, _drop_handles) = event_cache.pinned_events(room_id).await.unwrap();
+    let (pinned_events_cache, _drop_handles) =
+        event_cache.pinned_events(room_id.into()).await.unwrap();
 
     // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
     // spawns a task that calls `reload_from_storage()` first.
@@ -343,10 +335,10 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
 
 #[async_test]
 async fn test_pinned_events_dont_include_thread_responses() {
-    let room_id = room_id!("!galette:saucisse.bzh");
+    let room_id = TestRoom::Default;
     let pinned_event_id = event_id!("$pinned_event");
 
-    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+    let f = EventFactory::new().default_room().sender(User::Alice);
 
     // Create the pinned event, that's a thread root.
     let pinned_event = f.text_msg("I'm pinned!").event_id(pinned_event_id).into_event();
@@ -386,12 +378,13 @@ async fn test_pinned_events_dont_include_thread_responses() {
     let _room = server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_state_bulk(vec![pinned_events_state.into()]),
+            JoinedRoomBuilder::default().add_state_bulk(vec![pinned_events_state.into()]),
         )
         .await;
 
     // Get the room event cache and subscribe to pinned events.
-    let (pinned_events_cache, _drop_handles) = event_cache.pinned_events(room_id).await.unwrap();
+    let (pinned_events_cache, _drop_handles) =
+        event_cache.pinned_events(room_id.into()).await.unwrap();
 
     // Getting the pinned events cache triggers `PinnedEventsCache::new()` which
     // spawns a task that calls `reload_from_storage()` first.
