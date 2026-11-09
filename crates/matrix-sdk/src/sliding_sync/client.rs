@@ -43,6 +43,9 @@ pub enum Version {
 
     /// Use the version of the sliding sync implementation inside Synapse, i.e.
     /// MSC4186.
+    ///
+    /// The stable `/v4/sync` endpoint is used if the server supports it, the
+    /// unstable endpoint otherwise.
     Native,
 }
 
@@ -60,11 +63,13 @@ pub enum VersionBuilderError {
     #[error("The `/versions` response is not set")]
     MissingVersionsResponse,
 
-    /// `/versions` does not contain `org.matrix.simplified_msc3575` in its
-    /// `unstable_features`, or it's not set to true.
+    /// `/versions` does not contain `org.matrix.simplified_msc3575` or
+    /// `org.matrix.simplified_msc3575.stable` in its `unstable_features`, or
+    /// they are not set to true.
     #[error(
-        "`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, \
-         or it's not set to true."
+        "`/versions` does not contain `org.matrix.simplified_msc3575` or \
+         `org.matrix.simplified_msc3575.stable` in its `unstable_features`, \
+         or they are not set to true."
     )]
     NativeVersionIsUnset,
 }
@@ -107,7 +112,9 @@ impl VersionBuilder {
                     return Err(VersionBuilderError::MissingVersionsResponse);
                 };
 
-                if supported.features.contains(&FeatureFlag::Msc4186) {
+                if supported.features.contains(&FeatureFlag::Msc4186)
+                    || supported.features.contains(&FeatureFlag::Msc4186Stable)
+                {
                     Version::Native
                 } else {
                     return Err(VersionBuilderError::NativeVersionIsUnset);
@@ -498,6 +505,18 @@ mod tests {
     fn test_version_builder_discover_native() {
         let mut response = get_supported_versions::Response::new(vec![]);
         response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+
+        assert_matches!(
+            VersionBuilder::DiscoverNative.build(Some(&response.as_supported_versions())),
+            Ok(Version::Native)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_native_stable() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features =
+            [("org.matrix.simplified_msc3575.stable".to_owned(), true)].into();
 
         assert_matches!(
             VersionBuilder::DiscoverNative.build(Some(&response.as_supported_versions())),

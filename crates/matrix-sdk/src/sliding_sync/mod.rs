@@ -20,6 +20,7 @@ mod cache;
 mod client;
 mod error;
 mod list;
+mod v4;
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
@@ -40,7 +41,11 @@ use matrix_sdk_common::{executor::spawn, timer};
 use ruma::api::error::{ErrorBody, StandardErrorBody};
 use ruma::{
     OwnedRoomId, RoomId,
-    api::{client::sync::sync_events::msc4186 as http, error::ErrorKind},
+    api::{
+        Metadata as _,
+        client::sync::sync_events::{msc4186 as http, v4 as http_v4},
+        error::ErrorKind,
+    },
     assign,
 };
 use tokio::{
@@ -609,7 +614,26 @@ impl SlidingSync {
 
         // Prepare the request.
         let requested_required_states = RequestedRequiredStates::from(&request);
-        let request = self.inner.client.send(request).with_request_config(request_config);
+        let request = {
+            let client = self.inner.client.clone();
+
+            async move {
+                let use_v4 = client
+                    .supported_versions()
+                    .await
+                    .is_ok_and(|supported| http_v4::Request::PATH_BUILDER.is_supported(&supported));
+
+                match client.user_id() {
+                    Some(user_id) if use_v4 => {
+                        let request = v4::request_to_v4(request, user_id);
+                        let response =
+                            client.send(request).with_request_config(request_config).await?;
+                        Ok(http::Response::from(response))
+                    }
+                    _ => client.send(request).with_request_config(request_config).await,
+                }
+            }
+        };
 
         // Send the request and get a response with end-to-end encryption
         // support.
@@ -2562,9 +2586,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: true}),
-            )
+            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
             .build()
             .await?;
@@ -2639,9 +2661,7 @@ mod tests {
         let sliding_sync = client
             .sliding_sync("test")?
             .add_list(SlidingSyncList::builder("thelist"))
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: true}),
-            )
+            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
             .build()
             .await?;
@@ -2697,9 +2717,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: true}),
-            )
+            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
             .build()
             .await?;
@@ -2970,9 +2988,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: true}),
-            )
+            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
             .build()
             .await?;
@@ -3000,9 +3016,7 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: true}),
-            )
+            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
             .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
             .build()
             .await?;
@@ -3327,5 +3341,64 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    #[async_test]
+    async fn test_sync_uses_v4_endpoint_when_supported() -> Result<()> {
+        use ruma::events::StateEventType;
+        use wiremock::matchers::{body_partial_json, path};
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+        let room_id = room_id!("!room:example.org");
+
+        server
+            .mock_versions()
+            .with_feature("org.matrix.simplified_msc3575.stable", true)
+            .ok()
+            .mount()
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v4/sync"))
+            .and(body_partial_json(json!({
+                "lists": {
+                    "all_rooms": {
+                        "range": [0, 10],
+                        "required_state": { "lazy_members": true },
+                    },
+                },
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "pos": "0",
+                "lists": { "all_rooms": { "count": 1 } },
+                "rooms": {
+                    room_id: {
+                        "name": "Room",
+                        "initial": true,
+                        "membership": "join",
+                        "lists": ["all_rooms"],
+                    },
+                },
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .add_list(
+                SlidingSyncList::builder("all_rooms")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))
+                    .required_state(vec![(StateEventType::RoomMember, "$LAZY".to_owned())]),
+            )
+            .build()
+            .await?;
+
+        sliding_sync.sync_once().await?;
+
+        assert!(client.get_room(room_id).is_some());
+
+        Ok(())
     }
 }
