@@ -4341,9 +4341,11 @@ impl Room {
 
     /// Compute the effective message retention policy for this room.
     ///
-    /// Fetches the server's retention configuration and applies the MSC1763
-    /// algorithm. Use [`Self::effective_retention_with_server_config`] to
-    /// supply a pre-fetched server config and avoid a network call.
+    /// Gets the server's retention configuration (from the client's cache if
+    /// it is still fresh, see [`Client::retention_configuration`]) and applies
+    /// the MSC1763 algorithm. Use
+    /// [`Self::effective_retention_with_server_config`] to supply a
+    /// pre-fetched server config instead.
     ///
     /// Returns `Ok(None)` if the homeserver does not implement MSC1763. A
     /// homeserver that does not implement this endpoint also does not purge
@@ -4353,7 +4355,7 @@ impl Room {
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
     pub async fn effective_retention(&self) -> Result<Option<RoomRetentionEventContent>> {
-        let config = match self.client.fetch_retention_configuration().await {
+        let config = match self.client.retention_configuration().await {
             Ok(config) => config,
             Err(e) if e.is_endpoint_not_implemented() => {
                 debug!(
