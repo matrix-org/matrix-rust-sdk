@@ -1134,3 +1134,65 @@ async fn test_edits_touches_threads() {
     // The latest reply should still be our first edit, not the second one.
     assert_eq!(thread_info.latest_event.as_deref(), Some(first_edit));
 }
+
+#[async_test]
+#[should_panic(expected = "the reaction on the thread root didn't reach the thread")]
+async fn test_reaction_on_thread_root_reaches_thread_timeline() {
+    // A reaction to the thread root received over sync must reach the thread,
+    // so a thread timeline displays it, like the room timeline does.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let thread_root_id = event_id!("$thread_root");
+    let thread_resp_id = event_id!("$thread_resp");
+    let reaction_id = event_id!("$reaction");
+
+    let event_cache = client.event_cache().unwrap();
+    server.sync_joined_room(&client, room_id).await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root_id).await.unwrap();
+    let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+
+    // Receive the thread root and a threaded reply.
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Thread root").event_id(thread_root_id))
+                .add_timeline_event(
+                    f.text_msg("Thread reply")
+                        .in_thread(thread_root_id, thread_root_id)
+                        .event_id(thread_resp_id),
+                ),
+        )
+        .await;
+
+    let thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
+    assert_eq!(thread_events.len(), 2);
+
+    // Someone reacts to the thread root.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.reaction(thread_root_id, "🦀").sender(User::Bob).event_id(reaction_id),
+            ),
+        )
+        .await;
+
+    // The thread receives the reaction.
+    let update = tokio::time::timeout(Duration::from_millis(100), thread_stream.recv()).await;
+    let Ok(Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }))) =
+        update
+    else {
+        panic!("the reaction on the thread root didn't reach the thread");
+    };
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+    assert_eq!(new_events.len(), 1);
+    assert_eq!(new_events[0].event_id(), Some(reaction_id));
+}
