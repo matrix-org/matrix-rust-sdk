@@ -450,8 +450,10 @@ impl MatrixMockServer {
         &self,
         room_or_alias_id: impl Into<&'b RoomOrAliasId>,
     ) -> MockEndpoint<'_, RoomKnockEndpoint> {
-        let mock = Mock::given(method("POST"))
-            .and(path(format!("/_matrix/client/v3/knock/{}", room_or_alias_id.into())));
+        let mock = Mock::given(method("POST")).and(path(format!(
+            "/_matrix/client/v3/knock/{}",
+            percent_encoded_path(room_or_alias_id.into().as_str())
+        )));
         self.mock_endpoint(mock, RoomKnockEndpoint)
     }
 
