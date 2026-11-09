@@ -116,8 +116,9 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
-    pin::{Pin, pin},
-    sync::Weak,
+    mem,
+    pin::pin,
+    sync::{Arc, Weak},
 };
 
 use as_variant::as_variant;
@@ -146,6 +147,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::{
+    Notify,
     broadcast::{self, Sender},
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
@@ -965,6 +967,48 @@ impl EventCache {
     }
 }
 
+/// Struct holding the state of the room key collation task. Holds keys received
+/// from the [`OlmMachine`], deduplicated on `(room_id, session_id)`. These are
+/// passed to the main task for redecryption whenever it is available to do
+/// work.
+#[derive(Default)]
+struct CollatorState {
+    /// An ordered set of `(room_id, session_id)` pairs used to deduplicate
+    /// `room_keys`.
+    seen_room_keys: BTreeMap<OwnedRoomId, BTreeSet<OwnedSessionId>>,
+    /// A list of sessions we received room keys for in arrival order.
+    room_keys: Vec<RoomKeyInfo>,
+    /// A set of sessions for which we received withheld info.
+    withheld: BTreeMap<OwnedRoomId, BTreeMap<OwnedSessionId, RoomKeyWithheldInfo>>,
+    /// A flag denoting if the room key stream lagged.
+    pub lagged: bool,
+}
+
+impl CollatorState {
+    /// An ordered iterator over all collated room keys.
+    pub fn room_keys_iter(&self) -> impl Iterator<Item = &RoomKeyInfo> {
+        self.room_keys.iter()
+    }
+
+    /// Append `key` to the collator state. Does nothing if the collator has
+    /// already seen `key`.
+    pub fn add_key(&mut self, key: RoomKeyInfo) {
+        if self
+            .seen_room_keys
+            .entry(key.room_id.clone())
+            .or_default()
+            .insert(key.session_id.clone())
+        {
+            self.room_keys.push(key);
+        }
+    }
+
+    /// An ordered iterator over all collated withheld info.
+    pub fn withheld_iter(&self) -> impl Iterator<Item = &RoomKeyWithheldInfo> {
+        self.withheld.values().flat_map(|sessions| sessions.values())
+    }
+}
+
 async fn send_report_and_retry_memory_events(
     cache: &Weak<EventCacheInner>,
     report: RedecryptorReport,
@@ -987,6 +1031,7 @@ async fn send_report_and_retry_memory_events(
 /// For more info see the [module level docs](self).
 pub(crate) struct Redecryptor {
     _task: BackgroundTaskHandle,
+    _collator: BackgroundTaskHandle,
 }
 
 impl Redecryptor {
@@ -1003,6 +1048,22 @@ impl Redecryptor {
         let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
 
+        // Process the room key stream in a separate task to mitigate missing
+        // room keys due to the main task being slow.
+        let collator_state = Arc::new(Mutex::new(CollatorState::default()));
+        let collator_notify = Arc::new(Notify::new());
+        let collator = client
+            .task_monitor()
+            .spawn_finite_task(
+                "event_cache::redecryptor::collator",
+                Self::collate_room_keys_task(
+                    cache.clone(),
+                    collator_state.clone(),
+                    collator_notify.clone(),
+                ),
+            )
+            .abort_on_drop();
+
         let task = client
             .task_monitor()
             .spawn_infinite_task("event_cache::redecryptor", async {
@@ -1013,12 +1074,14 @@ impl Redecryptor {
                     request_redecryption_stream,
                     linked_chunk_stream,
                     backup_state_stream,
+                    collator_state,
+                    collator_notify,
                 )
                 .await;
             })
             .abort_on_drop();
 
-        Self { _task: task }
+        Self { _task: task, _collator: collator }
     }
 
     /// (Re)-subscribe to the room key stream from the [`OlmMachine`].
@@ -1040,24 +1103,19 @@ impl Redecryptor {
         })
     }
 
-    async fn redecryption_loop(
-        cache: &Weak<EventCacheInner>,
-        decryption_request_stream: &mut Pin<&mut impl Stream<Item = DecryptionRetryRequest>>,
-        events_stream: &mut Pin<
-            &mut impl Stream<Item = Result<RoomEventCacheLinkedChunkUpdate, BroadcastStreamRecvError>>,
-        >,
-        backup_state_stream: &mut Pin<
-            &mut impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
-        >,
-    ) -> bool {
-        let Some((room_key_stream, withheld_stream)) =
-            Self::subscribe_to_room_key_stream(cache).await
-        else {
-            return false;
-        };
-
-        let mut room_key_stream = pin!(room_key_stream);
-        let mut withheld_stream = pin!(withheld_stream);
+    async fn listen_for_room_keys_task(
+        cache: Weak<EventCacheInner>,
+        decryption_request_stream: UnboundedReceiverStream<DecryptionRetryRequest>,
+        events_stream: BroadcastStream<RoomEventCacheLinkedChunkUpdate>,
+        backup_state_stream: impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
+        collator_state: Arc<Mutex<CollatorState>>,
+        collator_notify: Arc<Notify>,
+    ) {
+        // We pin the decryption request stream here we don't want to miss
+        // messages coming from the stream while recreating it unnecessarily.
+        let mut decryption_request_stream = pin!(decryption_request_stream);
+        let mut events_stream = pin!(events_stream);
+        let mut backup_state_stream = pin!(backup_state_stream);
 
         loop {
             tokio::select! {
@@ -1066,7 +1124,7 @@ impl Redecryptor {
                 // room key.
                 Some(request) = decryption_request_stream.next() => {
                         let Some(cache) = cache.upgrade() else {
-                            break false;
+                            break;
                         };
 
                         trace!(?request, "Received a redecryption request");
@@ -1087,82 +1145,66 @@ impl Redecryptor {
                             ));
                         }
                 }
-                // The room key stream from the OlmMachine. Needs to be
-                // recreated every time we receive a `None` from the stream.
-                room_keys = room_key_stream.next() => {
-                    match room_keys {
-                        Some(Ok(room_keys)) => {
-                            // Alright, some room keys were received and
-                            // persisted in our store, let's attempt to
-                            // redecrypt events that were encrypted using these
-                            // room keys.
-                            let Some(cache) = cache.upgrade() else {
-                                break false;
-                            };
 
-                            trace!(?room_keys, "Received new room keys");
+                // The room key collation task has notified us we have room
+                // keys to process.
+                _ = collator_notify.notified() => {
+                    let collator = mem::take(&mut *collator_state.lock());
 
-                            for key in &room_keys {
-                                let _ = cache
-                                    .retry_decryption(&key.room_id, &key.session_id)
-                                    .await
-                                    .inspect_err(|e| warn!("Error redecrypting {e:?}"));
-                            }
-
-                            for key in room_keys {
-                                let _ = cache.update_encryption_info(&key.room_id, &key.session_id).await.inspect_err(|e|
-                                    warn!(
-                                        room_id = %key.room_id,
-                                        session_id = key.session_id,
-                                        "Unable to update the encryption info {e:?}",
-                                ));
-                            }
-                        },
-                        Some(Err(_)) => {
-                            // We missed some room keys, we need to report this
-                            // in case a listener has and idea which UTDs we
-                            // should attempt to redecrypt.
-                            //
-                            // This would most likely be the timeline from the
-                            // UI crate. The timeline might attempt to redecrypt
-                            // all UTDs it is showing to the user.
-                            warn!("The room key stream lagged, reporting the lag to our listeners");
-
-                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
-                                break false;
-                            }
-                        },
-                        // The stream got closed, this could mean that our
-                        // OlmMachine got regenerated, let's return true and try
-                        // to recreate the stream.
-                        None => {
-                            break true;
+                    if collator.lagged {
+                        // We missed some room keys, we need to report this in
+                        // case a listener has and idea which UTDs we should
+                        // attempt to redecrypt.
+                        //
+                        // This would most likely be the timeline from the UI
+                        // crate. The timeline might attempt to redecrypt all
+                        // UTDs it is showing to the user.
+                        warn!("The room key stream lagged, reporting the lag to our listeners");
+                        if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging).await.is_err() {
+                            break;
                         }
                     }
-                }
-                withheld_info = withheld_stream.next() => {
-                    match withheld_info {
-                        Some(infos) => {
-                            let Some(cache) = cache.upgrade() else {
-                                break false;
-                            };
 
-                            trace!(?infos, "Received new withheld infos");
+                    // Alright, some room keys were received and persisted in
+                    // our store, let's attempt to redecrypt events that were
+                    // encrypted using these room keys.
+                    let Some(cache) = cache.upgrade() else {
+                        break;
+                    };
 
-                            for RoomKeyWithheldInfo { room_id, session_id, .. } in &infos {
-                                let _ = cache.update_encryption_info(room_id, session_id).await.inspect_err(|e|
-                                    warn!(
-                                        room_id = %room_id,
-                                        session_id = session_id,
-                                        "Unable to update the encryption info {e:?}",
+                    if !collator.room_keys.is_empty() {
+                        trace!(?collator.room_keys, "Received new room keys");
+
+                        for key in collator.room_keys_iter() {
+                            let _ = cache
+                                .retry_decryption(&key.room_id, &key.session_id)
+                                .await
+                                .inspect_err(|e| warn!("Error redecrypting {e:?}"));
+                        }
+
+                        for key in collator.room_keys_iter() {
+                            let _ = cache.update_encryption_info(&key.room_id, &key.session_id).await.inspect_err(|e|
+                                warn!(
+                                    room_id = %key.room_id,
+                                    session_id = key.session_id,
+                                    "Unable to update the encryption info {e:?}",
                                 ));
                             }
-                        }
-                        // The stream got closed, same as for the room key
-                        // stream, we'll try to recreate the streams.
-                        None => break true,
                     }
-                }
+
+                    if !collator.withheld.is_empty() {
+                        trace!(?collator.withheld, "Received new withheld infos");
+
+                        for RoomKeyWithheldInfo { room_id, session_id, .. } in collator.withheld_iter() {
+                            let _ = cache.update_encryption_info(room_id, session_id).await.inspect_err(|e|
+                                warn!(
+                                    room_id = %room_id,
+                                    session_id = session_id,
+                                    "Unable to update the encryption info {e:?}",
+                                ));
+                        }
+                    }
+                },
                 // Events that the event cache handled. If the event cache
                 // received any UTDs, let's attempt to redecrypt them in case
                 // the room key was received before the event cache was able to
@@ -1171,7 +1213,7 @@ impl Redecryptor {
                     match event_updates {
                         Ok(updates) => {
                             let Some(cache) = cache.upgrade() else {
-                                break false;
+                                break;
                             };
 
                             let linked_chunk_id = updates.linked_chunk_id.to_owned();
@@ -1184,8 +1226,8 @@ impl Redecryptor {
                             );
                         }
                         Err(_) => {
-                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
-                                break false;
+                            if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging).await.is_err() {
+                                break;
                             }
                         }
                     }
@@ -1211,59 +1253,100 @@ impl Redecryptor {
                                     // downloaded on-demand, let's try to
                                     // decrypt all the events we have cached
                                     // in-memory.
-                                    if send_report_and_retry_memory_events(cache, RedecryptorReport::BackupAvailable).await.is_err() {
-                                        break false;
+                                    if send_report_and_retry_memory_events(&cache, RedecryptorReport::BackupAvailable).await.is_err() {
+                                        break;
                                     }
                                 }
                             }
                         }
                         Err(_) => {
-                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
-                                break false;
+                            if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging).await.is_err() {
+                                break;
                             }
                         }
                     }
                 }
-                else => break false,
-            }
-        }
-    }
-
-    async fn listen_for_room_keys_task(
-        cache: Weak<EventCacheInner>,
-        decryption_request_stream: UnboundedReceiverStream<DecryptionRetryRequest>,
-        events_stream: BroadcastStream<RoomEventCacheLinkedChunkUpdate>,
-        backup_state_stream: impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
-    ) {
-        // We pin the decryption request stream here since that one doesn't need
-        // to be recreated and we don't want to miss messages coming from the
-        // stream while recreating it unnecessarily.
-        let mut decryption_request_stream = pin!(decryption_request_stream);
-        let mut events_stream = pin!(events_stream);
-        let mut backup_state_stream = pin!(backup_state_stream);
-
-        while Self::redecryption_loop(
-            &cache,
-            &mut decryption_request_stream,
-            &mut events_stream,
-            &mut backup_state_stream,
-        )
-        .await
-        {
-            info!("Regenerating the re-decryption streams");
-
-            // Report that the stream got recreated so listeners know about it,
-            // at the same time retry to decrypt anything we have cached in
-            // memory.
-            if send_report_and_retry_memory_events(&cache, RedecryptorReport::Lagging)
-                .await
-                .is_err()
-            {
-                break;
+                else => break,
             }
         }
 
         info!("Shutting down the event cache redecryptor");
+    }
+
+    /// Listens for new room keys and withheld info broadcast by the
+    /// [`OlmMachine`] and collates them into a convenient struct the main
+    /// task can process when it is available to do work.
+    async fn collate_room_keys_task(
+        cache: Weak<EventCacheInner>,
+        state: Arc<Mutex<CollatorState>>,
+        notify: Arc<Notify>,
+    ) {
+        'resubscribe: loop {
+            let Some((room_key_stream, withheld_stream)) =
+                Self::subscribe_to_room_key_stream(&cache).await
+            else {
+                break;
+            };
+
+            let mut room_key_stream = pin!(room_key_stream);
+            let mut withheld_stream = pin!(withheld_stream);
+
+            loop {
+                tokio::select! {
+                    room_keys = room_key_stream.next() => {
+                        match room_keys {
+                            Some(Ok(room_keys)) => {
+                                trace!(?room_keys, "Received new room keys");
+
+                                let mut state = state.lock();
+
+                                for key in room_keys {
+                                    state.add_key(key);
+                                }
+                            },
+                            Some(Err(_)) => {
+                                // The room key stream lagged, but calling `send_report_and_retry_memory_events` here
+                                // would take too long and may lag the stream further. Instead, let's notify the main
+                                // task that this happened.
+                                warn!("The room key stream lagged, notifying the main task");
+                                state.lock().lagged = true;
+                            }
+                            None => {
+                                // The sender was dropped - resubscribe.
+                                continue 'resubscribe
+                            }
+                        }
+                        // Regardless of whether the stream lagged or not, we should notify the main task it has work to do.
+                        notify.notify_one();
+                    },
+                    withheld = withheld_stream.next() => match withheld {
+                        Some(withheld) => {
+                            trace!(?withheld, "Received new withheld info");
+
+                            let mut state = state.lock();
+
+                            for info in withheld {
+                                state.withheld
+                                    .entry(info.room_id.clone())
+                                    .or_default()
+                                    .insert(info.session_id.clone(), info);
+                            }
+
+                            // Notify the main task it has work to do.
+                            notify.notify_one();
+                        },
+                        None => {
+                            // Report that the stream got recreated so
+                            // listeners know about it, at the same time retry
+                            // to decrypt anything we have cached in memory.
+                            state.lock().lagged = true;
+                            notify.notify_one();
+                            continue 'resubscribe
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
