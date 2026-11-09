@@ -2707,7 +2707,9 @@ impl Room {
     ///
     /// If you want to set a transaction ID for the event, use
     /// [`.with_transaction_id()`][SendRawMessageLikeEvent::with_transaction_id]
-    /// on the returned value before `.await`ing it.
+    /// on the returned value before `.await`ing it. To schedule the event as a
+    /// delayed event ([MSC4140]), use
+    /// [`.into_delayed()`][SendRawMessageLikeEvent::into_delayed].
     ///
     /// # Arguments
     ///
@@ -2716,6 +2718,8 @@ impl Room {
     ///   type can be `serde_json::Value`, but also other raw JSON types; for
     ///   the full list check the documentation of
     ///   [`IntoRawMessageLikeEventContent`].
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     ///
     /// # Examples
     ///
@@ -3398,6 +3402,10 @@ impl Room {
     ///
     /// Returns the parsed response from the server.
     ///
+    /// To schedule the event as a delayed event ([MSC4140]), use
+    /// [`.into_delayed()`][SendRawStateEvent::into_delayed] on the returned
+    /// value before `.await`ing it.
+    ///
     /// # Arguments
     ///
     /// - `event_type` - The type of the event that we're sending out.
@@ -3427,6 +3435,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     #[instrument(skip_all)]
     pub fn send_state_event_raw<'a>(
