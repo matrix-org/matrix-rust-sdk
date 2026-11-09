@@ -1429,7 +1429,9 @@ mod tests {
         sleep::sleep,
         store::StoreConfig,
     };
-    use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, executor::spawn};
+    use matrix_sdk_common::{
+        cross_process_lock::CrossProcessLockConfig, executor::spawn, timeout::timeout,
+    };
     use matrix_sdk_test::{
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
@@ -2047,7 +2049,12 @@ mod tests {
 
         room.send(content).await.unwrap();
 
-        (event_receiver.await.unwrap(), room_key.await)
+        let event: Raw<AnySyncTimelineEvent> = event_receiver.await.unwrap();
+        let room_key = timeout(room_key, Duration::from_secs(1))
+            .await
+            .expect("the send should have shared a new room key - did you forget to rotate?");
+
+        (event, room_key)
     }
 
     /// Bundle `child` as the latest thread event of `root`.
