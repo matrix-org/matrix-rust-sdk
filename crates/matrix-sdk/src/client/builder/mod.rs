@@ -771,6 +771,8 @@ impl ClientBuilder {
             base_client,
             supported_versions,
             well_known,
+            // The retention configuration is not known yet.
+            None,
             self.respect_login_well_known,
             self.well_known_lookup_disabled,
             self.enable_automatic_back_pagination,
