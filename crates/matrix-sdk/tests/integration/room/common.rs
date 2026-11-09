@@ -343,6 +343,7 @@ async fn test_room_permalink() {
     let f = EventFactory::new().sender(user_id);
 
     // Without aliases
+    let room_id_no_sigil = &TestRoom::Default.as_str()[1..];
     let room = server
         .sync_room(
             &client,
@@ -359,53 +360,56 @@ async fn test_room_permalink() {
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/!SVkFJHzfwvuaIEawgC:localhost?via=notarealhs&via=localhost"
+        format!("https://matrix.to/#/!{room_id_no_sigil}?via=notarealhs&via=localhost")
     );
     assert_eq!(
         room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:roomid/SVkFJHzfwvuaIEawgC:localhost?via=notarealhs&via=localhost"
+        format!("matrix:roomid/{room_id_no_sigil}?via=notarealhs&via=localhost")
     );
 
     // With an alternative alias
+    let alt_alias = TestRoomAlias::Alt;
+    let alt_alias_no_sigil = &alt_alias.as_str()[1..];
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::default()
-                .add_timeline_event(f.canonical_alias(None, vec![TestRoomAlias::Alt.into()])),
+                .add_timeline_event(f.canonical_alias(None, vec![alt_alias.into()])),
         )
         .await;
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%23alt_alias:localhost"
+        format!("https://matrix.to/#/%23{alt_alias_no_sigil}")
     );
     assert_eq!(
         room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:r/alt_alias:localhost"
+        format!("matrix:r/{alt_alias_no_sigil}")
     );
 
     // With a canonical alias
+    let canonical_alias = TestRoomAlias::Canonical;
+    let canonical_alias_no_sigil = &canonical_alias.as_str()[1..];
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::default().add_timeline_event(f.canonical_alias(
-                Some(TestRoomAlias::Canonical.into()),
-                vec![TestRoomAlias::Alt.into()],
-            )),
+            JoinedRoomBuilder::default().add_timeline_event(
+                f.canonical_alias(Some(canonical_alias.into()), vec![alt_alias.into()]),
+            ),
         )
         .await;
 
     assert_eq!(
         room.matrix_to_permalink().await.unwrap().to_string(),
-        "https://matrix.to/#/%23canonical:localhost"
+        format!("https://matrix.to/#/%23{canonical_alias_no_sigil}")
     );
     assert_eq!(
         room.matrix_permalink(false).await.unwrap().to_string(),
-        "matrix:r/canonical:localhost"
+        format!("matrix:r/{canonical_alias_no_sigil}")
     );
     assert_eq!(
         room.matrix_permalink(true).await.unwrap().to_string(),
-        "matrix:r/canonical:localhost?action=join"
+        format!("matrix:r/{canonical_alias_no_sigil}?action=join")
     );
 }
 
@@ -416,8 +420,10 @@ async fn test_room_event_permalink() {
     let user_id = client.user_id().expect("client is logged in");
     let f = EventFactory::new().sender(user_id);
     let event_id = event_id!("$15139375512JaHAW");
+    let event_id_no_sigil = &event_id.as_str()[1..];
 
     // Without aliases
+    let room_id_no_sigil = &TestRoom::Default.as_str()[1..];
     let room = server
         .sync_room(
             &client,
@@ -434,11 +440,15 @@ async fn test_room_event_permalink() {
 
     assert_eq!(
         room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
-        "https://matrix.to/#/!SVkFJHzfwvuaIEawgC:localhost/$15139375512JaHAW?via=notarealhs&via=localhost"
+        format!(
+            "https://matrix.to/#/!{room_id_no_sigil}/${event_id_no_sigil}?via=notarealhs&via=localhost"
+        )
     );
     assert_eq!(
         room.matrix_event_permalink(event_id).await.unwrap().to_string(),
-        "matrix:roomid/SVkFJHzfwvuaIEawgC:localhost/e/15139375512JaHAW?via=notarealhs&via=localhost"
+        format!(
+            "matrix:roomid/{room_id_no_sigil}/e/{event_id_no_sigil}?via=notarealhs&via=localhost"
+        )
     );
 
     // Adding an alias doesn't change anything
@@ -454,11 +464,15 @@ async fn test_room_event_permalink() {
 
     assert_eq!(
         room.matrix_to_event_permalink(event_id).await.unwrap().to_string(),
-        "https://matrix.to/#/!SVkFJHzfwvuaIEawgC:localhost/$15139375512JaHAW?via=notarealhs&via=localhost"
+        format!(
+            "https://matrix.to/#/!{room_id_no_sigil}/${event_id_no_sigil}?via=notarealhs&via=localhost"
+        )
     );
     assert_eq!(
         room.matrix_event_permalink(event_id).await.unwrap().to_string(),
-        "matrix:roomid/SVkFJHzfwvuaIEawgC:localhost/e/15139375512JaHAW?via=notarealhs&via=localhost"
+        format!(
+            "matrix:roomid/{room_id_no_sigil}/e/{event_id_no_sigil}?via=notarealhs&via=localhost"
+        )
     );
 }
 
