@@ -4341,32 +4341,54 @@ impl Room {
 
     /// Compute the effective message retention policy for this room.
     ///
-    /// Gets the server's retention configuration (from the client's cache if
-    /// it is still fresh, see [`Client::retention_configuration`]) and applies
-    /// the MSC1763 algorithm. Use
+    /// Gets the server's retention configuration from the client's cache and
+    /// applies the MSC1763 algorithm. Use
     /// [`Self::effective_retention_with_server_config`] to supply a
     /// pre-fetched server config instead.
+    ///
+    /// # Arguments
+    ///
+    /// * `can_refresh_global_configuration` - Whether the server's retention
+    ///   configuration can be fetched from the homeserver if the cached value
+    ///   is missing or has expired, see [`Client::retention_configuration`]. If
+    ///   this is `false`, no request is made and the cached value is used even
+    ///   if it has expired.
     ///
     /// Returns `Ok(None)` if the homeserver does not implement MSC1763. A
     /// homeserver that does not implement this endpoint also does not purge
     /// events on its own, so we don't apply retention limits locally.
     ///
+    /// Also returns `Ok(None)` if `can_refresh_global_configuration` is
+    /// `false` and the server's retention configuration was never fetched,
+    /// since we can't know whether the homeserver supports MSC1763.
+    ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
-    pub async fn effective_retention(&self) -> Result<Option<RoomRetentionEventContent>> {
-        let config = match self.client.retention_configuration().await {
-            Ok(config) => config,
-            Err(e) if e.is_endpoint_not_implemented() => {
-                debug!(
-                    room_id = ?self.room_id(),
-                    "Homeserver doesn't implement the MSC1763 retention configuration \
-                     endpoint; treating this room as having no effective retention policy"
-                );
-                return Ok(None);
+    pub async fn effective_retention(
+        &self,
+        can_refresh_global_configuration: bool,
+    ) -> Result<Option<RoomRetentionEventContent>> {
+        let config = if can_refresh_global_configuration {
+            match self.client.retention_configuration().await {
+                Ok(config) => Some(config),
+                Err(e) if e.is_endpoint_not_implemented() => None,
+                Err(e) => return Err(e.into()),
             }
-            Err(e) => return Err(e.into()),
+        } else {
+            self.client.inner.caches.retention_configuration.get().map(|config| config.into_data())
         };
+
+        let Some(config) = config else {
+            debug!(
+                room_id = ?self.room_id(),
+                "The MSC1763 retention configuration is not available (not supported by the \
+                 homeserver, or never fetched); treating this room as having no effective \
+                 retention policy"
+            );
+            return Ok(None);
+        };
+
         Ok(self.effective_retention_with_server_config(&config))
     }
 
@@ -5658,7 +5680,7 @@ mod tests {
         )
         .await;
 
-        let result = room.effective_retention().await.unwrap();
+        let result = room.effective_retention(true).await.unwrap();
         assert!(result.is_none());
     }
 
@@ -5686,8 +5708,60 @@ mod tests {
             .mount(server.server())
             .await;
 
-        let result = room.effective_retention().await.unwrap();
+        let result = room.effective_retention(true).await.unwrap();
         assert!(result.is_none());
+    }
+
+    #[async_test]
+    async fn test_effective_retention_without_refresh() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_joined_room(&client, retention_room_id()).await;
+
+        // Nothing is cached and we can't refresh: no request is made, and there
+        // is no effective retention policy.
+        {
+            let _mock = Mock::given(method("GET"))
+                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+                .respond_with(ResponseTemplate::new(200))
+                .expect(0)
+                .mount_as_scoped(server.server())
+                .await;
+
+            assert!(room.effective_retention(false).await.unwrap().is_none());
+        }
+
+        // Cache a value.
+        {
+            let _mock = mock_retention_config(
+                &server,
+                serde_json::json!({
+                    "policies": {
+                        "*": { "max_lifetime": ONE_WEEK.as_millis() as u64 }
+                    },
+                    "limits": {},
+                }),
+            )
+            .await;
+
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // Expire the cached value.
+        let mut cached = client.inner.caches.retention_configuration.get().unwrap();
+        cached.expire();
+        client.inner.caches.retention_configuration.set(Some(cached));
+
+        // The stale cached value is used without making a request.
+        let _mock = Mock::given(method("GET"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount_as_scoped(server.server())
+            .await;
+
+        let result = room.effective_retention(false).await.unwrap().unwrap();
+        assert_eq!(result.max_lifetime(), Some(ONE_WEEK));
     }
 
     #[async_test]
@@ -5707,7 +5781,7 @@ mod tests {
         )
         .await;
 
-        let result = room.effective_retention().await.unwrap().unwrap();
+        let result = room.effective_retention(true).await.unwrap().unwrap();
         assert_eq!(result.max_lifetime(), Some(ONE_WEEK));
         assert!(result.min_lifetime().is_none());
     }
@@ -5737,7 +5811,7 @@ mod tests {
         )
         .await;
 
-        let result = room.effective_retention().await.unwrap().unwrap();
+        let result = room.effective_retention(true).await.unwrap().unwrap();
         assert_eq!(result.max_lifetime(), Some(ONE_HOUR));
     }
 
@@ -5901,7 +5975,7 @@ mod tests {
             .await;
 
             let result = room
-                .effective_retention()
+                .effective_retention(true)
                 .await
                 .unwrap_or_else(|e| panic!("{}: effective_retention failed: {e}", case.description))
                 .unwrap_or_else(|| panic!("{}: expected Some, got None", case.description));
