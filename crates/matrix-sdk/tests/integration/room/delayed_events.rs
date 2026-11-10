@@ -18,11 +18,9 @@ use serde_json::json;
 use tokio::time::timeout;
 #[cfg(feature = "e2e-encryption")]
 use wiremock::matchers::body_partial_json;
-#[cfg(feature = "unstable-msc4354")]
-use wiremock::matchers::query_param;
 use wiremock::{
     Mock, ResponseTemplate,
-    matchers::{body_json, header_exists, method, path_regex, query_param_is_missing},
+    matchers::{body_json, header_exists, method, path_regex},
 };
 
 /// The path of the dedicated MSC4140 endpoint, for any room and transaction ID.
@@ -40,7 +38,6 @@ async fn test_send_raw_into_delayed() {
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("m.room.message")))
-        .and(query_param_is_missing("org.matrix.msc4354.sticky_duration_ms"))
         .and(body_json(json!({
             "delay_ms": 1000,
             "content": { "msgtype": "m.text", "body": "hello" },
@@ -119,10 +116,10 @@ async fn test_send_raw_into_delayed_and_sticky_duration() {
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("org.matrix.rtc.member")))
-        .and(query_param("org.matrix.msc4354.sticky_duration_ms", "600000"))
         .and(body_json(json!({
             "delay_ms": 1000,
             "content": { "msc4354_sticky_key": "abc" },
+            "org.matrix.msc4354.sticky_duration_ms": 600_000,
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": "1234" })))
         .expect(1)
@@ -213,7 +210,6 @@ async fn test_send_state_event_raw_into_delayed() {
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("m.room.topic")))
-        .and(query_param_is_missing("org.matrix.msc4354.sticky_duration_ms"))
         .and(body_json(json!({
             "delay_ms": 1000,
             "state_key": "",
