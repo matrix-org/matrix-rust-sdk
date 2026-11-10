@@ -46,10 +46,10 @@ use super::{
     },
     EventsOrigin, TimelineVectorDiffs,
     read_receipts::MaybeReceiptEventContent,
-    room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::RoomEventCacheGenericUpdate,
     subscriber::{AutoShrinkMessage, Subscriber},
 };
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 /// All the information related to a single thread.
 ///
@@ -104,7 +104,7 @@ impl ThreadEventCache {
         state: &StateLock,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
@@ -434,7 +434,7 @@ mod timed_tests {
         store::StoreConfig,
         sync::Timeline,
     };
-    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -1321,7 +1321,7 @@ mod timed_tests {
         let room_id = room_id!("!r0");
         let thread_id = event_id!("$t0");
 
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         let event_id_0 = event_id!("$ev0");
         let event_id_1 = event_id!("$ev1");

@@ -183,17 +183,13 @@ impl EventCache {
     }
 }
 
-/// Marker file, in the search index directory, telling that the events saved in
-/// the event cache store have been indexed. Bump it when the index format
-/// changes, so the events get indexed again.
-#[cfg(feature = "experimental-search")]
-const REINDEX_MARKER: &str = "reindexed-v1";
-
 impl EventCache {
     /// Index the events saved in the event cache store, once: the search index
     /// may have missed some, or have been recreated.
     #[cfg(feature = "experimental-search")]
     async fn reindex_stored_events(&self, client: &Client) {
+        use crate::search_index::REINDEX_MARKER;
+
         let dir = client.search_index().directory();
         if dir.is_some_and(|dir| dir.join(REINDEX_MARKER).exists()) {
             return;
@@ -306,7 +302,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use eyeball_im::VectorDiff;
-    use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
     use ruma::{MilliSecondsSinceUnixEpoch, event_id, room_id, time::SystemTime};
     use tokio::task::yield_now;
 
@@ -326,7 +322,7 @@ mod tests {
     /// that old.
     #[test]
     fn test_stop_when_older_than() {
-        let f = EventFactory::new().room(room_id!("!omelette:fromage.fr")).sender(*BOB);
+        let f = EventFactory::new().room(room_id!("!omelette:fromage.fr")).sender(User::Bob);
         let outcome = BackPaginationOutcome {
             reached_start: false,
             events: vec![
@@ -356,7 +352,7 @@ mod tests {
         let event_cache = client.event_cache().unwrap();
 
         let room_id = room_id!("!omelette:fromage.fr");
-        let f = EventFactory::new().room(room_id).sender(*BOB);
+        let f = EventFactory::new().room(room_id).sender(User::Bob);
 
         server.sync_joined_room(&client, room_id).await;
 
@@ -431,7 +427,7 @@ mod tests {
             .await;
 
         let room_id = room_id!("!omelette:fromage.fr");
-        let f = EventFactory::new().room(room_id).sender(*BOB);
+        let f = EventFactory::new().room(room_id).sender(User::Bob);
         server.sync_joined_room(&client, room_id).await;
 
         // Save events straight into the store: the indexer never sees them.
@@ -475,7 +471,7 @@ mod tests {
         let event_cache = client.event_cache().unwrap();
 
         let room_id = room_id!("!omelette:fromage.fr");
-        let f = EventFactory::new().room(room_id).sender(*BOB);
+        let f = EventFactory::new().room(room_id).sender(User::Bob);
 
         // Receive a single event as the first chunk
         server
@@ -528,7 +524,7 @@ mod tests {
         let event_cache = client.event_cache().unwrap();
 
         let room_id = room_id!("!omelette:fromage.fr");
-        let f = EventFactory::new().room(room_id).sender(*BOB);
+        let f = EventFactory::new().room(room_id).sender(User::Bob);
 
         // Back paginating loads a couple more events in a different chunk.
         // Mounted before the sync, as the sync already starts a read-receipt

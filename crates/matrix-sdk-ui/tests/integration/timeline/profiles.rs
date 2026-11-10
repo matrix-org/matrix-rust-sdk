@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    ALICE, BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, User, async_test,
+    JoinedRoomBuilder, User, async_test,
     event_factory::{EventFactory, PreviousMembership},
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
@@ -33,7 +33,7 @@ async fn test_user_profile_after_being_banned() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     // Build a simple timeline with Bob joining the room, Alice accepting an
@@ -43,19 +43,19 @@ async fn test_user_profile_after_being_banned() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 // Bob joins the room
                 .add_timeline_event(
                     f.member(User::Bob)
                         .display_name("Bob")
-                        .avatar_url("mxc://123".into())
+                        .avatar_url("mxc://123")
                         .membership(MembershipState::Join),
                 )
                 // Alice accepts an invite into the room
                 .add_timeline_event(
                     f.member(User::Alice)
                         .display_name("*profanities*")
-                        .avatar_url("mxc://456".into())
+                        .avatar_url("mxc://456")
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
@@ -71,7 +71,7 @@ async fn test_user_profile_after_being_banned() {
                         .previous(
                             PreviousMembership::new(MembershipState::Join)
                                 .display_name("*profanities*")
-                                .avatar_url("mxc://456".into()),
+                                .avatar_url("mxc://456"),
                         ),
                 ),
         )
@@ -88,7 +88,7 @@ async fn test_user_profile_after_being_banned() {
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?
-    assert_eq!(alice_event.sender(), *ALICE);
+    assert_eq!(alice_event.sender(), User::Alice);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, None);
@@ -107,7 +107,7 @@ async fn test_user_profile_after_leaving() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     // Build a simple timeline with Bob joining the room, Alice accepting an
@@ -115,19 +115,19 @@ async fn test_user_profile_after_leaving() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 // Bob joins the room
                 .add_timeline_event(
                     f.member(User::Bob)
                         .display_name("Bob")
-                        .avatar_url("mxc://...".into())
+                        .avatar_url("mxc://...")
                         .membership(MembershipState::Join),
                 )
                 // Alice accepts an invite into the room
                 .add_timeline_event(
                     f.member(User::Alice)
                         .display_name("Alice")
-                        .avatar_url("mxc://...".into())
+                        .avatar_url("mxc://...")
                         .membership(MembershipState::Join)
                         .previous(MembershipState::Invite),
                 )
@@ -139,7 +139,7 @@ async fn test_user_profile_after_leaving() {
                     f.member(User::Alice).membership(MembershipState::Leave).previous(
                         PreviousMembership::new(MembershipState::Join)
                             .display_name("Alice")
-                            .avatar_url("mxc://...".into()),
+                            .avatar_url("mxc://..."),
                     ),
                 ),
         )
@@ -154,7 +154,7 @@ async fn test_user_profile_after_leaving() {
     let alice_event = timeline_items[4].as_event().unwrap();
     let alice_profile = alice_event.sender_profile();
     // Was this event sent by Alice?
-    assert_eq!(alice_event.sender(), *ALICE);
+    assert_eq!(alice_event.sender(), User::Alice);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Alice".to_owned()));
@@ -167,7 +167,7 @@ async fn test_user_profile_after_leaving() {
     let bob_event = timeline_items[3].as_event().unwrap();
     let bob_profile = bob_event.sender_profile();
     // Was this event sent by Bob?
-    assert_eq!(bob_event.sender(), *BOB);
+    assert_eq!(bob_event.sender(), User::Bob);
     match bob_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Bob".to_owned()));
@@ -186,13 +186,13 @@ async fn test_update_sender_profiles() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+            JoinedRoomBuilder::default()
                 // Alice accepts an invite into the room
                 .add_timeline_event(
                     f.member(User::Alice)
@@ -249,7 +249,7 @@ async fn test_update_sender_profiles() {
         TimelineDetails::Error(_)
     );
 
-    let f = f.room(&DEFAULT_TEST_ROOM_ID);
+    let f = f.default_room();
 
     // Try again, this time we mock the endpoint to get a useful response.
     server

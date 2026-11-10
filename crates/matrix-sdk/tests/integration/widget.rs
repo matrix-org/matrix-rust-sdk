@@ -35,7 +35,7 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedRoomId, device_id, event_id,
     events::{
@@ -87,7 +87,7 @@ async fn run_test_driver(
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
-    let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
+    let room = mock_server.sync_joined_room(&client, &*ROOM_ID).await;
 
     if is_room_e2ee {
         mock_server.mock_room_state_encryption().encrypted().mount().await;
@@ -127,7 +127,7 @@ async fn run_test_driver_e2e_with_room_encryption(
     mock_server.mock_crypto_endpoints_preset().await;
     let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
 
-    let room = mock_server.sync_joined_room(&alice, &ROOM_ID).await;
+    let room = mock_server.sync_joined_room(&alice, &*ROOM_ID).await;
 
     if is_room_e2ee {
         mock_server.mock_room_state_encryption().encrypted().mount().await;
@@ -356,7 +356,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let f = EventFactory::new().room(&ROOM_ID).sender(user_id!("@example:localhost"));
+    let f = EventFactory::new().room(&*ROOM_ID).sender(user_id!("@example:localhost"));
 
     let end = "t47409-4357353_219380_26003_2269";
     let chunk2 = vec![
@@ -416,7 +416,7 @@ async fn test_read_room_members() {
     // No further messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let f = EventFactory::new().room(&ROOM_ID);
+    let f = EventFactory::new().room(&*ROOM_ID);
 
     let leave_event = f
         .member(user_id!("@example:localhost"))
@@ -496,7 +496,7 @@ async fn test_receive_live_events() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
-                JoinedRoomBuilder::new(&ROOM_ID)
+                JoinedRoomBuilder::new(&*ROOM_ID)
                     // text message from alice - matches filter #2
                     .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // emote from alice - doesn't match
@@ -792,7 +792,7 @@ async fn test_should_block_internal_to_device() {
         .ok_and_run(&bob, |builder| {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
-                    .add_state_event(f.room_encryption().sender(*BOB))
+                    .add_state_event(f.room_encryption().sender(User::Bob))
                     .add_state_event(
                         f.member(alice_user_id).sender(alice_user_id).display_name("Alice"),
                     ),
@@ -838,7 +838,7 @@ async fn test_should_block_internal_to_device() {
 async fn test_receive_state() {
     let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
-    let f = EventFactory::new().room(&ROOM_ID);
+    let f = EventFactory::new().room(&*ROOM_ID);
     let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(User::Bob).into();
 
     mock_server
@@ -846,7 +846,7 @@ async fn test_receive_state() {
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
                 // set room name - matches filter
-                JoinedRoomBuilder::new(&ROOM_ID).add_state_event(name_event_1),
+                JoinedRoomBuilder::new(&*ROOM_ID).add_state_event(name_event_1),
             );
         })
         .await;
@@ -880,7 +880,7 @@ async fn test_receive_state() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
-                JoinedRoomBuilder::new(&ROOM_ID)
+                JoinedRoomBuilder::new(&*ROOM_ID)
                     // text message from alice - doesn't match
                     .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // set room topic - doesn't match
@@ -1322,6 +1322,46 @@ async fn test_send_redaction() {
 
     assert_eq!(redact_event_id, "$redact_event_id");
     assert_eq!(redact_room_id, "!a98sd12bjh:example.org");
+}
+
+/// A non-redaction event with a `redacts` field in its content must be sent as
+/// is, and must not trigger a redaction (which would bypass the
+/// `m.room.redaction` capability check).
+#[async_test]
+async fn test_non_redaction_event_with_redacts_field_is_not_a_redaction() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    // Only allowed to send `m.room.message`, not `m.room.redaction`.
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
+        .await;
+
+    mock_server.mock_room_redact().ok(event_id!("$redact_event_id")).never().mount().await;
+    mock_server
+        .mock_room_send()
+        .for_type("m.room.message".into())
+        .ok(event_id!("$foobar"))
+        .mock_once()
+        .mount()
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-room-message-with-redacts",
+        "send_event",
+        json!({
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "Not a redaction",
+                "redacts": "$1234",
+            },
+        }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["event_id"].as_str().unwrap(), "$foobar");
 }
 
 async fn send_to_device_test_helper(
@@ -2025,10 +2065,13 @@ async fn test_get_rtc_transports() {
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
 
+    // The homeserver advertises both the current `m.livekit` and the legacy
+    // `livekit` transport types, both must be forwarded unchanged.
     Mock::given(method("GET"))
         .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "rtc_transports": [
+                { "type": "m.livekit", "url": "wss://livekit.example.com" },
                 { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
             ]
         })))
@@ -2051,6 +2094,7 @@ async fn test_get_rtc_transports() {
         response["response"],
         json!({
             "rtc_transports": [
+                { "type": "m.livekit", "url": "wss://livekit.example.com" },
                 { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
             ]
         })
@@ -2123,7 +2167,7 @@ async fn test_get_rtc_transports_falls_back_to_well_known() {
         response["response"],
         json!({
             "rtc_transports": [
-                { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                { "type": "m.livekit", "url": "wss://livekit.example.com" }
             ]
         })
     );

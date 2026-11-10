@@ -39,11 +39,13 @@ use matrix_sdk_crypto::{
 };
 #[cfg(doc)]
 use ruma::DeviceId;
+#[cfg(feature = "unstable-msc4536")]
+use ruma::MilliSecondsSinceUnixEpoch;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
     OwnedRoomId, OwnedUserId, RoomId, UserId,
-    api::client::{self as api, sync::sync_events::v5},
+    api::client::{self as api, sync::sync_events::msc4186},
     events::{
         StateEvent, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
@@ -414,6 +416,12 @@ impl BaseClient {
         self.state_store.load_rooms(&session_meta.user_id, room_load_settings).await?;
         self.state_store.load_sync_token().await?;
         self.state_store.set_session_meta(session_meta);
+
+        // Always notify subscribers, even if the stored value is the same as
+        // the default one, so subscribers created before the activation
+        // always receive exactly one update for the initial load.
+        let ignore_user_list = self.get_ignore_user_list().await?;
+        self.ignore_user_list_changes.set(ignore_user_list);
 
         #[cfg(feature = "e2e-encryption")]
         self.regenerate_olm(custom_account).await?;
@@ -1170,6 +1178,22 @@ impl BaseClient {
         }
     }
 
+    /// Gets the ignore user list.
+    ///
+    /// Retrieves the ignored users from the state store, returning an empty
+    /// list if no ignored user list has been stored.
+    async fn get_ignore_user_list(&self) -> Result<Vec<OwnedUserId>> {
+        let Some(raw) =
+            self.state_store.get_account_data_event_static::<IgnoredUserListEventContent>().await?
+        else {
+            return Ok(Vec::new());
+        };
+
+        let event = raw.deserialize()?;
+
+        Ok(event.content.ignored_users.into_keys().collect())
+    }
+
     /// Returns a subscriber that publishes an event every time the ignore user
     /// list changes
     pub fn subscribe_to_ignore_user_list_changes(&self) -> Subscriber<Vec<OwnedUserId>> {
@@ -1200,7 +1224,7 @@ impl BaseClient {
     /// observable before the next sync reflects it.
     ///
     /// **Note:** This method should only be called when global profile syncing
-    /// is enabled
+    /// is enabled.
     pub async fn own_profile_updated(&self, update: UserProfileUpdate) -> Result<()> {
         let own_user_id = self.session_meta().ok_or(Error::InsufficientData)?.user_id.clone();
         let state_store_guard = self.state_store_lock().lock().await;
@@ -1210,6 +1234,38 @@ impl BaseClient {
         self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
 
         self.notify_global_profile_updates(BTreeSet::from([own_user_id]), &state_store_guard)
+    }
+
+    /// Receive global profiles fetched from the homeserver outside of a sync,
+    /// e.g. via MSC4536, along with any users whose global profiles need to
+    /// be marked as unavailable.
+    ///
+    /// Updates the internal and cached state accordingly, and notifies any
+    /// subscribers of the changed user IDs.
+    ///
+    /// **Note:** This method should only be called when global profile syncing
+    /// is enabled.
+    #[cfg(feature = "unstable-msc4536")]
+    pub async fn receive_fetched_global_profiles(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfileUpdate>,
+        unavailable_profiles: BTreeMap<OwnedUserId, MilliSecondsSinceUnixEpoch>,
+    ) -> Result<()> {
+        if profiles.is_empty() && unavailable_profiles.is_empty() {
+            return Ok(());
+        }
+
+        let state_store_guard = self.state_store_lock().lock().await;
+        let user_ids = profiles.keys().cloned().collect();
+
+        let changes = StateChanges {
+            global_profiles: profiles,
+            unavailable_global_profiles: unavailable_profiles,
+            ..Default::default()
+        };
+        self.state_store.save_changes_with_guard(&state_store_guard, &changes).await?;
+
+        self.notify_global_profile_updates(user_ids, &state_store_guard)
     }
 
     /// Notify the rest of the SDK that the global profiles of the given users
@@ -1344,8 +1400,8 @@ impl RequestedRequiredStates {
     }
 }
 
-impl From<&v5::Request> for RequestedRequiredStates {
-    fn from(request: &v5::Request) -> Self {
+impl From<&msc4186::Request> for RequestedRequiredStates {
+    fn from(request: &msc4186::Request) -> Self {
         // The following information is missing in the MSC4186 at the time of
         // writing (2025-03-12) but: the `required_state`s from all lists and
         // from all room subscriptions are combined by doing an union.
@@ -1396,7 +1452,7 @@ mod tests {
     };
     use ruma::{
         RoomId,
-        api::client::{self as api, sync::sync_events::v5},
+        api::client::{self as api, sync::sync_events::msc4186},
         event_id,
         events::{StateEventType, room::member::MembershipState},
         room_id,
@@ -1454,7 +1510,7 @@ mod tests {
         let room_id_1 = room_id!("!r1");
 
         // Empty request.
-        let mut request = v5::Request::new();
+        let mut request = msc4186::Request::new();
 
         {
             let requested_required_states = RequestedRequiredStates::from(&request);
@@ -1465,7 +1521,7 @@ mod tests {
 
         // One list.
         request.lists.insert("foo".to_owned(), {
-            let mut list = v5::request::List::default();
+            let mut list = msc4186::request::List::default();
             list.room_details.required_state = vec![
                 (StateEventType::RoomAvatar, "".to_owned()),
                 (StateEventType::RoomEncryption, "".to_owned()),
@@ -1489,7 +1545,7 @@ mod tests {
 
         // Two lists.
         request.lists.insert("bar".to_owned(), {
-            let mut list = v5::request::List::default();
+            let mut list = msc4186::request::List::default();
             list.room_details.required_state = vec![
                 (StateEventType::RoomEncryption, "".to_owned()),
                 (StateEventType::RoomName, "".to_owned()),
@@ -1515,7 +1571,7 @@ mod tests {
 
         // One room subscription.
         request.room_subscriptions.insert(room_id_0.to_owned(), {
-            let mut room_subscription = v5::request::RoomSubscription::default();
+            let mut room_subscription = msc4186::request::RoomSubscription::default();
 
             room_subscription.required_state = vec![
                 (StateEventType::RoomJoinRules, "".to_owned()),
@@ -1544,7 +1600,7 @@ mod tests {
 
         // Two room subscriptions.
         request.room_subscriptions.insert(room_id_1.to_owned(), {
-            let mut room_subscription = v5::request::RoomSubscription::default();
+            let mut room_subscription = msc4186::request::RoomSubscription::default();
 
             room_subscription.required_state = vec![
                 (StateEventType::RoomName, "".to_owned()),
@@ -2076,6 +2132,63 @@ mod tests {
 
         assert_let!(Some(ignored) = subscriber.next().await);
         assert!(ignored.is_empty());
+    }
+
+    async fn store_with_ignored_user() -> StoreConfig {
+        let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
+        let user_id = user_id!("@alice:example.org");
+
+        let client =
+            BaseClient::new(store.clone(), ThreadingSupport::Disabled, DmRoomDefinition::default());
+
+        client
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Ignore a user.
+        let event_factory = EventFactory::new();
+        let response = SyncResponseBuilder::new()
+            .add_global_account_data(event_factory.ignored_user_list([User::Bob.into()]))
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        store
+    }
+
+    #[async_test]
+    async fn test_ignored_user_list_restored_on_activation() {
+        let store = store_with_ignored_user().await;
+        let user_id = user_id!("@alice:example.org");
+
+        // New client with the previously populated store.
+        let client =
+            BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
+
+        // Acrivation should hydrate the ignored user list.
+        client
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut subscriber = client.subscribe_to_ignore_user_list_changes();
+
+        // The ignored user list is restored from the store.
+        assert_eq!(subscriber.get(), [User::Bob]);
+
+        // No changes occurred after subscribing.
+        assert!(subscriber.next().now_or_never().is_none());
     }
 
     #[async_test]

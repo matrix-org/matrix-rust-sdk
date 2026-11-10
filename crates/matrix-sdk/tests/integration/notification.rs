@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use matrix_sdk::{
     config::{SyncSettings, SyncToken},
     sync::Notification,
@@ -10,7 +8,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
 };
 use ruma::{
-    Int, OwnedRoomId, event_id,
+    OwnedRoomId, event_id,
     events::{AnyStrippedStateEvent, StateEventType},
     owned_user_id, room_id,
     serde::Raw,
@@ -44,11 +42,13 @@ async fn test_notifications_joined() {
     // Set up the room state, no notifications.
     let mut sync_builder = SyncResponseBuilder::new();
     let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
-    let mut users = BTreeMap::new();
-    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
-    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
     let joined_room = JoinedRoomBuilder::new(room_id).add_state_bulk([
-        f.power_levels(&mut users).into_raw_sync_state(),
+        f.power_levels()
+            .set_users([
+                (owned_user_id!("@example:localhost"), 100),
+                (owned_user_id!("@bob:localhost"), 0),
+            ])
+            .into_raw_sync_state(),
         f.member(user_id).display_name("example").into_raw_sync_state(),
     ]);
     sync_builder.add_joined_room(joined_room);
@@ -113,10 +113,13 @@ async fn test_notifications_invite() {
 
     let mut sync_builder = SyncResponseBuilder::new();
     let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
-    let mut users = BTreeMap::new();
-    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
-    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
-    let power_levels_event: Raw<AnyStrippedStateEvent> = f.power_levels(&mut users).into();
+    let power_levels_event: Raw<AnyStrippedStateEvent> = f
+        .power_levels()
+        .set_users([
+            (owned_user_id!("@example:localhost"), 100),
+            (owned_user_id!("@bob:localhost"), 0),
+        ])
+        .into();
     // Factory sends @example by default, but in reality these events come from
     // Bob.
     let bob = user_id!("@bob:localhost");

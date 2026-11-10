@@ -35,7 +35,6 @@ use ruma::{
     },
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
@@ -56,14 +55,13 @@ use super::{
         read_receipts::{
             MaybeReceiptEventContent, ThreadReadReceiptEventFilter, compute_unread_counts,
         },
-        room::RoomEventCacheLinkedChunkUpdate,
         subscriber::SubscribersHandle,
     },
     ThreadEventCacheUpdateSender,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor;
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 pub struct ThreadEventCacheState {
     /// The room owning this thread.
@@ -98,7 +96,7 @@ pub struct ThreadEventCacheState {
     /// during a sync or a back-pagination.
     ///
     /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateSender,
 
     /// Have we ever waited for a previous-batch-token to come from sync, in the
     /// context of pagination? We do this at most once per room/thread (?), the
@@ -130,7 +128,7 @@ impl ThreadEventCacheState {
         room_version_rules: RoomVersionRules,
         store_guard: EventCacheStoreLockGuard,
         update_sender: ThreadEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
     ) -> Result<Self> {
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 
@@ -148,7 +146,7 @@ impl ThreadEventCacheState {
         //
         // If loading the full linked chunk failed, we'll clear the event cache,
         // as it indicates that at some point, there's some malformed data.
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -175,6 +173,11 @@ impl ThreadEventCacheState {
             Ok(linked_chunk) => linked_chunk,
             Err(err) => {
                 error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // The metadata no longer reflects the storage, which is about
+                // to be cleared. Drop it, so that the order
+                // tracker doesn't start from a stale state.
+                full_linked_chunk_metadata = None;
 
                 // Try to clear storage for this thread.
                 store_guard
@@ -219,7 +222,7 @@ impl ThreadEventCacheState {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&self.room_id, &self.thread_id);
 
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(store, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -241,6 +244,11 @@ impl ThreadEventCacheState {
                     // If loading the last chunk failed, clear the entire linked
                     // chunk.
                     error!("error when reloading a linked chunk from memory: {err}");
+
+                    // The metadata no longer reflects the storage, which is
+                    // about to be cleared. Drop it, so that the order tracker
+                    // doesn't start from a stale state.
+                    full_linked_chunk_metadata = None;
 
                     // Clear storage for this thread.
                     store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;

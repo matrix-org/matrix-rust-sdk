@@ -421,7 +421,13 @@ impl CrossSigningResetHandle {
         .unwrap_or_else(|_| {
             warn!("Timed out waiting for keys/device_signing/upload to succeed.");
             Err(Error::Timeout)
-        })
+        })?;
+
+        if let Some(olm) = self.client.olm_machine().await.as_ref() {
+            self.client.encryption().query_own_keys(olm).await;
+        }
+
+        Ok(())
     }
 
     /// Cancel the ongoing identity reset process
@@ -1179,27 +1185,20 @@ impl Encryption {
         Some(machine.cross_signing_status().await)
     }
 
-    /// Does the user have other devices that the current device can verify
-    /// against?
+    /// Does the user have devices, other than the current one, that the
+    /// current device can verify against?
     ///
-    /// The device must be signed by the user's cross-signing key, must have an
-    /// identity, and must not be a dehydrated device.
+    /// The device must be signed by the user's cross-signing key, must support
+    /// Olm (have a Curve25519 key), and must not be a dehydrated device.
     pub async fn has_devices_to_verify_against(&self) -> Result<bool> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
-        let user_id = olm_machine.user_id();
 
         self.ensure_initial_key_query().await?;
 
-        let devices = self.get_user_devices(user_id).await?;
+        let devices = olm_machine.get_user_devices(olm_machine.user_id(), None).await?;
 
-        let ret = devices.devices().any(|device| {
-            device.is_cross_signed_by_owner()
-                && device.curve25519_key().is_some()
-                && !device.is_dehydrated()
-        });
-
-        Ok(ret)
+        Ok(devices.has_other_devices_to_verify_against())
     }
 
     /// Get all the tracked users we know about
@@ -1607,6 +1606,7 @@ impl Encryption {
         }
         self.client.send(upload_signing_keys_req).await?;
         self.client.send(upload_signatures_req).await?;
+        self.query_own_keys(olm).await;
 
         Ok(())
     }
@@ -1680,8 +1680,23 @@ impl Encryption {
             }
         } else {
             self.client.send(upload_signatures_req).await?;
+            self.query_own_keys(olm).await;
 
             Ok(None)
+        }
+    }
+
+    /// Query the user's own device keys, so that the signatures we just
+    /// uploaded for our own device are reflected locally.
+    ///
+    /// This is best-effort: the signatures are already uploaded, so if this
+    /// fails a later sync will pick them up.
+    async fn query_own_keys(&self, olm: &OlmMachine) {
+        let (request_id, request) = olm.query_keys_for_users([olm.user_id()]);
+        if let Err(error) = self.client.keys_query(&request_id, request.device_keys).await {
+            warn!(
+                "Couldn't query our own keys after uploading cross-signing signatures: {error:?}"
+            );
         }
     }
 
@@ -2283,6 +2298,11 @@ impl Encryption {
 
                     if is_verified {
                         self.client.inner.verification_state.set(VerificationState::Verified);
+                    } else if matches!(self.get_user_identity(device.user_id()).await, Ok(None)) {
+                        // We don't know our own identity yet, so we can't tell
+                        // whether we're verified; it'll be updated after the
+                        // next keys query.
+                        self.client.inner.verification_state.set(VerificationState::Unknown);
                     } else {
                         self.client.inner.verification_state.set(VerificationState::Unverified);
                     }
@@ -2314,7 +2334,7 @@ impl Encryption {
     /// event.
     ///
     /// This handler listens for changes to the room membership, and discards
-    /// the current room key if the event is a `leave` event.
+    /// the current room key if the event is not a `join` or `invite` event.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     fn setup_room_membership_session_discard_handler(&self) {
@@ -2341,12 +2361,12 @@ impl Encryption {
                 MembershipChange::KnockAccepted |
                 MembershipChange::InvitationAccepted |
                 MembershipChange::ProfileChanged { .. }
-            ) || ev.sender == user_id {
-                // We can ignore events that did not remove us, and those that we sent.
+            ) || ev.state_key == user_id {
+                // We can ignore events that did not remove the user, and those that involve us.
                 return;
             }
 
-            debug!(room_id = ?room.room_id(), member_id = ?ev.sender, "Discarding session as a user left the room");
+            debug!(room_id = ?room.room_id(), member_id = ?ev.state_key, "Discarding session as a user left the room");
 
             // Attempt to discard the current room key. This won't do anything
             // if we don't have one, but that's fine since we will create a new
@@ -2510,7 +2530,7 @@ mod tests {
                     .add_state_event(
                         f.member(user_id!("@example:localhost")).display_name("example"),
                     )
-                    .add_state_event(f.default_power_levels())
+                    .add_state_event(f.power_levels())
                     .add_state_event(f.room_encryption()),
             )
             .build_sync_response();
@@ -2745,9 +2765,9 @@ mod tests {
         set_client_session(&client).await;
 
         // Then we can get an updated value without waiting for any network
-        // requests
+        // requests, which stays unknown as we don't know our own identity yet
         assert!(keys_requested.load(Ordering::SeqCst).not());
-        assert_next_matches_with_timeout!(verification_state, VerificationState::Unverified);
+        assert_next_matches_with_timeout!(verification_state, VerificationState::Unknown);
     }
 
     #[test]

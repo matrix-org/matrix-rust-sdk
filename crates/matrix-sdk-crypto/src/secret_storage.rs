@@ -150,7 +150,7 @@ pub enum DecodeError {
 /// ```
 ///
 /// [spec]: https://spec.matrix.org/v1.8/client-server-api/#secret-storage
-#[derive(Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct SecretStorageKey {
     /// Information about the secret storage key.
     ///

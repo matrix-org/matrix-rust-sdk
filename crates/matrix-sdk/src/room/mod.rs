@@ -60,6 +60,8 @@ use matrix_sdk_common::{
 };
 use mime::Mime;
 use reply::Reply;
+#[cfg(feature = "unstable-msc4536")]
+use ruma::api::FeatureFlag;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "experimental-encrypted-state-events")]
@@ -358,6 +360,11 @@ macro_rules! make_media_type {
             }
 
             mime::VIDEO => {
+                #[cfg(feature = "unstable-msc4546")]
+                let circle = match &$info {
+                    Some(AttachmentInfo::Video(video_info)) => video_info.circle,
+                    _ => false,
+                };
                 let info = assign!($info.map(VideoInfo::from).unwrap_or_default(), {
                     mimetype: Some($content_type.as_ref().to_owned()),
                     thumbnail_source,
@@ -366,8 +373,10 @@ macro_rules! make_media_type {
                 let content = assign!(VideoMessageEventContent::new(body, $source), {
                     info: Some(Box::new(info)),
                     formatted,
-                    filename
+                    filename,
                 });
+                #[cfg(feature = "unstable-msc4546")]
+                let content = content.circle(circle);
                 <$t>::Video(content)
             }
 
@@ -1307,6 +1316,41 @@ impl Room {
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
             .collect())
+    }
+
+    /// Fetch the missing global profiles of this room's joined members in the
+    /// background, e.g. after loading the members with [`Room::members()`].
+    ///
+    /// This returns once the fetch is queued, without waiting for the profiles.
+    /// They are announced through
+    /// [`Client::subscribe_to_global_profile_updates()`] as they are
+    /// stored.
+    ///
+    /// This does nothing unless the room is joined, global profiles are being
+    /// synced (see [`Client::is_global_profile_sync_enabled()`]) and the
+    /// homeserver supports [MSC4536]. The first two are needed for the sync to
+    /// keep the fetched profiles up to date.
+    ///
+    /// [MSC4536]: https://github.com/matrix-org/matrix-spec-proposals/pull/4536
+    #[cfg(feature = "unstable-msc4536")]
+    pub async fn fetch_missing_global_profiles_in_background(&self) -> Result<()> {
+        if self.state() != RoomState::Joined {
+            return Ok(());
+        }
+
+        if !self.client.is_global_profile_sync_enabled().await? {
+            return Ok(());
+        }
+
+        if !self.client.unstable_features().await?.contains(&FeatureFlag::Msc4536) {
+            debug!("The homeserver doesn't support fetching multiple profiles");
+            return Ok(());
+        }
+
+        let user_ids = self.inner.joined_user_ids().await?;
+        self.client.global_profile_fetcher().enqueue(user_ids);
+
+        Ok(())
     }
 
     /// Get the user IDs of the members with the given memberships, without the
@@ -4334,10 +4378,10 @@ impl Room {
     /// for more info.
     pub fn effective_retention_with_server_config(
         &self,
-        config: &get_retention_configuration::unstable::Response,
+        config: &get_retention_configuration::msc1763::Response,
     ) -> Option<RoomRetentionEventContent> {
         use ruma::api::client::retention::{
-            RoomIdOrAllRooms, get_retention_configuration::unstable::LifetimeLimits,
+            RoomIdOrAllRooms, get_retention_configuration::msc1763::LifetimeLimits,
         };
 
         fn clamp(value: Option<Duration>, limits: &Option<LifetimeLimits>) -> Option<Duration> {
@@ -4478,7 +4522,7 @@ impl Room {
 
         match self
             .client
-            .send(subscribe_thread::unstable::Request::new(
+            .send(subscribe_thread::msc4306::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
                 automatic,
@@ -4560,7 +4604,7 @@ impl Room {
     #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
         self.client
-            .send(unsubscribe_thread::unstable::Request::new(
+            .send(unsubscribe_thread::msc4306::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
             ))
@@ -4607,7 +4651,7 @@ impl Room {
     ) -> Result<Option<ThreadSubscription>> {
         let result = self
             .client
-            .send(get_thread_subscription::unstable::Request::new(
+            .send(get_thread_subscription::msc4306::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
             ))
@@ -4970,11 +5014,11 @@ fn has_state_events_of_type(update: &RoomUpdate, event_type: &StateEventType) ->
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::BTreeMap, time::Duration};
+    use std::time::Duration;
 
     use matrix_sdk_base::{ComposerDraft, DraftAttachment, store::ComposerDraftType};
     use matrix_sdk_test::{
-        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+        JoinedRoomBuilder, SyncResponseBuilder, TestRoom, async_test, event_factory::EventFactory,
     };
     use ruma::{
         RoomVersionId, event_id,
@@ -5004,7 +5048,7 @@ mod tests {
     #[async_test]
     async fn test_cache_invalidation_while_encrypt() {
         use matrix_sdk_base::store::RoomLoadSettings;
-        use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, message_like_event_content};
+        use matrix_sdk_test::{TestRoom, message_like_event_content};
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let sqlite_path = tmp_dir.path().join("cache_invalidation_while_encrypt.db");
@@ -5044,14 +5088,14 @@ mod tests {
                         .add_state_event(
                             f.member(user_id!("@example:localhost")).display_name("example"),
                         )
-                        .add_state_event(f.default_power_levels())
+                        .add_state_event(f.power_levels())
                         .add_state_event(f.room_encryption()),
                 )
                 .build_sync_response();
             client.base_client().receive_sync_response(response).await.unwrap();
         }
 
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+        let room = client.get_room(TestRoom::Default.into()).expect("Room should exist");
 
         // Step 1, preshare the room keys.
         room.preshare_room_key().await.unwrap();
@@ -5099,15 +5143,13 @@ mod tests {
 
     #[async_test]
     async fn test_composer_draft() {
-        use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
-
         let client = logged_in_client(None).await;
 
         let response = SyncResponseBuilder::default()
             .add_joined_room(JoinedRoomBuilder::default())
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
-        let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
+        let room = client.get_room(TestRoom::Default.into()).expect("Room should exist");
 
         assert_eq!(room.load_composer_draft(None).await.unwrap(), None);
 
@@ -5505,11 +5547,10 @@ mod tests {
         let room_id = room_id!("!a:b.c");
         let sender_id = client.user_id().expect("No session id");
         let f = EventFactory::new().room(room_id).sender(sender_id);
-        let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
 
         // Computing the power levels will need these 3 state events:
-        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into();
-        let power_levels_event = f.power_levels(&mut user_map).state_key("").into();
+        let room_create_event = f.create(sender_id, RoomVersionId::V1).into();
+        let power_levels_event = f.power_levels().set_users([(sender_id, 50)]).into();
         let room_member_event = f.member(sender_id).into();
 
         // With only the room member event

@@ -791,7 +791,7 @@ pub struct SpaceFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, pin::pin};
+    use std::pin::pin;
 
     use eyeball_im::VectorDiff;
     use futures_util::StreamExt;
@@ -2125,15 +2125,14 @@ mod tests {
                 );
             }
 
-            let mut power_levels = if let Some(power_level) = parameters.power_level {
-                BTreeMap::from([(user_id.to_owned(), power_level.into())])
+            let power_levels = if let Some(power_level) = parameters.power_level {
+                [(user_id, power_level)]
             } else {
-                BTreeMap::from([(user_id.to_owned(), 100.into())])
+                [(user_id, 100)]
             };
 
-            builder = builder.add_state_event(
-                factory.power_levels(&mut power_levels).state_key("").sender(user_id),
-            );
+            builder = builder
+                .add_state_event(factory.power_levels().set_users(power_levels).sender(user_id));
 
             server.sync_room(client, builder).await;
         }

@@ -36,7 +36,7 @@ use futures_core::stream::Stream;
 use futures_util::StreamExt;
 use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use ruma::{api::client::sync::sync_events::v5 as http, assign};
+use ruma::{api::client::sync::sync_events::msc4186 as http, assign};
 use tokio::sync::OwnedMutexGuard;
 use tracing::{debug, instrument, trace};
 

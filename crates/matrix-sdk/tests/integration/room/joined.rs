@@ -9,45 +9,40 @@ use assert_matches::assert_matches;
 use futures_util::future::join_all;
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
-    config::SyncSettings,
     room::{Receipts, RoomMemberRole, edit::EditedContent},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, User,
-    async_test,
-    event_factory::EventFactory,
-    test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
+    InvitedRoomBuilder, JoinedRoomBuilder, TestRoom, User, async_test, event_factory::EventFactory,
 };
+#[cfg(feature = "unstable-msc4536")]
+use ruma::profile::ProfileFieldValue;
 use ruma::{
     OwnedUserId, RoomVersionId, TransactionId,
-    api::client::{
-        membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType,
-        room::upgrade_room::v3::Request as UpgradeRoomRequest,
+    api::{
+        MatrixVersion,
+        client::{
+            membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType,
+            room::upgrade_room::v3::Request as UpgradeRoomRequest,
+        },
     },
     assign, event_id,
     events::{
-        RoomAccountDataEventType, TimelineEventType,
+        RoomAccountDataEventType, StateEventType, TimelineEventType,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
     },
-    int, mxc_uri, owned_event_id, owned_user_id, room_id, thirdparty, user_id,
+    int, mxc_uri, owned_event_id, thirdparty,
 };
 use serde_json::json;
 use strass::assert_let;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{body_json, body_partial_json, header, method, path_regex},
-};
-
-use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn test_invite_user_by_id() {
@@ -56,7 +51,7 @@ async fn test_invite_user_by_id() {
 
     server.mock_invite_user_by_id().ok().expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.invite_user_by_id(User::Carol.into()).await.unwrap();
 }
@@ -68,7 +63,7 @@ async fn test_invite_user_by_3pid() {
 
     server.mock_invite_user_by_id().ok().expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.invite_user_by_3pid(
         Invite3pidInit {
@@ -87,11 +82,10 @@ async fn test_invite_user_by_3pid() {
 async fn test_leave_room() -> Result<(), anyhow::Error> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = *DEFAULT_TEST_ROOM_ID;
 
-    server.mock_room_leave().ok(room_id).expect(1).mount().await;
+    server.mock_room_leave().ok(TestRoom::Default).expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.leave().await?;
     assert_eq!(room.state(), RoomState::Left);
@@ -103,20 +97,20 @@ async fn test_leave_room() -> Result<(), anyhow::Error> {
 async fn test_leave_joined_room_does_not_forget_it() -> Result<(), anyhow::Error> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let room_id = TestRoom::Default;
 
     server.mock_room_leave().ok(room_id).mock_once().mount().await;
     // The forget endpoint should never be called
     server.mock_room_forget().ok().never().mount().await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.leave().await?;
 
     assert_eq!(room.state(), RoomState::Left);
 
     // The left room is still around and in the right state
-    let left_room = client.get_room(room_id);
+    let left_room = client.get_room(room_id.into());
     assert!(left_room.is_some());
     assert_eq!(left_room.unwrap().state(), RoomState::Left);
 
@@ -127,19 +121,19 @@ async fn test_leave_joined_room_does_not_forget_it() -> Result<(), anyhow::Error
 async fn test_leave_invited_room_also_forgets_it() -> Result<(), anyhow::Error> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let room_id = TestRoom::Default;
 
     server.mock_room_leave().ok(room_id).mock_once().mount().await;
     server.mock_room_forget().ok().mock_once().mount().await;
 
-    let invited_room_builder = InvitedRoomBuilder::new(room_id);
+    let invited_room_builder = InvitedRoomBuilder::default();
     let room = server.sync_room(&client, invited_room_builder).await;
 
     room.leave().await?;
 
     assert_eq!(room.state(), RoomState::Left);
 
-    let forgotten_room = client.get_room(room_id);
+    let forgotten_room = client.get_room(room_id.into());
     assert!(forgotten_room.is_none());
 
     Ok(())
@@ -150,29 +144,25 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let user = user_id!("@example:localhost");
-    let room_a_id = room_id!("!room_a_id:localhost");
-    let room_b_id = room_id!("!room_b_id:localhost");
+    let user = client.user_id().expect("client is logged in");
+    let room_a_id = TestRoom::Default;
+    let room_b_id = TestRoom::V12;
     let create_room_a_event_id = event_id!("$create_room_a_event_id:localhost");
     let tombstone_room_a_event_id = event_id!("$tombstone_room_a_event_id:localhost");
     let create_room_b_event_id = event_id!("$create_room_b_event_id:localhost");
 
-    server
-        .mock_sync()
-        .ok_and_run(&client, |builder| {
-            builder.add_joined_room(
-                JoinedRoomBuilder::new(room_a_id).add_state_event(
-                    EventFactory::new()
-                        .create(user, RoomVersionId::V1)
-                        .room(room_a_id)
-                        .sender(user)
-                        .event_id(create_room_a_event_id),
-                ),
-            );
-        })
+    let room_a = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_a_id).add_state_event(
+                EventFactory::new()
+                    .create(user, RoomVersionId::V1)
+                    .room(room_a_id)
+                    .sender(user)
+                    .event_id(create_room_a_event_id),
+            ),
+        )
         .await;
-
-    let room_a = client.get_room(room_a_id).expect("Room A not created");
 
     server.mock_upgrade_room().ok_with(room_b_id).mount().await;
     server
@@ -182,7 +172,7 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_a_id).add_state_event(
                         EventFactory::new()
-                            .room_tombstone("This room (A) repelaced by Room B!", room_b_id)
+                            .room_tombstone("This room (A) replaced by Room B!", room_b_id)
                             .room(room_a_id)
                             .sender(user)
                             .event_id(tombstone_room_a_event_id),
@@ -201,12 +191,12 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
         })
         .await;
 
-    let upgrade_req = UpgradeRoomRequest::new(room_a_id.to_owned(), RoomVersionId::V11);
+    let upgrade_req = UpgradeRoomRequest::new(room_a_id.into(), RoomVersionId::V11);
     let _response = client.send(upgrade_req).await?;
 
     assert!(room_a.is_tombstoned(), "Room A not tombstoned.");
 
-    let room_b = client.get_room(room_b_id).expect("Room B not created");
+    let room_b = client.get_room(room_b_id.into()).expect("Room B not created");
 
     server.mock_room_leave().ok(room_b_id).mount().await;
 
@@ -226,29 +216,25 @@ async fn test_leave_predecessor_before_successor_no_error() -> Result<(), anyhow
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let user = user_id!("@example:localhost");
-    let room_a_id = room_id!("!room_a_id:localhost");
-    let room_b_id = room_id!("!room_b_id:localhost");
+    let user = client.user_id().expect("client is logged in");
+    let room_a_id = TestRoom::Default;
+    let room_b_id = TestRoom::V12;
     let create_room_a_event_id = event_id!("$create_room_a_event_id:localhost");
     let tombstone_room_a_event_id = event_id!("$tombstone_room_a_event_id:localhost");
     let create_room_b_event_id = event_id!("$create_room_b_event_id:localhost");
 
-    server
-        .mock_sync()
-        .ok_and_run(&client, |builder| {
-            builder.add_joined_room(
-                JoinedRoomBuilder::new(room_a_id).add_state_event(
-                    EventFactory::new()
-                        .create(user, RoomVersionId::V1)
-                        .room(room_a_id)
-                        .sender(user)
-                        .event_id(create_room_a_event_id),
-                ),
-            );
-        })
+    let room_a = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_a_id).add_state_event(
+                EventFactory::new()
+                    .create(user, RoomVersionId::V1)
+                    .room(room_a_id)
+                    .sender(user)
+                    .event_id(create_room_a_event_id),
+            ),
+        )
         .await;
-
-    let room_a = client.get_room(room_a_id).expect("Room A not created");
 
     server.mock_upgrade_room().ok_with(room_b_id).mount().await;
     server
@@ -258,7 +244,7 @@ async fn test_leave_predecessor_before_successor_no_error() -> Result<(), anyhow
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_a_id).add_state_event(
                         EventFactory::new()
-                            .room_tombstone("This room (A) repelaced by Room B!", room_b_id)
+                            .room_tombstone("This room (A) replaced by Room B!", room_b_id)
                             .room(room_a_id)
                             .sender(user)
                             .event_id(tombstone_room_a_event_id),
@@ -277,12 +263,12 @@ async fn test_leave_predecessor_before_successor_no_error() -> Result<(), anyhow
         })
         .await;
 
-    let upgrade_req = UpgradeRoomRequest::new(room_a_id.to_owned(), RoomVersionId::V11);
+    let upgrade_req = UpgradeRoomRequest::new(room_a_id.into(), RoomVersionId::V11);
     let _response = client.send(upgrade_req).await?;
 
     assert!(room_a.is_tombstoned(), "Room A not tombstoned.");
 
-    let room_b = client.get_room(room_b_id).expect("Room B not created");
+    let room_b = client.get_room(room_b_id.into()).expect("Room B not created");
 
     server.mock_room_leave().ok(room_b_id).mount().await;
 
@@ -309,28 +295,24 @@ async fn test_leave_room_with_fake_predecessor_no_error() -> Result<(), anyhow::
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let user = user_id!("@example:localhost");
-    let room_id = room_id!("!room_id:localhost");
-    let fake_room_id = room_id!("!fake_room_id:localhost");
+    let user = client.user_id().expect("client is logged in");
+    let room_id = TestRoom::Default;
+    let fake_room_id = TestRoom::V12;
     let create_room_event_id = event_id!("$create_room_event_id:localhost");
 
-    server
-        .mock_sync()
-        .ok_and_run(&client, |builder| {
-            builder.add_joined_room(
-                JoinedRoomBuilder::new(room_id).add_state_event(
-                    EventFactory::new()
-                        .create(user, RoomVersionId::V2)
-                        .predecessor(fake_room_id)
-                        .room(room_id)
-                        .sender(user)
-                        .event_id(create_room_event_id),
-                ),
-            );
-        })
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_event(
+                EventFactory::new()
+                    .create(user, RoomVersionId::V2)
+                    .predecessor(fake_room_id)
+                    .room(room_id)
+                    .sender(user)
+                    .event_id(create_room_event_id),
+            ),
+        )
         .await;
-
-    let room = client.get_room(room_id).expect("Room not created");
 
     server.mock_room_leave().ok(room_id).mount().await;
 
@@ -349,26 +331,21 @@ async fn test_leave_room_fails_with_error() -> Result<(), anyhow::Error> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let user = user_id!("@example:localhost");
-    let room_id = room_id!("!room_id:localhost");
+    let user = client.user_id().expect("client is logged in");
     let create_room_event_id = event_id!("$create_room_event_id:localhost");
 
-    server
-        .mock_sync()
-        .ok_and_run(&client, |builder| {
-            builder.add_joined_room(
-                JoinedRoomBuilder::new(room_id).add_state_event(
-                    EventFactory::new()
-                        .create(user, RoomVersionId::V2)
-                        .room(room_id)
-                        .sender(user)
-                        .event_id(create_room_event_id),
-                ),
-            );
-        })
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_event(
+                EventFactory::new()
+                    .create(user, RoomVersionId::V2)
+                    .default_room()
+                    .sender(user)
+                    .event_id(create_room_event_id),
+            ),
+        )
         .await;
-
-    let room = client.get_room(room_id).expect("Room not created");
 
     server
         .mock_room_leave()
@@ -392,7 +369,7 @@ async fn test_leave_room_fails_with_error() -> Result<(), anyhow::Error> {
 async fn test_leave_invited_room_with_no_permissions() -> Result<(), anyhow::Error> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let room_id = TestRoom::Default;
 
     server.mock_room_leave().forbidden().mock_once().mount().await;
     server.mock_room_forget().ok().mock_once().mount().await;
@@ -404,7 +381,7 @@ async fn test_leave_invited_room_with_no_permissions() -> Result<(), anyhow::Err
 
     assert_eq!(room.state(), RoomState::Left);
 
-    let forgotten_room = client.get_room(room_id);
+    let forgotten_room = client.get_room(room_id.into());
     assert!(forgotten_room.is_none());
 
     Ok(())
@@ -417,7 +394,7 @@ async fn test_ban_user() {
 
     server.mock_ban_user().ok().expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.ban_user(User::Bob.into(), None).await.unwrap();
 }
@@ -429,7 +406,7 @@ async fn test_unban_user() {
 
     server.mock_unban_user().ok().expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.unban_user(User::Bob.into(), None).await.unwrap();
 }
@@ -438,10 +415,9 @@ async fn test_unban_user() {
 async fn test_mark_as_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!test:example.org");
 
     // Initial sync with our test room.
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
     assert!(!room.is_marked_unread());
 
     // Setting the room as unread makes a request.
@@ -461,7 +437,7 @@ async fn test_mark_as_unread() {
     // Now we mark the room as unread.
     let f = EventFactory::new();
     server
-        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_account_data(f.marked_unread(true)))
+        .sync_room(&client, JoinedRoomBuilder::default().add_account_data(f.marked_unread(true)))
         .await;
     assert!(room.is_marked_unread());
 
@@ -487,7 +463,7 @@ async fn test_kick_user() {
 
     server.mock_kick_user().ok().expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.kick_user(User::Bob.into(), None).await.unwrap();
 }
@@ -500,7 +476,7 @@ async fn test_send_single_receipt() {
     server.mock_send_receipt(ReceiptType::Read).ok().mock_once().mount().await;
 
     // Initial sync with our test room.
-    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.send_single_receipt(
         ReceiptType::Read,
@@ -553,7 +529,7 @@ async fn test_send_multiple_receipts() {
     server.mock_send_read_markers().ok().mock_once().mount().await;
 
     // Initial sync with our test room.
-    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let receipts = Receipts::new().fully_read_marker(owned_event_id!("$xxxxxx:example.org"));
     room.send_multiple_receipts(receipts).await.unwrap();
@@ -594,7 +570,7 @@ async fn test_typing_notice() {
 
     server.mock_update_typing().ok().expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     room.typing_notice(true).await.unwrap();
 }
@@ -609,7 +585,7 @@ async fn test_room_state_event_send() {
 
     server.mock_room_send_state().ok(event_id.clone()).expect(1).mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
     let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
@@ -628,7 +604,7 @@ async fn test_room_message_send() {
     server.mock_room_send().ok(event_id).mount().await;
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let content = RoomMessageEventContent::text_plain("Hello world");
     let txn_id = TransactionId::new();
@@ -642,8 +618,7 @@ async fn test_room_redact() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room_id = *DEFAULT_TEST_ROOM_ID;
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let event_id = event_id!("$h29iv0s8:example.com");
     server.mock_room_redact().ok(event_id).mock_once().mount().await;
@@ -662,7 +637,7 @@ async fn test_fetch_members_deduplication() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     // We don't need any members, we're just checking if we're correctly
     // deduplicating calls to the method.
@@ -690,19 +665,20 @@ async fn test_set_name() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let name = "The room name";
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.name/$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_json(json!({
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::RoomName)
+        .for_key("".into())
+        .body_matches_partial_json(json!({
             "name": name,
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        }))
+        .ok(owned_event_id!("$newroomname"))
         .expect(1)
-        .mount(server.server())
+        .mount()
         .await;
 
     room.set_name(name.to_owned()).await.unwrap();
@@ -714,7 +690,7 @@ async fn test_report_content() {
     let client = server.client_builder().build().await;
 
     server.mock_report_room_event().ok().expect(1).mount().await;
-    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let event_id = owned_event_id!("$offensive_event");
     room.report_content(event_id, Some("I am offended".to_owned())).await.unwrap();
@@ -728,12 +704,10 @@ async fn test_subscribe_to_typing_notifications() {
     let typing_sequences: Arc<Mutex<Vec<Vec<OwnedUserId>>>> = Arc::new(Mutex::new(Vec::new()));
     // The expected typing sequences that we will receive, note that the current
     // user_id is filtered out.
-    let asserted_typing_sequences =
-        vec![vec![user_id!("@alice:matrix.org"), user_id!("@bob:example.com")], vec![]];
-    let room_id = room_id!("!test:example.org");
+    let asserted_typing_sequences = vec![vec![User::Alice, User::Bob], vec![]];
 
     // Initial sync with our test room.
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     // Send to typing notification
     let join_handle = spawn({
@@ -760,117 +734,139 @@ async fn test_subscribe_to_typing_notifications() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_typing(f.typing(vec![
-                user_id!("@alice:matrix.org"),
-                user_id!("@bob:example.com"),
-                user_id!("@example:localhost"),
+            JoinedRoomBuilder::default().add_typing(f.typing(vec![
+                User::Alice,
+                User::Bob,
+                User::Default,
             ])),
         )
         .await;
 
     // Then send a typing notification with no user typing
-    server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_typing(f.typing(vec![]))).await;
+    server.sync_room(&client, JoinedRoomBuilder::default().add_typing(f.typing::<User>([]))).await;
 
     join_handle.await.unwrap();
-    assert_eq!(typing_sequences.lock().unwrap().to_vec(), asserted_typing_sequences);
+    assert_eq!(*typing_sequences.lock().unwrap(), asserted_typing_sequences);
 }
 
 #[async_test]
 async fn test_get_suggested_user_role() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels().set_users([(creator, 100)]).into(),
+            ]),
+        )
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let role_admin = room.get_suggested_user_role(user_id!("@example:localhost")).await.unwrap();
+    let role_admin = room.get_suggested_user_role(creator.into()).await.unwrap();
     assert_eq!(role_admin, RoomMemberRole::Administrator);
 
     // This user either does not exist in the room or has no special role
-    let role_unknown =
-        room.get_suggested_user_role(user_id!("@non-existing:localhost")).await.unwrap();
+    let role_unknown = room.get_suggested_user_role(User::Carol.into()).await.unwrap();
     assert_eq!(role_unknown, RoomMemberRole::User);
 }
 
 #[async_test]
 async fn test_get_power_level_for_user() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*test_json::DEFAULT_SYNC_SUMMARY, None).await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels().set_users([(creator, 100)]).into(),
+            ]),
+        )
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let power_level_admin =
-        room.get_user_power_level(user_id!("@example:localhost")).await.unwrap();
+    let power_level_admin = room.get_user_power_level(creator.into()).await.unwrap();
     assert_eq!(power_level_admin, int!(100));
 
     // This user either does not exist in the room or has no special power level
-    let power_level_unknown =
-        room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
+    let power_level_unknown = room.get_user_power_level(User::Carol.into()).await.unwrap();
     assert_eq!(power_level_unknown, int!(0));
 }
 
 #[async_test]
 async fn test_get_users_with_power_levels() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let moderator = User::Bob;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*test_json::sync::SYNC_ADMIN_AND_MOD, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels().set_users([(creator, 100), (moderator, 50)]).into(),
+            ]),
+        )
+        .await;
 
     let users_with_power_levels = room.users_with_power_levels().await;
     assert_eq!(users_with_power_levels.len(), 2);
-    assert_eq!(users_with_power_levels["@admin:localhost"], 100);
-    assert_eq!(users_with_power_levels["@mod:localhost"], 50);
+    assert_eq!(users_with_power_levels[creator.as_str()], 100);
+    assert_eq!(users_with_power_levels[moderator.as_str()], 50);
 }
 
 #[async_test]
 async fn test_get_users_with_power_levels_is_empty_if_power_level_info_is_not_available() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
     // The room doesn't have any power level info
-    let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
+    let room = server.sync_default_joined_room(&client).await;
 
     assert!(room.users_with_power_levels().await.is_empty());
 }
 
 #[async_test]
 async fn test_reset_power_levels() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let creator = User::Alice;
+    let f = EventFactory::new().sender(creator);
 
-    mock_sync(&server, &*CUSTOM_ROOM_POWER_LEVELS, None).await;
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.create(creator, RoomVersionId::V10).into(),
+                f.power_levels()
+                    .set_users([(creator, 100)])
+                    .set_events([(TimelineEventType::RoomAvatar, 100)])
+                    .into(),
+            ]),
+        )
+        .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.power_levels/$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::RoomPowerLevels)
+        .for_key(String::new())
+        .body_matches_partial_json(json!({
             "events": {
-                // 'm.room.avatar' is 100 here, if we receive a value '50', the reset worked
+                // 'm.room.avatar' was 100 initially, if we receive a value '50', the reset worked
                 "m.room.avatar": 50,
-                "m.room.canonical_alias": 50,
-                "m.room.history_visibility": 100,
-                "m.room.name": 50,
-                "m.room.power_levels": 100,
-                "m.room.topic": 50
             },
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        }))
+        .ok(event_id!("$newpowerlevels"))
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     let initial_power_levels = room.power_levels().await.unwrap();
@@ -883,19 +879,19 @@ async fn test_reset_power_levels() {
 async fn test_is_direct_invite_by_3pid() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = *DEFAULT_TEST_ROOM_ID;
+    let room_id = TestRoom::Default;
     let third_party_id = "invited@localhost.com";
 
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id)).add_global_account_data(
+            sync_builder.add_joined_room(JoinedRoomBuilder::default()).add_global_account_data(
                 EventFactory::new().direct().add_user(third_party_id, room_id),
             );
         })
         .await;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = client.get_room(room_id.into()).unwrap();
     assert!(room.is_direct().await.unwrap());
     assert!(room.direct_targets().contains(third_party_id));
 }
@@ -907,15 +903,14 @@ async fn test_make_reply_event_doesnt_require_event_cache() {
 
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
-    let user_id = client.user_id().unwrap().to_owned();
+    let user_id = client.user_id().unwrap();
 
-    let room_id = room_id!("!galette:saucisse.bzh");
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let event_id = event_id!("$1");
     let f = EventFactory::new();
     mock.mock_room_event()
-        .ok(f.text_msg("hi").event_id(event_id).sender(&user_id).room(room_id).into_event())
+        .ok(f.text_msg("hi").event_id(event_id).sender(user_id).default_room().into_event())
         .expect(1)
         .named("/event")
         .mount()
@@ -932,8 +927,7 @@ async fn test_enable_encryption_doesnt_stay_unknown() {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
-    let room_id = room_id!("!a:b.c");
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     assert_matches!(room.encryption_state(), EncryptionState::Unknown);
 
@@ -959,8 +953,7 @@ async fn test_enable_state_encryption_doesnt_stay_unknown() {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
-    let room_id = room_id!("!a:b.c");
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     assert_matches!(room.encryption_state(), EncryptionState::Unknown);
 
@@ -989,17 +982,16 @@ async fn test_subscribe_to_knock_requests() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event =
         f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into_raw();
 
     server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
     let mut stream = pin!(stream);
@@ -1013,7 +1005,7 @@ async fn test_subscribe_to_knock_requests() {
     assert!(!knock_request.is_seen);
 
     // We then mark the knock request as seen
-    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+    room.mark_knock_requests_as_seen(&[user_id.into()]).await.unwrap();
 
     // Now it's received again as seen
     let seen = assert_next_with_timeout!(stream, 1000);
@@ -1023,7 +1015,7 @@ async fn test_subscribe_to_knock_requests() {
     assert!(seen_knock.is_seen);
 
     // If we then receive a new member event for Alice that's not 'knock'
-    let joined_room_builder = JoinedRoomBuilder::new(room_id)
+    let joined_room_builder = JoinedRoomBuilder::default()
         .add_state_bulk(vec![f.member(user_id).membership(MembershipState::Invite).into()]);
     server.sync_room(&client, joined_room_builder).await;
 
@@ -1056,10 +1048,9 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let knock_event = f.member(user_id).membership(MembershipState::Knock).into_raw();
 
     server
@@ -1073,7 +1064,7 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
         .mount()
         .await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
     let mut stream = pin!(stream);
@@ -1084,7 +1075,7 @@ async fn test_subscribe_to_knock_requests_reloads_members_on_limited_sync() {
 
     // This limited sync should trigger a new emission of knock requests, with a
     // reloading of the room members
-    server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
+    server.sync_room(&client, JoinedRoomBuilder::default().set_timeline_limited()).await;
 
     // We should receive a new list of knock requests
     assert_next_with_timeout!(stream, 500);
@@ -1102,21 +1093,20 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_membership_changed() 
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event =
         f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into();
 
     // When syncing the room, we'll have a knock request coming from alice
     let room = server
-        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![knock_event]))
+        .sync_room(&client, JoinedRoomBuilder::default().add_state_bulk(vec![knock_event]))
         .await;
 
     // We then mark the knock request as seen
-    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+    room.mark_knock_requests_as_seen(&[user_id.into()]).await.unwrap();
 
     // Now it's received again as seen
     let seen = room.get_seen_knock_request_ids().await.unwrap();
@@ -1147,21 +1137,20 @@ async fn test_remove_outdated_seen_knock_requests_ids_when_we_have_an_outdated_k
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event =
         f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into();
 
     // When syncing the room, we'll have a knock request coming from alice
     let room = server
-        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![knock_event]))
+        .sync_room(&client, JoinedRoomBuilder::default().add_state_bulk(vec![knock_event]))
         .await;
 
     // We then mark the knock request as seen
-    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+    room.mark_knock_requests_as_seen(&[user_id.into()]).await.unwrap();
 
     // Now it's received again as seen
     let seen = room.get_seen_knock_request_ids().await.unwrap();
@@ -1196,17 +1185,16 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let room_id = room_id!("!a:b.c");
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let knock_event_id = event_id!("$alice-knock:b.c");
     let knock_event =
         f.member(user_id).membership(MembershipState::Knock).event_id(knock_event_id).into_raw();
 
     server.mock_get_members().ok(vec![knock_event]).mock_once().mount().await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
     let (stream, handle) = room.subscribe_to_knock_requests().await.unwrap();
 
     let mut stream = pin!(stream);
@@ -1220,7 +1208,7 @@ async fn test_subscribe_to_knock_requests_clears_seen_ids_on_member_reload() {
     assert!(!knock_request.is_seen);
 
     // We then mark the knock request as seen
-    room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
+    room.mark_knock_requests_as_seen(&[user_id.into()]).await.unwrap();
 
     // Now it's received again as seen
     let seen = assert_next_with_timeout!(stream, 100);
@@ -1265,16 +1253,15 @@ async fn test_room_member_updates_sender_on_full_member_reload() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room_id = room_id!("!a:b.c");
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let mut receiver = room.room_member_updates_sender.subscribe();
     assert!(receiver.is_empty());
 
     // When loading the full room member list
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let joined_event = EventFactory::new()
-        .room(room_id)
+        .default_room()
         .member(user_id)
         .membership(MembershipState::Join)
         .into_raw();
@@ -1291,92 +1278,75 @@ async fn test_room_member_updates_sender_on_partial_members_update() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room_id = room_id!("!a:b.c");
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     let mut receiver = room.room_member_updates_sender.subscribe();
     assert!(receiver.is_empty());
 
     // When loading a few room member updates
-    let user_id = user_id!("@alice:b.c");
+    let user_id = User::Alice;
     let joined_event =
-        EventFactory::new().room(room_id).member(user_id).membership(MembershipState::Join).into();
+        EventFactory::new().default_room().member(user_id).membership(MembershipState::Join).into();
     server
-        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_state_bulk(vec![joined_event]))
+        .sync_room(&client, JoinedRoomBuilder::default().add_state_bulk(vec![joined_event]))
         .await;
 
     // The member updates sender emits a partial update with the user ids of the
     // members
     let next = assert_recv_with_timeout!(receiver, 100);
     assert_let!(RoomMembersUpdate::Partial(user_ids) = next);
-    assert_eq!(user_ids, BTreeSet::from_iter(vec![owned_user_id!("@alice:b.c")]));
+    assert_eq!(user_ids, BTreeSet::from([user_id.into()]));
 }
 
 #[async_test]
 async fn test_report_room() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_13]).build().await;
     let reason = "this makes me sad";
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/.*/rooms/.*/report$"))
-        .and(body_json(json!({
-            "reason": reason,
-        })))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_report_room().with_reason(reason).ok().expect(1).mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_default_joined_room(&client).await;
 
     room.report_room(reason.to_owned()).await.unwrap();
 }
 
 #[async_test]
 async fn test_set_own_member_display_name() {
-    // Given a room with an existing member event for the current user.
-    let (client, server) = logged_in_client_with_server().await;
-    let mut sync_builder = SyncResponseBuilder::new();
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let room_id = &DEFAULT_TEST_ROOM_ID;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let user_id = client.user_id().unwrap();
+    let f = EventFactory::new();
 
     let existing_name = "Old Name";
     let existing_avatar_url = mxc_uri!("mxc://example.org/avA7ar");
 
-    let member_event = EventFactory::new()
-        .member(user_id)
-        .display_name(existing_name.to_owned())
-        .avatar_url(existing_avatar_url)
-        .membership(MembershipState::Join);
-
-    let response = sync_builder
-        .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(member_event))
-        .build_json_sync_response();
-
-    mock_sync(&server, response, None).await;
-    client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(room_id).unwrap();
+    // Given a room with an existing member event for the current user.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_event(
+                f.member(user_id).display_name(existing_name).avatar_url(existing_avatar_url),
+            ),
+        )
+        .await;
 
     // When setting a new display name.
     let new_name = "New Name";
 
     // Then the user's display name is updated without changing the avatar URL.
-    Mock::given(method("PUT"))
-        .and(path_regex(format!(r"^/_matrix/client/r0/rooms/.*/state/m.room.member/{user_id}")))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::RoomMember)
+        .for_key(user_id.into())
+        .body_matches_partial_json(json!({
             "displayname": new_name,
-            "avatar_url": existing_avatar_url.to_string(),
+            "avatar_url": existing_avatar_url,
             "membership": "join"
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
+        }))
+        .ok(owned_event_id!("$newroommember"))
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     room.set_own_member_display_name(Some(new_name.to_owned())).await.unwrap();
@@ -1387,7 +1357,7 @@ async fn test_set_own_member_display_name() {
 async fn test_send_sticky_event() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room = server.sync_joined_room(&client, room_id!("!room:localhost")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     server.mock_room_state_encryption().plain().mount().await;
 
@@ -1458,4 +1428,88 @@ async fn test_send_sticky_event() {
 
     let result = room.send(RoomMessageEventContent::text_plain("hello")).await.unwrap();
     assert_eq!(result.response.event_id, event_id!("$regular"));
+}
+
+#[cfg(feature = "unstable-msc4536")]
+#[async_test]
+async fn test_fetch_missing_global_profiles_in_background() {
+    let server = MatrixMockServer::new().await;
+    server
+        .mock_versions()
+        .with_versions(vec!["v1.16"])
+        .with_profiles_sliding_sync_extension()
+        .with_query_profiles()
+        .ok()
+        .named("versions")
+        .mount()
+        .await;
+    let client = server.client_builder().no_server_versions().build().await;
+    let mut profile_updates = client.subscribe_to_global_profile_updates();
+
+    let alice = User::Alice;
+    let bob = User::Bob;
+    let factory = EventFactory::new().default_room();
+
+    // Given a room whose members are loaded through `/members`, where Alice is
+    // joined and Bob has left.
+    let room = server.sync_default_joined_room(&client).await;
+    server
+        .mock_get_members()
+        .ok(vec![
+            factory.member(alice).membership(MembershipState::Join).into_raw(),
+            factory.member(bob).membership(MembershipState::Leave).into_raw(),
+        ])
+        .mock_once()
+        .mount()
+        .await;
+    room.sync_members().await.unwrap();
+
+    server
+        .mock_query_profiles()
+        .expect_users(&[alice.into()])
+        .ok_with_profiles(vec![(
+            alice.into(),
+            vec![ProfileFieldValue::DisplayName("Alice".to_owned())],
+        )])
+        .mock_once()
+        .mount()
+        .await;
+
+    // When fetching the members' missing global profiles in the background.
+    room.fetch_missing_global_profiles_in_background().await.unwrap();
+
+    // Then only Alice is queried, as Bob has left (verified by the mock on
+    // drop).
+    let updated = assert_recv_with_timeout!(profile_updates, 1000);
+    assert_eq!(updated, BTreeSet::from([alice.into()]));
+
+    // And Alice's global profile is stored, with subscribers notified.
+    let profile = client.state_store().get_global_profile(alice.into()).await.unwrap().unwrap();
+    assert_eq!(profile.get("displayname"), Some(&json!("Alice")));
+}
+
+#[cfg(feature = "unstable-msc4536")]
+#[async_test]
+async fn test_fetch_missing_global_profiles_in_background_requires_server_support() {
+    let server = MatrixMockServer::new().await;
+
+    // Given a homeserver that syncs global profiles, but doesn't support
+    // fetching multiple profiles.
+    server
+        .mock_versions()
+        .with_versions(vec!["v1.16"])
+        .with_profiles_sliding_sync_extension()
+        .ok()
+        .named("versions")
+        .mount()
+        .await;
+    let client = server.client_builder().no_server_versions().build().await;
+    let room = server.sync_default_joined_room(&client).await;
+
+    // Then no profiles are fetched.
+    server.mock_query_profiles().ok_with_profiles(vec![]).never().mount().await;
+
+    // When fetching the members' missing global profiles in the background.
+    room.fetch_missing_global_profiles_in_background().await.unwrap();
+    sleep(Duration::from_millis(100)).await;
 }

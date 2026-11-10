@@ -351,10 +351,16 @@ async fn test_no_reuse_of_counters() {
     // Timeline = [date-divider remote local]
     assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 2 });
 
-    // When clearing the timeline, the local echo remains.
+    // When clearing the timeline, the date divider and the local echo remain.
     timeline.controller.clear().await;
 
-    assert_next_matches_with_timeout!(stream, VectorDiff::Remove { index: 1 });
+    assert_next_matches_with_timeout!(stream, VectorDiff::Clear);
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => {
+        assert!(value.is_date_divider());
+    });
+    assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value } => {
+        assert!(value.is_local_echo());
+    });
 
     // The next timeline item comes with a different unique id.
     timeline

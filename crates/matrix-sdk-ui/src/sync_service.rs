@@ -192,7 +192,10 @@ impl SyncTaskSupervisor {
                 //
                 // Let's set a retry limit so network failures are retried as
                 // well.
-                let request_config = RequestConfig::default().retry_limit(5);
+                //
+                // We only use /versions to check whether the server is
+                // reachable, we can skip authentication for this.
+                let request_config = RequestConfig::default().retry_limit(5).skip_auth();
 
                 // We're in an infinite loop, but our request sending already
                 // has an exponential backoff set up. This will kick in for any
@@ -317,8 +320,10 @@ impl SyncTaskSupervisor {
                     error!("when awaiting encryption sync: {err:#}");
                 }
 
+                let has_unknown_token = report.has_unknown_token();
+
                 if let Some(error) = report.error {
-                    if offline_mode {
+                    if offline_mode & !has_unknown_token {
                         state.set(State::Offline);
 
                         let client = room_list_service.client();
@@ -757,6 +762,23 @@ impl TerminationReport {
             }
             _ => false,
         }
+    }
+
+    /// Check whether the termination is due to an unknown access token without
+    /// a soft logout.
+    fn has_unknown_token(&self) -> bool {
+        let (Some(Error::RoomList(room_list_service::Error::SlidingSync(error)))
+        | Some(Error::EncryptionSync(encryption_sync_service::Error::SlidingSync(error)))) =
+            &self.error
+        else {
+            return false;
+        };
+
+        matches!(
+            error.client_api_error_kind(),
+            Some(ruma::api::error::ErrorKind::UnknownToken(data))
+                if !data.soft_logout
+        )
     }
 }
 

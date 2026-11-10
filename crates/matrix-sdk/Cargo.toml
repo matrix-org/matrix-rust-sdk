@@ -15,7 +15,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs", "unstable-msc4388"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -96,10 +96,16 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 unstable-msc4354 = ["matrix-sdk-base/unstable-msc4354"]
 
 # Support for the MSC4388 variant of the QR code login.
-unstable-msc4388 = []
+unstable-msc4388 = ["ruma/unstable-msc4388"]
 
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
+
+# Add support for fetching the global profiles of multiple users (MSC4536).
+unstable-msc4536 = ["matrix-sdk-base/unstable-msc4536"]
+
+# Add support for circle videos (MSC4546).
+unstable-msc4546 = ["ruma/unstable-msc4546"]
 
 experimental-search = ["matrix-sdk-search"]
 
@@ -152,6 +158,7 @@ ruma = { workspace = true, features = [
     "unstable-msc4108",
     "unstable-msc4278",
     "unstable-msc4262",
+    "unstable-msc4536",
 ] }
 serde.workspace = true
 serde_html_form.workspace = true

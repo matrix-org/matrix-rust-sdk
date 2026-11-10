@@ -505,27 +505,27 @@ impl ClientBuilder {
         let mut inner_builder = MatrixClient::builder()
             .cross_process_store_config(builder.cross_process_lock_config.into());
 
-        let store_path = if let Some(store) = &builder.store {
+        let (store_path, cache_path) = if let Some(store) = &builder.store {
             match store.build()? {
                 #[cfg(feature = "sqlite")]
                 StoreBuilderOutcome::Sqlite { config, cache_path, store_path: data_path } => {
                     inner_builder = inner_builder
-                        .sqlite_store_with_config_and_cache_path(config, Some(cache_path));
+                        .sqlite_store_with_config_and_cache_path(config, Some(&cache_path));
 
-                    Some(data_path)
+                    (Some(data_path), Some(cache_path))
                 }
                 #[cfg(feature = "indexeddb")]
                 StoreBuilderOutcome::IndexedDb { name, passphrase } => {
                     inner_builder = inner_builder.indexeddb_store(&name, passphrase.as_deref());
 
-                    None
+                    (None, None)
                 }
 
-                StoreBuilderOutcome::InMemory => None,
+                StoreBuilderOutcome::InMemory => (None, None),
             }
         } else {
             debug!("Not using a session store");
-            None
+            (None, None)
         };
 
         #[cfg(feature = "experimental-search")]
@@ -730,7 +730,9 @@ impl ClientBuilder {
 
         let sdk_client = inner_builder.build().await?;
 
-        Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
+        Ok(Arc::new(
+            Client::new(sdk_client, builder.session_delegate, store_path, cache_path).await?,
+        ))
     }
 }
 

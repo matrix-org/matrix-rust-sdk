@@ -1457,6 +1457,25 @@ impl Room {
     }
 }
 
+#[cfg(feature = "unstable-msc4536")]
+#[matrix_sdk_ffi_macros::export]
+impl Room {
+    /// Gets the members for this room, like [`Room::members`], but also fetches
+    /// any missing global profiles for those members in the background (when
+    /// supported by the server).
+    pub async fn members_fetching_global_profiles(
+        &self,
+    ) -> Result<Arc<RoomMembersIterator>, ClientError> {
+        let members = self.inner.members(RoomMemberships::empty()).await?;
+
+        if let Err(error) = self.inner.fetch_missing_global_profiles_in_background().await {
+            warn!(?error, "Failed to start fetching the joined members' missing global profiles");
+        }
+
+        Ok(Arc::new(RoomMembersIterator::new(members)))
+    }
+}
+
 /// The relation types that can be used to filter related events when calling
 /// [`Room::load_or_fetch_event_with_relations`].
 #[derive(uniffi::Enum)]
@@ -1905,6 +1924,8 @@ impl From<SdkDraftAttachment> for DraftAttachment {
                         thumbnail_info,
                         thumbnail_source: None,
                         blurhash,
+                        #[cfg(feature = "unstable-msc4546")]
+                        circle: false,
                     },
                     source: UploadSource::Data { bytes: data, filename: value.filename },
                     thumbnail_source,

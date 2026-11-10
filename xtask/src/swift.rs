@@ -69,12 +69,6 @@ enum SwiftCommand {
         /// default values provided by the Rust and Xcode toolchains.
         #[clap(long)]
         watchos_deployment_target: Option<String>,
-
-        /// Build the targets one by one instead of passing all of them to cargo
-        /// in one go, which makes it hang on lesser devices like plain Apple
-        /// Silicon M1s
-        #[clap(long)]
-        sequentially: bool,
     },
 }
 
@@ -94,19 +88,17 @@ impl SwiftArgs {
                 macos_deployment_target,
                 ios_deployment_target,
                 watchos_deployment_target,
-                sequentially,
             } => {
                 // The dev profile seems to cause crashes on some platforms so
                 // we default to reldbg
                 // (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
-                    profile.as_deref().unwrap_or(if release { "small-release" } else { "reldbg" });
+                    profile.as_deref().unwrap_or(if release { STRIPPED_PROFILE } else { "reldbg" });
                 build_xcframework(
                     profile,
                     targets,
                     tier3_targets,
                     components_path,
-                    sequentially,
                     macos_deployment_target.as_deref(),
                     ios_deployment_target.as_deref(),
                     watchos_deployment_target.as_deref(),
@@ -166,6 +158,10 @@ impl Platform {
         }
     }
 }
+
+/// The profile used for release builds, whose static library gets its debug
+/// info stripped.
+const STRIPPED_PROFILE: &str = "small-release-stripped";
 
 /// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
@@ -284,13 +280,11 @@ fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_xcframework(
     profile: &str,
     targets: Option<Vec<String>>,
     tier3_targets: bool,
     components_path: Option<Utf8PathBuf>,
-    sequentially: bool,
     macos_deployment_target: Option<&str>,
     ios_deployment_target: Option<&str>,
     watchos_deployment_target: Option<&str>,
@@ -326,7 +320,6 @@ fn build_xcframework(
     let platform_build_paths = build_targets(
         targets,
         profile,
-        sequentially,
         macos_deployment_target,
         ios_deployment_target,
         watchos_deployment_target,
@@ -398,7 +391,6 @@ fn build_xcframework(
 fn build_targets(
     targets: Vec<&Target>,
     profile: &str,
-    sequentially: bool,
     macos_deployment_target: Option<&str>,
     ios_deployment_target: Option<&str>,
     watchos_deployment_target: Option<&str>,
@@ -418,45 +410,19 @@ fn build_targets(
     let _env_guard5 =
         watchos_deployment_target.map(|target| sh.push_env("WATCHOS_DEPLOYMENT_TARGET", target));
 
-    if sequentially {
-        for target in &targets {
-            let triple = target.triple;
+    // `cargo build` would also produce the `lib` crate type, which silently
+    // disables the profile's LTO. `cargo rustc` restricts the output to the
+    // static library, but only accepts one target per invocation.
+    for target in &targets {
+        let triple = target.triple;
 
-            println!("-- Building for {}", target.description);
-            if target.status == TargetStatus::TopTier {
-                cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {FFI_FEATURES}")
-                    .run()?;
-            } else {
-                cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
-                    .run()?;
-            }
-        }
-    } else {
-        let (stable_targets, tier3_targets): (Vec<&Target>, Vec<&Target>) =
-            targets.iter().partition(|t| t.status == TargetStatus::TopTier);
-
-        if !stable_targets.is_empty() {
-            let triples = stable_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi");
-            for triple in &triples {
-                cmd = cmd.arg("--target").arg(triple);
-            }
-            cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
-
-            println!("-- Building for {} targets", triples.len());
-            cmd.run()?;
-        }
-
-        if !tier3_targets.is_empty() {
-            let triples = tier3_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std");
-            for triple in &triples {
-                cmd = cmd.arg("--target").arg(triple);
-            }
-            cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
-
-            println!("-- Building for {} targets with nightly -Zbuild-std", triples.len());
-            cmd.run()?;
+        println!("-- Building for {}", target.description);
+        if target.status == TargetStatus::TopTier {
+            cmd!(sh, "rustup run stable cargo rustc -p matrix-sdk-ffi --crate-type staticlib --target {triple} --profile {profile} --features {FFI_FEATURES}")
+                .run()?;
+        } else {
+            cmd!(sh, "rustup run nightly cargo rustc -p matrix-sdk-ffi --crate-type staticlib -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
+                .run()?;
         }
     }
 
@@ -465,7 +431,8 @@ fn build_targets(
     let mut platform_build_paths = HashMap::new();
     for target in targets {
         let path = build_path_for_target(target, profile)?;
-        localize_private_symbols(&path, target)?;
+        let strip_debug_info = profile == STRIPPED_PROFILE;
+        localize_private_symbols(&path, target, strip_debug_info)?;
         let paths = platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
         paths.push(path);
     }
@@ -480,7 +447,17 @@ fn build_targets(
 /// object, binding their references, and the unexported list turns the matching
 /// definitions into local symbols. That object and the untouched rest of the
 /// archive are wrapped back up under the original name.
-fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
+///
+/// `ld -r` doesn't carry the merged objects' DWARF over, only a debug map
+/// pointing at them. With `strip_debug_info` set, that debug map is left out of
+/// the merged object, as Cargo's `strip = "debuginfo"` never reaches a static
+/// library since nothing links it. Otherwise the extracted objects are kept so
+/// that `dsymutil` and debuggers can still find the debug info on this machine.
+fn localize_private_symbols(
+    library: &Utf8Path,
+    target: &Target,
+    strip_debug_info: bool,
+) -> Result<()> {
     let sh = sh();
     let directory = library.parent().expect("the library lives in a directory");
     let symbols_list = directory.join("private_symbols.txt");
@@ -531,7 +508,10 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
         members.len(),
         all_members.lines().count()
     );
-    cmd!(sh, "ld -r -unexported_symbols_list {symbols_list} -o {merged_object}")
+    // Drop the debug map while merging rather than stripping the library
+    // afterwards as `strip` corrupts aws-lc's assembly objects.
+    let strip_flag = strip_debug_info.then_some("-S");
+    cmd!(sh, "ld -r -unexported_symbols_list {symbols_list} {strip_flag...} -o {merged_object}")
         .args(&objects)
         .quiet()
         .run()?;
@@ -539,8 +519,10 @@ fn localize_private_symbols(library: &Utf8Path, target: &Target) -> Result<()> {
     // Plenty of the objects carry no symbols; that's not worth a warning each.
     cmd!(sh, "libtool -static -no_warning_for_no_symbols -o {library} {merged_object} {remainder}")
         .run()?;
+    if strip_debug_info {
+        remove_dir_all(&objects_directory)?;
+    }
 
-    remove_dir_all(&objects_directory)?;
     remove_file(merged_object)?;
     remove_file(remainder)?;
     remove_file(symbols_list)?;

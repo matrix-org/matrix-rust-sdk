@@ -31,6 +31,7 @@ use ruma::{
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
+        invite_permission_config::InvitePermissionAction as RumaInvitePermissionAction,
         location::AssetType as RumaAssetType,
         marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
         media_preview_config::{
@@ -704,6 +705,13 @@ pub struct VideoMessageContent {
     pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<VideoInfo>,
+    /// Whether this video should be displayed as a circle video
+    /// ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546)).
+    ///
+    /// Defaults to `false`.
+    #[cfg(feature = "unstable-msc4546")]
+    #[uniffi(default = false)]
+    pub circle: bool,
 }
 
 impl From<VideoMessageContent> for RumaVideoMessageEventContent {
@@ -713,6 +721,10 @@ impl From<VideoMessageContent> for RumaVideoMessageEventContent {
             .info(value.info.map(Into::into).map(Box::new));
         event_content.formatted = value.formatted_caption.map(Into::into);
         event_content.filename = filename;
+        #[cfg(feature = "unstable-msc4546")]
+        {
+            event_content.circle = value.circle;
+        }
         event_content
     }
 }
@@ -727,6 +739,8 @@ impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
+            #[cfg(feature = "unstable-msc4546")]
+            circle: value.circle,
         })
     }
 }
@@ -905,6 +919,13 @@ pub struct VideoInfo {
     pub thumbnail_info: Option<ThumbnailInfo>,
     pub thumbnail_source: Option<Arc<MediaSource>>,
     pub blurhash: Option<String>,
+    /// Whether this video should be displayed as a circle video
+    /// ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546)).
+    ///
+    /// Defaults to `false`.
+    #[cfg(feature = "unstable-msc4546")]
+    #[uniffi(default = false)]
+    pub circle: bool,
 }
 
 impl From<VideoInfo> for RumaVideoInfo {
@@ -944,6 +965,8 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
                 .transpose()
                 .map_err(|_| MediaInfoError::InvalidField)?,
             blurhash: value.blurhash.clone(),
+            #[cfg(feature = "unstable-msc4546")]
+            circle: value.circle,
         })
     }
 }
@@ -1157,6 +1180,8 @@ impl TryFrom<&RumaVideoInfo> for VideoInfo {
                 .transpose()?
                 .map(Arc::new),
             blurhash: info.blurhash.clone(),
+            #[cfg(feature = "unstable-msc4546")]
+            circle: false,
         })
     }
 }
@@ -1307,6 +1332,48 @@ pub enum AccountDataEvent {
         /// The passphrase from which to generate the key.
         passphrase: Option<PassPhrase>,
     },
+}
+
+/// The current room invite permission state.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum InvitePermissionState {
+    /// No default restriction on room invitations.
+    Unrestricted,
+
+    /// All room invitations are blocked.
+    Block,
+
+    /// An invite permission not supported by the SDK.
+    Unsupported,
+}
+
+/// The room invite permissions that can be set.
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum InvitePermissionAction {
+    /// Allow room invitations.
+    Allow,
+
+    /// Block all room invitations.
+    Block,
+}
+
+impl From<Option<RumaInvitePermissionAction>> for InvitePermissionState {
+    fn from(action: Option<RumaInvitePermissionAction>) -> Self {
+        match action {
+            None => Self::Unrestricted,
+            Some(RumaInvitePermissionAction::Block) => Self::Block,
+            Some(_) => Self::Unsupported,
+        }
+    }
+}
+
+impl From<InvitePermissionAction> for Option<RumaInvitePermissionAction> {
+    fn from(action: InvitePermissionAction) -> Self {
+        match action {
+            InvitePermissionAction::Allow => None,
+            InvitePermissionAction::Block => Some(RumaInvitePermissionAction::Block),
+        }
+    }
 }
 
 /// The policy that decides if media previews should be shown in the timeline.

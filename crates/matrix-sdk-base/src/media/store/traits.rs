@@ -14,11 +14,11 @@
 
 //! Types and traits regarding media caching of the media store.
 
-use std::{fmt, sync::Arc};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration};
-use ruma::{MxcUri, time::SystemTime};
+use ruma::{MxcUri, OwnedMxcUri, time::SystemTime};
 
 #[cfg(doc)]
 use crate::media::store::MediaService;
@@ -168,6 +168,16 @@ pub trait MediaStore: AsyncTraitDeps {
 
     /// Returns the size of the store in bytes, if known.
     async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
+
+    /// Get the total size in bytes of the stored representations of each of the
+    /// given media.
+    ///
+    /// The returned map is keyed by the MXC URI of the media. Media that isn't
+    /// stored is omitted.
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<BTreeMap<OwnedMxcUri, u64>, Self::Error>;
 }
 
 /// An abstract trait that can be used to implement different store backends for
@@ -373,6 +383,13 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.0.get_size().await.map_err(Into::into)
+    }
+
+    async fn media_sizes(
+        &self,
+        uris: &[OwnedMxcUri],
+    ) -> Result<BTreeMap<OwnedMxcUri, u64>, Self::Error> {
+        self.0.media_sizes(uris).await.map_err(Into::into)
     }
 }
 

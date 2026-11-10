@@ -26,9 +26,7 @@ use matrix_sdk::{
         RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     EventSendState, TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus,
 };
@@ -53,15 +51,15 @@ async fn test_new_focused() {
             // events_before are passed in reverse chronological order (newest
             // first), as required by the /context response format.
             RoomContextResponseTemplate::new(
-                f.text_msg("in the end").event_id(target_event).sender(*BOB).into_event(),
+                f.text_msg("in the end").event_id(target_event).sender(User::Bob).into_event(),
             )
             .events_before(vec![
-                f.text_msg("and got so far").sender(*ALICE).into_event(),
-                f.text_msg("i tried so hard").sender(*ALICE).into_event(),
+                f.text_msg("and got so far").sender(User::Alice).into_event(),
+                f.text_msg("i tried so hard").sender(User::Alice).into_event(),
             ])
             .events_after(vec![
-                f.text_msg("it doesn't even").sender(*ALICE).into_event(),
-                f.text_msg("matter").sender(*ALICE).into_event(),
+                f.text_msg("it doesn't even").sender(User::Alice).into_event(),
+                f.text_msg("matter").sender(User::Alice).into_event(),
             ])
             .start("prev1")
             .end("next1"),
@@ -116,9 +114,9 @@ async fn test_new_focused() {
         .ok(RoomMessagesResponseTemplate::default().events(vec![
             // reversed manually here
             f.text_msg("And even though I tried, it all fell apart")
-                .sender(*BOB)
+                .sender(User::Bob)
                 .into_raw_timeline(),
-            f.text_msg("I kept everything inside").sender(*BOB).into_raw_timeline(),
+            f.text_msg("I kept everything inside").sender(User::Bob).into_raw_timeline(),
         ]))
         .mock_once()
         .mount()
@@ -148,9 +146,9 @@ async fn test_new_focused() {
         .match_from("next1")
         .ok(RoomMessagesResponseTemplate::default()
             .events(vec![
-                f.text_msg("I had to fall, to lose it all").sender(*BOB).into_raw_timeline(),
+                f.text_msg("I had to fall, to lose it all").sender(User::Bob).into_raw_timeline(),
                 f.text_msg("But in the end, it doesn't event matter")
-                    .sender(*BOB)
+                    .sender(User::Bob)
                     .into_raw_timeline(),
             ])
             .end_token("next2"))
@@ -193,7 +191,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
         .mock_room_event_context()
         .room(room_id)
         .ok(RoomContextResponseTemplate::new(
-            f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
+            f.text_msg("yolo").event_id(target_event).sender(User::Bob).into_event(),
         ))
         .mock_once()
         .mount()
@@ -230,9 +228,9 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
         .ok_and_run(&client, |builder| {
             builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
                 // This event must be ignored.
-                f.text_msg("this is a sync event").sender(*ALICE).into(),
+                f.text_msg("this is a sync event").sender(User::Alice).into(),
                 // This event must not be ignored.
-                f.reaction(target_event, "👍").sender(*BOB).into(),
+                f.reaction(target_event, "👍").sender(User::Bob).into(),
             ]));
         })
         .await;
@@ -263,7 +261,7 @@ async fn test_focused_timeline_local_echoes() {
         .mock_room_event_context()
         .room(room_id)
         .ok(RoomContextResponseTemplate::new(
-            f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
+            f.text_msg("yolo").event_id(target_event).sender(User::Bob).into_event(),
         ))
         .mock_once()
         .mount()
@@ -339,7 +337,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
         .mock_room_event_context()
         .room(room_id)
         .ok(RoomContextResponseTemplate::new(
-            f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
+            f.text_msg("yolo").event_id(target_event).sender(User::Bob).into_event(),
         ))
         .mock_once()
         .mount()

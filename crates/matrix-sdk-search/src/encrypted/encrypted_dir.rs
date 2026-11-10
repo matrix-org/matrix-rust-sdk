@@ -260,22 +260,87 @@ impl Directory for EncryptedMmapDirectory {
 impl<
     E: StreamCipher + KeyIvInit + Sync + Send,
     M: Mac + KeyInit + Update + FixedOutputReset + Sync + Send,
-    W: Write + Sync + Send,
+    W: TerminatingWrite + Sync + Send,
 > TerminatingWrite for AesWriter<E, M, W>
 {
-    fn terminate_ref(&mut self, _: AntiCallToken) -> std::io::Result<()> {
-        self.finalize()
+    fn terminate_ref(&mut self, token: AntiCallToken) -> std::io::Result<()> {
+        self.finalize()?;
+        // Terminate the underlying writer as well, so it gets the chance to
+        // flush and persist the file.
+        self.writer_mut().terminate_ref(token)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{
+        io::{Result as IoResult, Write},
+        path::Path,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
 
-    use tantivy::directory::Directory;
+    use hmac::HmacReset;
+    use sha2::Sha256;
+    use tantivy::directory::{AntiCallToken, Directory, TerminatingWrite};
     use tempfile::tempdir;
 
-    use crate::encrypted::encrypted_dir::EncryptedMmapDirectory;
+    use super::{Aes256Ctr, IV_SIZE, KEY_SIZE};
+    use crate::encrypted::{encrypted_dir::EncryptedMmapDirectory, encrypted_stream::AesWriter};
+
+    /// A writer that discards its input and records whether it was terminated.
+    struct RecordingWriter {
+        terminated: Arc<AtomicBool>,
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
+
+    impl TerminatingWrite for RecordingWriter {
+        fn terminate_ref(&mut self, _: AntiCallToken) -> IoResult<()> {
+            self.terminated.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn terminating_the_writer_terminates_the_underlying_writer() {
+        let terminated = Arc::new(AtomicBool::new(false));
+
+        let mut writer = AesWriter::<Aes256Ctr, HmacReset<Sha256>, _>::new(
+            RecordingWriter { terminated: terminated.clone() },
+            &[0u8; KEY_SIZE],
+            &[0u8; KEY_SIZE],
+            IV_SIZE,
+        )
+        .unwrap();
+        writer.write_all(b"data").unwrap();
+        writer.terminate().unwrap();
+
+        assert!(terminated.load(Ordering::SeqCst), "The underlying writer wasn't terminated");
+    }
+
+    #[test]
+    fn write_terminate_and_read_back() {
+        let tmpdir = tempdir().unwrap();
+        let file = Path::new("file");
+
+        let dir = EncryptedMmapDirectory::open_or_create(tmpdir.path(), "key").unwrap();
+        let mut writer = dir.open_write(file).unwrap();
+        writer.write_all(b"data").unwrap();
+        writer.terminate().unwrap();
+
+        assert_eq!(dir.atomic_read(file).unwrap(), b"data");
+    }
 
     #[test]
     fn create_new_store_and_reopen() {

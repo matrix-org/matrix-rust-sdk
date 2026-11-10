@@ -54,7 +54,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
 };
 
@@ -509,6 +509,22 @@ impl SqliteStateStore {
         }
 
         if to == Some(16) {
+            return Ok(());
+        }
+
+        if from < 17 {
+            debug!("Upgrading database to version 17");
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/015_unavailable_global_profiles.sql"
+                ))?;
+                txn.set_db_version(17)
+            })
+            .await?;
+        }
+
+        if to == Some(17) {
             return Ok(());
         }
 
@@ -1325,6 +1341,7 @@ impl StateStore for SqliteStateStore {
                     stripped_state,
                     ambiguity_maps,
                     global_profiles,
+                    unavailable_global_profiles,
                 } = changes;
 
                 if let Some(sync_token) = sync_token {
@@ -1559,7 +1576,14 @@ impl StateStore for SqliteStateStore {
                             .get_state_event_by_id(&encoded_room_id, &event_id)?
                             .map(|value| this.deserialize_json::<Raw<AnySyncStateEvent>>(&value))
                         {
-                            let event = raw_event.deserialize()?;
+                            let Some(event_type) = raw_event.get_field::<String>("type")? else {
+                                warn!("Skipping redaction of state event without a type");
+                                continue;
+                            };
+                            let Some(state_key) = raw_event.get_field::<String>("state_key")? else {
+                                warn!("Skipping redaction of state event without a state key");
+                                continue;
+                            };
                             let redacted = redact(
                                 raw_event.deserialize_as::<CanonicalJsonObject>()?,
                                 redaction_rules.get_or_insert_with(make_redaction_rules),
@@ -1568,9 +1592,8 @@ impl StateStore for SqliteStateStore {
                             .map_err(Error::Redaction)?;
                             let data = this.serialize_json(&redacted)?;
 
-                            let event_type =
-                                this.encode_key(keys::STATE_EVENT, event.event_type().to_string());
-                            let state_key = this.encode_key(keys::STATE_EVENT, event.state_key());
+                            let event_type = this.encode_key(keys::STATE_EVENT, event_type);
+                            let state_key = this.encode_key(keys::STATE_EVENT, state_key);
 
                             txn.set_state_event(
                                 &encoded_room_id,
@@ -1646,6 +1669,13 @@ impl StateStore for SqliteStateStore {
                                 "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
                             )?
                             .execute((&user_id, serialized))?;
+
+                            // If the profile was marked as unavailable we can unmark it.
+                            // Both tables intentionally use the same key for a user.
+                            txn.prepare_cached(
+                                "DELETE FROM unavailable_global_profiles WHERE user_id = ?",
+                            )?
+                            .execute([&user_id])?;
                         }
                         // The user left all shared rooms, so drop their stored profile.
                         UserProfileUpdate::Dropped => {
@@ -1656,6 +1686,17 @@ impl StateStore for SqliteStateStore {
                             warn!(%raw_user_id, "Unhandled UserProfileUpdate variant; ignoring");
                         }
                     }
+                }
+
+                for (user_id, created_at) in unavailable_global_profiles {
+                    // We use the same key as `global_profiles`, so that a user can be
+                    // looked up in both tables with a single encoding.
+                    let user_id = this.encode_key(keys::GLOBAL_PROFILES, &user_id);
+                    let created_at_ts: u64 = created_at.0.into();
+                    txn.prepare_cached(
+                        "INSERT OR REPLACE INTO unavailable_global_profiles (user_id, created_at) VALUES (?, ?)",
+                    )?
+                    .execute((&user_id, created_at_ts))?;
                 }
 
                 Ok::<_, Error>(())
@@ -1807,6 +1848,61 @@ impl StateStore for SqliteStateStore {
                 ))
             })
             .collect()
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // A user's key is the same in both tables, see `save_changes`.
+        let user_keys: Vec<_> = user_ids
+            .iter()
+            .map(|user_id| self.encode_key(keys::GLOBAL_PROFILES, user_id))
+            .collect();
+
+        // Only select user IDs, don't load any profiles.
+        let found: BTreeSet<_> = self
+            .read()
+            .await?
+            .with_transaction({
+                let user_keys = user_keys.clone();
+                move |txn| -> Result<_> {
+                    let select_user_ids = |table: &'static str, user_ids: Vec<Key>| {
+                        txn.chunk_large_query_over(user_ids, None, move |txn, user_ids| {
+                            let sql = format!(
+                                "SELECT user_id FROM {table} WHERE user_id IN ({})",
+                                user_ids.host_parameters(),
+                            );
+
+                            let params = rusqlite::params_from_iter(user_ids);
+
+                            Ok(txn
+                                .prepare(&sql)?
+                                .query(params)?
+                                .mapped(|row| row.get(0))
+                                .collect::<Result<Vec<Vec<u8>>, _>>()?)
+                        })
+                    };
+
+                    let mut found = select_user_ids("global_profiles", user_keys.clone())?;
+                    found.extend(select_user_ids("unavailable_global_profiles", user_keys)?);
+                    Ok(found)
+                }
+            })
+            .await?
+            .into_iter()
+            .collect();
+
+        Ok(user_ids
+            .iter()
+            .zip(&user_keys)
+            .filter(|(_, key)| !found.contains(&key[..]))
+            .map(|(user_id, _)| &**user_id)
+            .collect())
     }
 
     async fn get_user_ids(
@@ -2590,6 +2686,69 @@ mod tests {
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap())
+    }
+
+    #[matrix_sdk_test::async_test]
+    async fn test_redaction_of_state_events_with_invalid_content() {
+        use std::collections::BTreeMap;
+
+        use matrix_sdk_base::StateChanges;
+        use ruma::{
+            event_id,
+            events::{AnySyncStateEvent, StateEventType},
+            room_id,
+            serde::Raw,
+        };
+        use serde_json::json;
+
+        for (event_type, state_key) in
+            [(StateEventType::RoomTopic, ""), (StateEventType::SpaceChild, "not a room ID")]
+        {
+            let store = get_store().await.unwrap();
+            let room_id = room_id!("!redacted-state:localhost");
+            let event: Raw<AnySyncStateEvent> = Raw::new(&json!({
+                "type": event_type,
+                "state_key": state_key,
+                "content": {},
+                "event_id": "$state",
+                "sender": "@alice:localhost",
+                "origin_server_ts": 1,
+            }))
+            .unwrap()
+            .cast_unchecked();
+            assert!(event.deserialize().is_err());
+
+            let mut changes = StateChanges::default();
+            changes.state.insert(
+                room_id.to_owned(),
+                BTreeMap::from([(
+                    event_type.clone(),
+                    BTreeMap::from([(state_key.to_owned(), event)]),
+                )]),
+            );
+            store.save_changes(&changes).await.unwrap();
+
+            let redaction = Raw::new(&json!({
+                "type": "m.room.redaction",
+                "content": {},
+                "redacts": "$state",
+                "event_id": "$redaction",
+                "sender": "@alice:localhost",
+                "origin_server_ts": 2,
+            }))
+            .unwrap()
+            .cast_unchecked();
+            let mut changes = StateChanges::default();
+            changes.add_redaction(room_id, event_id!("$state"), redaction);
+            store.save_changes(&changes).await.unwrap();
+
+            let saved =
+                store.get_state_event(room_id, event_type, state_key).await.unwrap().unwrap();
+            let json = serde_json::to_value(saved).unwrap();
+            assert_eq!(json["state_key"], state_key);
+            assert_eq!(json["content"], json!({}));
+            assert_eq!(json["unsigned"]["redacted_because"]["event_id"], "$redaction");
+        }
     }
 
     /// Specific to this store, which keys stripped storage off the room state,

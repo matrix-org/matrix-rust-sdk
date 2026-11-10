@@ -1395,7 +1395,7 @@ impl<const CAPACITY: usize, Item, Gap> Chunk<CAPACITY, Item, Gap> {
     }
 
     /// Get the pointer to `Self`.
-    pub fn as_ptr(&self) -> NonNull<Self> {
+    pub fn as_ptr(&mut self) -> NonNull<Self> {
         NonNull::from(self)
     }
 

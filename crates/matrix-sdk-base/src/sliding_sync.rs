@@ -18,8 +18,8 @@
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_common::timer;
 use ruma::{
-    OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
-    serde::Raw,
+    OwnedRoomId, api::client::sync::sync_events::msc4186 as http,
+    events::receipt::SyncReceiptEvent, serde::Raw,
 };
 use tokio::sync::MutexGuard;
 use tracing::{instrument, trace};

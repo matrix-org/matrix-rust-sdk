@@ -23,9 +23,7 @@ use matrix_sdk::{
     room::edit::EditedContent,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, User, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{
     Timeline,
     timeline::{
@@ -555,9 +553,11 @@ async fn test_edit_to_replied_updates_reply() {
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(f.text_msg("bonjour").sender(user_id).event_id(eid1))
                 .add_timeline_event(
-                    f.text_msg("hi back").reply_to(eid1).sender(*ALICE).event_id(eid2),
+                    f.text_msg("hi back").reply_to(eid1).sender(User::Alice).event_id(eid2),
                 )
-                .add_timeline_event(f.text_msg("yo").reply_to(eid1).sender(*BOB).event_id(eid3)),
+                .add_timeline_event(
+                    f.text_msg("yo").reply_to(eid1).sender(User::Bob).event_id(eid3),
+                ),
         )
         .await;
 

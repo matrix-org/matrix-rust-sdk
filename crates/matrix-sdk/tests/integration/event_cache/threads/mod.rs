@@ -14,7 +14,7 @@ use matrix_sdk::{
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     },
 };
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedEventId, OwnedRoomId, event_id,
     events::{
@@ -82,7 +82,7 @@ async fn test_thread_contains_its_root_event() {
     let thread_resp_id = event_id!("$thread_resp");
 
     // Receive an in-thread event.
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let _room = server
         .sync_room(
             &client,
@@ -259,7 +259,7 @@ async fn test_deduplication() {
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
 
     let thread_root = event_id!("$thread_root");
     let first_reply_event_id = event_id!("$first_reply");
@@ -388,7 +388,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     // Provide a dummy sync with the room's member profile of the current user,
     // so the push context can be created.
     let own_user_id = client.user_id().unwrap();
-    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
     let member = f.member(own_user_id).sender(own_user_id);
 
     // Override push rules so that only an intentional mention causes a
@@ -1133,4 +1133,64 @@ async fn test_edits_touches_threads() {
 
     // The latest reply should still be our first edit, not the second one.
     assert_eq!(thread_info.latest_event.as_deref(), Some(first_edit));
+}
+
+#[async_test]
+async fn test_reaction_on_thread_root_reaches_thread_timeline() {
+    // A reaction to the thread root received over sync must reach the thread,
+    // so a thread timeline displays it, like the room timeline does.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let thread_root_id = event_id!("$thread_root");
+    let thread_resp_id = event_id!("$thread_resp");
+    let reaction_id = event_id!("$reaction");
+
+    let event_cache = client.event_cache().unwrap();
+    server.sync_joined_room(&client, room_id).await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root_id).await.unwrap();
+    let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+
+    // Receive the thread root and a threaded reply.
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Thread root").event_id(thread_root_id))
+                .add_timeline_event(
+                    f.text_msg("Thread reply")
+                        .in_thread(thread_root_id, thread_root_id)
+                        .event_id(thread_resp_id),
+                ),
+        )
+        .await;
+
+    let thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
+    assert_eq!(thread_events.len(), 2);
+
+    // Someone reacts to the thread root.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.reaction(thread_root_id, "🦀").sender(User::Bob).event_id(reaction_id),
+            ),
+        )
+        .await;
+
+    // The thread receives the reaction.
+    assert_let_timeout!(Duration::from_millis(100), Ok(update) = thread_stream.recv());
+    let ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) = update
+    else {
+        panic!("the reaction on the thread root didn't reach the thread");
+    };
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+    assert_eq!(new_events.len(), 1);
+    assert_eq!(new_events[0].event_id(), Some(reaction_id));
 }

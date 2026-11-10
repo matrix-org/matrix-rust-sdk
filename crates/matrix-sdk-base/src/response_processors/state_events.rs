@@ -1258,10 +1258,10 @@ mod tests {
 
         let response = sync_builder
             .add_joined_room(
-                JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                JoinedRoomBuilder::default()
                     .add_timeline_event(room_name)
                     .add_state_event(event_factory.create(user_id, RoomVersionId::V1))
-                    .add_state_event(event_factory.default_power_levels()),
+                    .add_state_event(event_factory.power_levels()),
             )
             .build_sync_response();
         client.receive_sync_response(response).await?;

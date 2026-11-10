@@ -35,7 +35,6 @@ use ruma::{
     },
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
@@ -60,12 +59,11 @@ use super::{
         },
         subscriber::SubscribersHandle,
     },
-    RFindMapOutcome, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender,
-    sort_positions_descending,
+    RFindMapOutcome, RoomEventCacheUpdateSender, sort_positions_descending,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor;
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 pub struct RoomEventCacheState {
     /// Whether thread support has been enabled for the event cache.
@@ -94,7 +92,7 @@ pub struct RoomEventCacheState {
 
     /// A clone of
     /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    pub(super) linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    pub(super) linked_chunk_update_sender: LinkedChunkUpdateSender,
 
     /// The rules for the version of this room.
     room_version_rules: RoomVersionRules,
@@ -131,7 +129,7 @@ impl RoomEventCacheState {
         room_version_rules: RoomVersionRules,
         enabled_thread_support: bool,
         update_sender: RoomEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
         store_guard: EventCacheStoreLockGuard,
         pagination_status: SharedObservable<SharedPaginationStatus>,
         back_pagination_queue: Option<BackPaginationQueue>,
@@ -143,7 +141,7 @@ impl RoomEventCacheState {
         //
         // If loading the full linked chunk failed, we'll clear the event cache,
         // as it indicates that at some point, there's some malformed data.
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -170,6 +168,11 @@ impl RoomEventCacheState {
             Ok(linked_chunk) => linked_chunk,
             Err(err) => {
                 error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // The metadata no longer reflects the storage, which is about
+                // to be cleared. Drop it, so that the order
+                // tracker doesn't start from a stale state.
+                full_linked_chunk_metadata = None;
 
                 // Try to clear storage for this room.
                 store_guard
@@ -393,7 +396,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
 
-        let full_linked_chunk_metadata =
+        let mut full_linked_chunk_metadata =
             match load_linked_chunk_metadata(&self.store, linked_chunk_id).await {
                 Ok(metas) => metas,
                 Err(err) => {
@@ -417,6 +420,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                     // If loading the last chunk failed, clear the entire linked
                     // chunk.
                     error!("error when reloading a linked chunk from memory: {err}");
+
+                    // The metadata no longer reflects the storage, which is
+                    // about to be cleared. Drop it, so that the order tracker
+                    // doesn't start from a stale state.
+                    full_linked_chunk_metadata = None;
 
                     // Clear storage for this room.
                     self.store

@@ -11,7 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
@@ -39,7 +39,7 @@ async fn test_pinned_event_with_reaction() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
@@ -103,7 +103,7 @@ async fn test_pinned_event_with_paginated_reactions() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
@@ -179,7 +179,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id_1 = event_id!("$1");
     let event_1 = f
         .text_msg("in the end")
@@ -297,7 +297,7 @@ async fn test_max_events_to_load_is_honored() {
 
     client.event_cache().unwrap().config_mut().max_pinned_events_to_load = 1;
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let pinned_event = f
         .text_msg("in the end")
         .event_id(event_id!("$1"))
@@ -331,7 +331,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
@@ -597,7 +597,7 @@ async fn test_edited_events_are_reflected_in_sync() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
@@ -687,7 +687,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
     let pinned_event_id = event_id!("$1");
     let pinned_event = f
         .text_msg("in the end")
@@ -790,7 +790,7 @@ async fn test_ensure_max_concurrency_is_observed() {
         .add_state_bulk(vec![f.room_pinned_events(pinned_event_ids).into()]);
 
     let pinned_event =
-        EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_event();
+        EventFactory::new().room(&room_id).sender(User::Bob).text_msg("A message").into_event();
     server
         .mock_room_event()
         .with_delay(Duration::from_secs(60))

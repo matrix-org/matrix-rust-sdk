@@ -236,3 +236,30 @@ async fn test_update_read_marker() {
 
     assert!(stream.next().now_or_never().is_none());
 }
+
+#[async_test]
+async fn test_read_marker_on_hidden_event() {
+    let timeline = TestTimeline::new().await;
+    let f = &timeline.factory;
+
+    let event_id_a = owned_event_id!("$a");
+    let reaction_id = owned_event_id!("$reaction");
+
+    // Timeline: [date-divider, A, B], with a (hidden) reaction to A between A
+    // and B.
+    timeline.handle_live_event(f.text_msg("A").sender(User::Bob).event_id(&event_id_a)).await;
+    timeline
+        .handle_live_event(f.reaction(&event_id_a, "+1").sender(User::Bob).event_id(&reaction_id))
+        .await;
+    timeline.handle_live_event(f.text_msg("B").sender(User::Bob)).await;
+
+    // The fully read event is the reaction, which isn't rendered: the read
+    // marker goes after the closest previous visible event, A.
+    // Timeline: [date-divider, A, read-marker, B].
+    timeline.controller.handle_fully_read_marker(reaction_id).await;
+
+    let items = timeline.controller.items().await;
+    assert_eq!(items.len(), 4);
+    assert_eq!(items[1].as_event().unwrap().event_id(), Some(&*event_id_a));
+    assert!(items[2].is_read_marker());
+}

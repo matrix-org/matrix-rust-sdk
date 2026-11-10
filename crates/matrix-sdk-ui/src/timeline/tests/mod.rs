@@ -35,7 +35,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{RoomInfo, RoomState, crypto::types::events::CryptoContextInfo};
-use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, event_factory::EventFactory};
+use matrix_sdk_test::{TestRoom, User, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
     OwnedUserId, RoomId, TransactionId, UInt, UserId,
@@ -189,9 +189,15 @@ impl TestTimeline {
         txn_id
     }
 
-    async fn handle_local_redaction(&self, redacts: OwnedEventId) -> OwnedTransactionId {
+    async fn handle_local_redaction(
+        &self,
+        redacts: OwnedEventId,
+        reason: Option<&str>,
+    ) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.controller.handle_local_redaction(txn_id.clone(), redacts, None).await;
+        self.controller
+            .handle_local_redaction(txn_id.clone(), redacts, reason.map(ToOwned::to_owned), None)
+            .await;
         txn_id
     }
 
@@ -421,7 +427,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     fn room_info(&self) -> Subscriber<RoomInfo> {
-        let info = RoomInfo::new(*DEFAULT_TEST_ROOM_ID, RoomState::Joined);
+        let info = RoomInfo::new(TestRoom::Default.into(), RoomState::Joined);
         SharedObservable::new(info).subscribe()
     }
 

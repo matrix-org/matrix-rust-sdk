@@ -28,7 +28,6 @@ use tracing::{debug, instrument, trace, warn};
 use super::{
     super::{
         TimelineItem,
-        controller::ObservableItemsTransactionEntry,
         date_dividers::DateDividerAdjuster,
         event_handler::{Flow, TimelineEventContext, TimelineEventHandler, TimelineItemPosition},
         event_item::{RemoteEventOrigin, TimelineItemContent},
@@ -39,7 +38,7 @@ use super::{
     metadata::EventMeta,
 };
 use crate::timeline::{
-    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, TimelineUniqueId, VirtualTimelineItem,
+    EmbeddedEvent, Profile, ThreadSummary, TimelineDetails, TimelineUniqueId,
     controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
 };
@@ -1052,39 +1051,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     }
 
     pub(super) fn clear(&mut self) {
-        // By first checking if there are any local echoes first, we do a bit
-        // more work in case some are found, but it should be worth it because
-        // there will often not be any, and only emitting a single
-        // `VectorDiff::Clear` should be much more efficient to process for
-        // subscribers.
         if self.items.has_local() {
-            // Remove all remote events and virtual items that aren't date
-            // dividers.
-            self.items.for_each(|entry| {
-                if entry.is_remote_event()
-                    || entry.as_virtual().is_some_and(|vitem| match vitem {
-                        VirtualTimelineItem::DateDivider(_) => false,
-                        VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => {
-                            true
-                        }
-                    })
-                {
-                    ObservableItemsTransactionEntry::remove_timeline_index_and_remote_event(entry);
-                }
-            });
-
-            // Remove adjacent date dividers.
-            let mut idx = 0;
-            while idx < self.items.len() {
-                if self.items[idx].is_date_divider()
-                    && self.items.get(idx + 1).is_none_or(|item| item.is_date_divider())
-                {
-                    self.items.remove(idx);
-                    // don't increment idx because all elements have shifted
-                } else {
-                    idx += 1;
-                }
-            }
+            self.items.clear_remotes_only();
         } else {
             self.items.clear();
         }

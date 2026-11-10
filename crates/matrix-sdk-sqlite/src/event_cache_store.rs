@@ -72,7 +72,7 @@ mod keys {
 }
 
 /// The database name.
-const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
+pub const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -97,12 +97,22 @@ impl Encryption {
         let raw_event = event.raw();
         let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
 
+        // An event is a state event if it has a `state_key`, even if it's
+        // empty. Empty state keys are encoded too, so they can be told apart
+        // from a missing one.
+        let state_key = raw_event
+            .get_field::<String>("state_key")
+            .ok()
+            .flatten()
+            .map(|state_key| self.encode_key(keys::EVENTS, state_key));
+
         // The content may be encrypted.
         let content = self.encode_value(serialized)?;
 
         Ok(EncodedEvent {
             content,
             rel_type,
+            state_key,
             relates_to: relates_to
                 .map(|relates_to| self.encode_event_id(keys::EVENTS, &relates_to)),
         })
@@ -363,6 +373,9 @@ struct EncodedEvent {
     content: Vec<u8>,
     rel_type: Option<String>,
     relates_to: Option<Key>,
+    /// The (possibly) hashed `state_key` of the event, if any. An empty
+    /// `state_key` is still `Some`.
+    state_key: Option<Key>,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -674,6 +687,28 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 19 {
+        debug!("Upgrading database to version 19");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/019_events_timestamp.sql"
+            ))?;
+            txn.set_db_version(19)
+        })
+        .await?;
+    }
+
+    if version < 20 {
+        debug!("Upgrading database to version 20");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/020_events_state_key.sql"
+            ))?;
+            txn.set_db_version(20)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -839,7 +874,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // outside the context of a linked chunk (e.g. pinned
                         // event).
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -878,6 +913,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             {
                                 let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
                                 let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
+                                let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                                 let encoded_event = encryption.encode_event(&event)?;
 
                                 content_statement.execute((
@@ -887,7 +923,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    timestamp,
+                                    encoded_event.state_key,
                                 ))?;
                             }
                         }
@@ -924,8 +962,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                             let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
                             let encoded_event = encryption.encode_event(&event)?;
 
+                            let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                             txn.execute(
-                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
                                     &hashed_room_id,
                                     &hashed_event_id,
@@ -933,7 +972,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    timestamp,
+                                    encoded_event.state_key,
                                 ),
                             )?;
                         }
@@ -1749,6 +1790,40 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut results = Vec::new();
+                let mut statement = txn.prepare(
+                    "SELECT content \
+                    FROM events \
+                    WHERE room_id = ? AND timestamp < ? \
+                    ORDER BY timestamp ASC",
+                )?;
+                let rows = statement
+                    .query_map((&hashed_room_id, cutoff_ms), |row| row.get::<_, Vec<u8>>(0))?;
+
+                for row in rows {
+                    let event = encryption.decode_event(&row?)?;
+                    results.push(event);
+                }
+
+                Ok(results)
+            })
+            .await
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
@@ -1826,8 +1901,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<_> {
+                let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         &hashed_room_id,
                         hashed_event_id,
@@ -1835,7 +1911,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                         hashed_session_id,
                         encoded_event.content,
                         encoded_event.relates_to,
-                        encoded_event.rel_type
+                        encoded_event.rel_type,
+                        timestamp,
+                        encoded_event.state_key,
                     )
                 )?;
 
@@ -2068,12 +2146,15 @@ mod tests {
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
-    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
-    use ruma::{OwnedEventId, event_id};
+    use matrix_sdk_test::{TestRoom, User, async_test, event_factory::EventFactory};
+    use ruma::{EventId, OwnedEventId, event_id, room_id};
     use tempfile::{TempDir, tempdir};
 
     use super::{SqliteEventCacheStore, keys};
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{
+        SqliteStoreConfig,
+        utils::{EncryptableStore, SqliteAsyncConnExt},
+    };
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2104,6 +2185,62 @@ mod tests {
             store.encryption.decode_thread_id(&encoded_thread_id).unwrap();
 
         assert_eq!(thread_id, decoded_thread_id);
+    }
+
+    #[async_test]
+    async fn test_state_key_column() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = room_id!("!test:localhost");
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+        let message_id = event_id!("$message");
+        let empty_state_key_ev_id = event_id!("$empty_state_key");
+        let state_key_ev_id = event_id!("$state_key");
+        let state_key = User::Bob.as_str();
+
+        // A message-like event, without a `state_key`.
+        store
+            .save_event(room_id, f.text_msg("hello").event_id(message_id).into_event())
+            .await
+            .unwrap();
+        // A state event with an empty `state_key`.
+        store
+            .save_event(
+                room_id,
+                f.room_topic("topic").state_key("").event_id(empty_state_key_ev_id).into_event(),
+            )
+            .await
+            .unwrap();
+        // A state event with a non-empty `state_key` (in this case, Bob's user
+        // id).
+        store
+            .save_event(room_id, f.member(User::Bob).event_id(state_key_ev_id).into_event())
+            .await
+            .unwrap();
+
+        let stored_state_key = async |event_id: &EventId| -> Option<Vec<u8>> {
+            let hashed_event_id = store.encryption.encode_event_id(keys::EVENTS, event_id);
+            store
+                .read()
+                .await
+                .unwrap()
+                .with_transaction(move |txn| {
+                    txn.query_one(
+                        "SELECT state_key FROM events WHERE event_id = ?",
+                        (hashed_event_id,),
+                        |row| row.get::<_, Option<Vec<u8>>>(0),
+                    )
+                })
+                .await
+                .unwrap()
+        };
+        let encoded_state_key =
+            |state_key: &str| store.encryption.encode_key(keys::EVENTS, state_key).to_vec();
+
+        assert_eq!(stored_state_key(message_id).await, None);
+        assert_eq!(stored_state_key(empty_state_key_ev_id).await, Some(encoded_state_key("")));
+        assert_eq!(stored_state_key(state_key_ev_id).await, Some(encoded_state_key(state_key)));
     }
 
     #[async_test]
@@ -2153,10 +2290,10 @@ mod tests {
         // Run corresponding integration test
         store.clone().into_event_cache_store().test_linked_chunk_remove_item().await;
 
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let hashed_linked_chunk_id = store
-            .encryption
-            .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
+        let hashed_linked_chunk_id = store.encryption.encode_linked_chunk(
+            keys::LINKED_CHUNKS,
+            &LinkedChunkId::Room(TestRoom::Default.into()),
+        );
 
         // Make sure the position have been updated for the remaining events.
         let num_rows: u64 = store
@@ -2208,8 +2345,7 @@ mod tests {
     async fn test_linked_chunk_update_is_a_transaction() {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(TestRoom::Default.into());
 
         // Trigger a violation of the unique constraint on the (room id, chunk
         // id) couple.
@@ -2359,7 +2495,7 @@ mod close_reopen_tests {
     };
 
     use matrix_sdk_base::{event_cache::store::EventCacheStore, linked_chunk::LinkedChunkId};
-    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
+    use matrix_sdk_test::{TestRoom, async_test};
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -2439,7 +2575,7 @@ mod close_reopen_tests {
         let store = new_store().await;
         store.close().await.unwrap();
 
-        let err = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let err = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
         assert!(err.is_err(), "read should fail when closed");
 
         let err_msg = err.unwrap_err().to_string();
@@ -2484,7 +2620,7 @@ mod close_reopen_tests {
             store.reopen().await.unwrap();
 
             // After each cycle, the store should be fully operational.
-            let result = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+            let result = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
             assert!(result.is_ok(), "store should work after close/reopen cycle");
         }
     }
@@ -2494,8 +2630,8 @@ mod close_reopen_tests {
         let store = new_store().await;
 
         // Do a few reads to exercise the pool.
-        let _ = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
-        let _ = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let _ = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
+        let _ = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
 
         store.close().await.unwrap();
 
@@ -2513,7 +2649,7 @@ mod close_reopen_tests {
         store.reopen().await.unwrap();
 
         // Read should work immediately after reopen.
-        let result = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let result = store.load_all_chunks(LinkedChunkId::Room(TestRoom::Default.into())).await;
         assert!(result.is_ok(), "read should succeed immediately after reopen");
 
         // Write should work immediately after reopen.

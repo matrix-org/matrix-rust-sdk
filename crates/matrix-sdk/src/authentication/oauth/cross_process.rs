@@ -257,8 +257,8 @@ mod tests {
     use anyhow::Context as _;
     use futures_util::future::join_all;
     use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
-    use matrix_sdk_test::async_test;
-    use ruma::{owned_device_id, owned_user_id};
+    use matrix_sdk_test::{User, async_test};
+    use ruma::owned_device_id;
 
     use super::compute_session_hash;
     use crate::{
@@ -349,10 +349,7 @@ mod tests {
         let session_meta = client.session_meta().context("should have session meta now")?;
         assert_eq!(
             *session_meta,
-            SessionMeta {
-                user_id: owned_user_id!("@joe:example.org"),
-                device_id: owned_device_id!("D3V1C31D")
-            }
+            SessionMeta { user_id: User::Alice.into(), device_id: owned_device_id!("D3V1C31D") }
         );
 
         {

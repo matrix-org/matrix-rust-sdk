@@ -30,7 +30,7 @@ use matrix_sdk_common::{
     },
 };
 use matrix_sdk_test::{
-    ALICE, DEFAULT_TEST_ROOM_ID,
+    DEFAULT_TEST_ROOM_ID, User,
     event_factory::{EventBuilder, EventFactory},
 };
 use ruma::{
@@ -68,7 +68,7 @@ pub fn make_encrypted_test_event(room_id: &RoomId, session_id: &str) -> Timeline
     let builder = EventFactory::new()
         .encrypted("", "curve_key", device_id, session_id)
         .room(room_id)
-        .sender(*ALICE);
+        .sender(User::Alice);
 
     let event = builder.into_raw();
     let utd_info = UnableToDecryptInfo {
@@ -136,7 +136,7 @@ pub fn make_test_event_builder_with_event_id(
     content: &str,
     event_id: Option<&EventId>,
 ) -> EventBuilder<RoomMessageEventContent> {
-    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
+    let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(User::Alice);
     if let Some(event_id) = event_id {
         builder = builder.event_id(event_id);
     }
@@ -149,7 +149,7 @@ pub fn make_test_event_builder_with_event_id(
 /// Keep in sync with [`check_test_event`].
 pub fn make_encryption_info() -> EncryptionInfo {
     EncryptionInfo {
-        sender: (*ALICE).into(),
+        sender: User::Alice.into(),
         sender_device: None,
         forwarder: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -175,7 +175,7 @@ pub fn check_test_event(event: &TimelineEvent, text: &str) {
     // Check content.
     assert_matches!(&event.kind, TimelineEventKind::Decrypted(d) => {
         // Check encryption fields.
-        assert_eq!(d.encryption_info.sender, *ALICE);
+        assert_eq!(d.encryption_info.sender, User::Alice);
         assert_matches!(&d.encryption_info.algorithm_info, AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. } => {
             assert_eq!(curve25519_key, "1337");
         });
@@ -287,6 +287,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that find event relations works as expected when an event is both a
     /// room and a thread in that room.
     async fn test_find_event_relations_when_event_in_room_and_thread(&self);
+
+    /// Test that querying events older than a timestamp cutoff works as
+    /// expected.
+    async fn test_find_events_before_timestamp(&self);
 
     /// Test that getting all events in a room works as expected.
     async fn test_get_room_events(&self);
@@ -2101,7 +2105,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
 
-        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
 
         // Create event and related events for the first room.
         let eid1 = event_id!("$event1:matrix.org");
@@ -2226,7 +2230,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_reaction_id = event_id!("$room_reaction");
         let room_reaction = EventFactory::new()
             .room(room_id)
-            .sender(*ALICE)
+            .sender(User::Alice)
             .reaction(event_id, "room")
             .event_id(room_reaction_id)
             .into_event();
@@ -2235,7 +2239,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let thread_reaction_id = event_id!("$thread_reaction");
         let thread_reaction = EventFactory::new()
             .room(room_id)
-            .sender(*ALICE)
+            .sender(User::Alice)
             .reaction(event_id, "thread")
             .event_id(thread_reaction_id)
             .into_event();
@@ -2245,7 +2249,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let room_and_thread_reaction_id = event_id!("$room_and_thread_reaction");
         let room_and_thread_reaction = EventFactory::new()
             .room(room_id)
-            .sender(*ALICE)
+            .sender(User::Alice)
             .reaction(event_id, "room and thread")
             .event_id(room_and_thread_reaction_id)
             .into_event();
@@ -2319,6 +2323,110 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 assert_eq!(*position, Position::new(CId::new(1), 2));
             });
         });
+    }
+
+    async fn test_find_events_before_timestamp(&self) {
+        let room_id = room_id!("!r0");
+        let another_room_id = room_id!("!r1");
+        let cutoff_ms: u64 = 2000;
+        let event_factory = EventFactory::new().room(room_id).sender(User::Alice);
+
+        // Events older than the cutoff -- should be returned.
+        let event_old_1 = event_factory.text_msg("old1").server_ts(500).into_event();
+        let thread_root_id = event_id!("$thread_root");
+        let thread_root = event_factory
+            .text_msg("thread root")
+            .event_id(thread_root_id)
+            .server_ts(750)
+            .into_event();
+        let event_in_thread = event_factory
+            .text_msg("thread reply")
+            .event_id(event_id!("$thread_reply"))
+            .in_thread(thread_root_id, thread_root_id)
+            .server_ts(1000)
+            .into_event();
+        let event_old_2 = event_factory.text_msg("old2").server_ts(1500).into_event();
+        // Event exactly at the cutoff -- should NOT be returned (strictly less
+        // than).
+        let event_at_cutoff = event_factory.text_msg("at_cutoff").server_ts(2000).into_event();
+        // Event newer than the cutoff -- should NOT be returned.
+        let event_new = event_factory.text_msg("new").server_ts(3000).into_event();
+        // Event in another room with an old timestamp -- should NOT be
+        // returned.
+        let event_other_room = EventFactory::new()
+            .room(another_room_id)
+            .sender(User::Alice)
+            .text_msg("other_room")
+            .server_ts(500)
+            .into_event();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![
+                        event_old_1.clone(),
+                        thread_root.clone(),
+                        event_old_2.clone(),
+                        event_at_cutoff.clone(),
+                        event_new.clone(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Thread(room_id, thread_root_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![thread_root.clone(), event_in_thread.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(another_room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_other_room.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Insert an event directly into the store without a linked chunk
+        // position.
+        let event_no_position = event_factory.text_msg("no_position").server_ts(100).into_event();
+        self.save_event(room_id, event_no_position.clone()).await.unwrap();
+
+        let results = self
+            .find_events_before_timestamp(room_id, cutoff_ms)
+            .await
+            .expect("failed to query events before timestamp");
+
+        let result_ids: Vec<_> =
+            results.iter().map(|event| event.event_id().unwrap().to_owned()).collect();
+        assert_eq!(
+            result_ids,
+            vec![
+                event_no_position.event_id().unwrap().to_owned(),
+                event_old_1.event_id().unwrap().to_owned(),
+                thread_root.event_id().unwrap().to_owned(),
+                event_in_thread.event_id().unwrap().to_owned(),
+                event_old_2.event_id().unwrap().to_owned(),
+            ]
+        );
     }
 
     async fn test_get_room_events(&self) {
@@ -2987,6 +3095,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_event_relations_when_event_in_room_and_thread().await;
+            }
+
+            #[async_test]
+            async fn test_find_events_before_timestamp() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_events_before_timestamp().await;
             }
 
             #[async_test]

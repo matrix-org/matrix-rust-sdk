@@ -206,10 +206,10 @@ pub struct UploadDehydratedDeviceRequest {
     body: String,
 }
 
-impl From<dehydrated_device::put_dehydrated_device::unstable::Request>
+impl From<dehydrated_device::put_dehydrated_device::msc3814::Request>
     for UploadDehydratedDeviceRequest
 {
-    fn from(value: dehydrated_device::put_dehydrated_device::unstable::Request) -> Self {
+    fn from(value: dehydrated_device::put_dehydrated_device::msc3814::Request) -> Self {
         let body = json!({
             "device_id": value.device_id,
             "device_data": value.device_data,

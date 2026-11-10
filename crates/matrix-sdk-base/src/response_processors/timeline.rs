@@ -162,7 +162,7 @@ pub async fn build<'notification, 'e2ee>(
 /// them by thematics.
 pub mod builder {
     use ruma::{
-        api::client::sync::sync_events::{v3, v5},
+        api::client::sync::sync_events::{msc4186, v3},
         events::AnySyncTimelineEvent,
         serde::Raw,
     };
@@ -179,8 +179,8 @@ pub mod builder {
         }
     }
 
-    impl From<&v5::response::Room> for Timeline {
-        fn from(value: &v5::response::Room) -> Self {
+    impl From<&msc4186::response::Room> for Timeline {
+        fn from(value: &msc4186::response::Room) -> Self {
             Self {
                 limited: value.limited,
                 raw_events: value.timeline.clone(),

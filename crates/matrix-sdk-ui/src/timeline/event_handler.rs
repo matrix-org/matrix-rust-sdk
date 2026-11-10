@@ -144,7 +144,10 @@ pub(super) enum HandleAggregationKind {
     Reaction { key: String },
 
     /// Redacting (removing) the related event.
-    Redaction,
+    Redaction {
+        /// The reason given with the redaction, if any.
+        reason: Option<String>,
+    },
 
     /// Editing (replacing) the related event with another one.
     Edit { replacement: Replacement<RoomMessageEventContentWithoutRelation> },
@@ -177,7 +180,7 @@ impl HandleAggregationKind {
     pub fn debug_string(&self) -> &'static str {
         match self {
             HandleAggregationKind::Reaction { .. } => "a reaction",
-            HandleAggregationKind::Redaction => "a redaction",
+            HandleAggregationKind::Redaction { .. } => "a redaction",
             HandleAggregationKind::Edit { .. } => "an edit",
             HandleAggregationKind::PollResponse { .. } => "a poll response",
             HandleAggregationKind::PollEdit { .. } => "a poll edit",
@@ -249,9 +252,10 @@ impl TimelineAction {
         match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&redaction_rules).map(ToOwned::to_owned) {
+                    let reason = ev.as_original().and_then(|ev| ev.content.reason.clone());
                     vec![Self::HandleAggregation {
                         related_event: redacts,
-                        kind: HandleAggregationKind::Redaction,
+                        kind: HandleAggregationKind::Redaction { reason },
                     }]
                 } else {
                     redacted_message_or_none(ev.event_type())
@@ -687,8 +691,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             HandleAggregationKind::Reaction { key } => {
                 self.handle_reaction(related_event, key);
             }
-            HandleAggregationKind::Redaction => {
-                self.handle_redaction(related_event);
+            HandleAggregationKind::Redaction { reason } => {
+                self.handle_redaction(related_event, reason);
             }
             HandleAggregationKind::Edit { replacement } => {
                 self.handle_edit(
@@ -889,7 +893,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// This assumes the redacted event was present in the timeline in the first
     /// place; it will warn if the redacted event has not been found.
     #[instrument(skip_all, fields(redacts_event_id = ?redacted))]
-    fn handle_redaction(&mut self, redacted: OwnedEventId) {
+    fn handle_redaction(&mut self, redacted: OwnedEventId, reason: Option<String>) {
         // TODO: Apply local redaction of PollResponse and PollEnd events.
         // https://github.com/matrix-org/matrix-rust-sdk/pull/2381#issuecomment-1689647825
 
@@ -901,7 +905,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation = self.new_aggregation(AggregationKind::Redaction);
+        let aggregation = self.new_aggregation(AggregationKind::Redaction { reason });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(
@@ -1075,7 +1079,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let is_room_encrypted = self.meta.is_room_encrypted;
 
-        let item = EventTimelineItem::new(
+        let mut item = EventTimelineItem::new(
             sender,
             sender_profile,
             forwarder,
@@ -1085,6 +1089,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             kind,
             is_room_encrypted,
         );
+
+        // An event the server already redacted carries the redaction in its
+        // `unsigned.redacted_because`; keep its reason like a pending one's.
+        if item.content().is_redacted()
+            && let Flow::Remote { raw_event, .. } = &self.ctx.flow
+        {
+            item.redaction_reason = redaction_reason(raw_event);
+        }
 
         // Apply any pending or stashed aggregations.
         let mut cowed = Cow::Owned(item);
@@ -1497,4 +1509,22 @@ fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineIt
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();
     }
+}
+
+/// The reason found in a redacted event's `unsigned.redacted_because`, if any.
+fn redaction_reason(raw_event: &Raw<AnySyncTimelineEvent>) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct Unsigned {
+        redacted_because: Option<RedactedBecause>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RedactedBecause {
+        content: Option<Content>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Content {
+        reason: Option<String>,
+    }
+
+    raw_event.get_field::<Unsigned>("unsigned").ok().flatten()?.redacted_because?.content?.reason
 }

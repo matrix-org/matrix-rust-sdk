@@ -30,6 +30,9 @@ unstable-msc4354 = ["matrix-sdk/unstable-msc4354"]
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk/unstable-msc4426"]
 
+# Add support for circle videos (MSC4546).
+unstable-msc4546 = ["matrix-sdk/unstable-msc4546"]
+
 # Enable the global, reactive search service built on top of the SDK's
 # message search.
 experimental-search = ["matrix-sdk/experimental-search"]

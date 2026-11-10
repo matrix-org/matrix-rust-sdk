@@ -18,13 +18,17 @@ use std::{future::IntoFuture, pin::pin};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
+use matrix_sdk_base::crypto::secret_storage::SecretStorageKey;
 use matrix_sdk_common::boxed_into_future;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{Instrument, Span, warn};
 
 use super::{EnableProgress, Recovery, RecoveryError, Result};
 use crate::{
-    encryption::{backups::UploadState, secret_storage::SecretStore},
+    encryption::{
+        backups::UploadState,
+        secret_storage::{SecretStore, futures::KeyOrPassphrase},
+    },
     utils::ChannelObservable,
 };
 
@@ -34,7 +38,7 @@ pub struct Enable<'a> {
     pub(super) recovery: &'a Recovery,
     pub(super) progress: ChannelObservable<EnableProgress>,
     pub(super) wait_for_backups_upload: bool,
-    pub(super) passphrase: Option<&'a str>,
+    pub(super) key: KeyOrPassphrase<'a>,
     tracing_span: Span,
 }
 
@@ -44,7 +48,7 @@ impl<'a> Enable<'a> {
             recovery,
             progress: Default::default(),
             wait_for_backups_upload: false,
-            passphrase: None,
+            key: KeyOrPassphrase::None,
             tracing_span: Span::current(),
         }
     }
@@ -73,7 +77,14 @@ impl<'a> Enable<'a> {
     /// returns, allow this passphrase to be used for the
     /// [`Recovery::recover()`] method.
     pub fn with_passphrase(mut self, passphrase: &'a str) -> Self {
-        self.passphrase = Some(passphrase);
+        self.key = KeyOrPassphrase::Passphrase(passphrase);
+
+        self
+    }
+
+    /// Use this key for the [`Recovery::recover()`] method.
+    pub fn with_key(mut self, key: &'a SecretStorageKey) -> Self {
+        self.key = KeyOrPassphrase::Key(key);
 
         self
     }
@@ -84,7 +95,7 @@ impl<'a> IntoFuture for Enable<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { recovery, progress, wait_for_backups_upload, passphrase, tracing_span } = self;
+        let Self { recovery, progress, wait_for_backups_upload, key, tracing_span } = self;
 
         let future = async move {
             if !recovery.client.encryption().backups().are_enabled().await {
@@ -101,10 +112,12 @@ impl<'a> IntoFuture for Enable<'a> {
 
             let secret_storage = recovery.client.encryption().secret_storage();
 
-            let create_store = if let Some(passphrase) = passphrase {
-                secret_storage.create_secret_store().with_passphrase(passphrase)
-            } else {
-                secret_storage.create_secret_store()
+            let create_store = match key {
+                KeyOrPassphrase::None => secret_storage.create_secret_store(),
+                KeyOrPassphrase::Key(k) => secret_storage.create_secret_store().with_key(k),
+                KeyOrPassphrase::Passphrase(p) => {
+                    secret_storage.create_secret_store().with_passphrase(p)
+                }
             };
 
             let store: SecretStore = create_store.await?;
@@ -159,20 +172,27 @@ impl<'a> IntoFuture for Enable<'a> {
 #[derive(Debug)]
 pub struct Reset<'a> {
     pub(super) recovery: &'a Recovery,
-    pub(super) passphrase: Option<&'a str>,
+    pub(super) key: KeyOrPassphrase<'a>,
     tracing_span: Span,
 }
 
 impl<'a> Reset<'a> {
     pub(super) fn new(recovery: &'a Recovery) -> Self {
-        Self { recovery, passphrase: None, tracing_span: Span::current() }
+        Self { recovery, key: KeyOrPassphrase::None, tracing_span: Span::current() }
     }
 
     /// In addition to the recovery key the [`Recovery::reset_key()`] method
     /// returns, allow this passphrase to be used for the
     /// [`Recovery::recover()`] method.
     pub fn with_passphrase(mut self, passphrase: &'a str) -> Self {
-        self.passphrase = Some(passphrase);
+        self.key = KeyOrPassphrase::Passphrase(passphrase);
+
+        self
+    }
+
+    /// Use this key for the [`Recovery::recover()`] method.
+    pub fn with_key(mut self, key: &'a SecretStorageKey) -> Self {
+        self.key = KeyOrPassphrase::Key(key);
 
         self
     }
@@ -183,15 +203,17 @@ impl<'a> IntoFuture for Reset<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { recovery, passphrase, tracing_span } = self;
+        let Self { recovery, key, tracing_span } = self;
 
         let future = async move {
             let secret_storage = recovery.client.encryption().secret_storage();
 
-            let create_store = if let Some(passphrase) = passphrase {
-                secret_storage.create_secret_store().with_passphrase(passphrase)
-            } else {
-                secret_storage.create_secret_store()
+            let create_store = match key {
+                KeyOrPassphrase::None => secret_storage.create_secret_store(),
+                KeyOrPassphrase::Key(k) => secret_storage.create_secret_store().with_key(k),
+                KeyOrPassphrase::Passphrase(p) => {
+                    secret_storage.create_secret_store().with_passphrase(p)
+                }
             };
 
             let store: SecretStore = create_store.await?;
@@ -209,20 +231,32 @@ impl<'a> IntoFuture for Reset<'a> {
 pub struct RecoverAndReset<'a> {
     pub(super) recovery: &'a Recovery,
     pub(super) old_recovery_key: &'a str,
-    pub(super) passphrase: Option<&'a str>,
+    pub(super) key: KeyOrPassphrase<'a>,
     tracing_span: Span,
 }
 
 impl<'a> RecoverAndReset<'a> {
     pub(super) fn new(recovery: &'a Recovery, old_recovery_key: &'a str) -> Self {
-        Self { recovery, old_recovery_key, passphrase: None, tracing_span: Span::current() }
+        Self {
+            recovery,
+            old_recovery_key,
+            key: KeyOrPassphrase::None,
+            tracing_span: Span::current(),
+        }
     }
 
     /// In addition to the new recovery key the
     /// [`Recovery::recover_and_reset()`] method returns, allow this passphrase
     /// to be used for the [`Recovery::recover()`] method.
     pub fn with_passphrase(mut self, passphrase: &'a str) -> Self {
-        self.passphrase = Some(passphrase);
+        self.key = KeyOrPassphrase::Passphrase(passphrase);
+
+        self
+    }
+
+    /// Use this key for the [`Recovery::recover()`] method.
+    pub fn with_key(mut self, key: &'a SecretStorageKey) -> Self {
+        self.key = KeyOrPassphrase::Key(key);
 
         self
     }
@@ -233,15 +267,15 @@ impl<'a> IntoFuture for RecoverAndReset<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { recovery, old_recovery_key, passphrase, tracing_span } = self;
+        let Self { recovery, old_recovery_key, key, tracing_span } = self;
 
         let future = async move {
             recovery.recover(old_recovery_key).await?;
 
-            let reset = if let Some(passphrase) = passphrase {
-                recovery.reset_key().with_passphrase(passphrase)
-            } else {
-                recovery.reset_key()
+            let reset = match key {
+                KeyOrPassphrase::None => recovery.reset_key(),
+                KeyOrPassphrase::Key(k) => recovery.reset_key().with_key(k),
+                KeyOrPassphrase::Passphrase(p) => recovery.reset_key().with_passphrase(p),
             };
 
             reset.await

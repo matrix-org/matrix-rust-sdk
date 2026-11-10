@@ -261,14 +261,14 @@ impl SendEventResponse {
     }
 }
 
-impl From<delayed_message_event::unstable::Response> for SendEventResponse {
-    fn from(val: delayed_message_event::unstable::Response) -> Self {
+impl From<delayed_message_event::msc4140::Response> for SendEventResponse {
+    fn from(val: delayed_message_event::msc4140::Response) -> Self {
         SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
     }
 }
 
-impl From<delayed_state_event::unstable::Response> for SendEventResponse {
-    fn from(val: delayed_state_event::unstable::Response) -> Self {
+impl From<delayed_state_event::msc4140::Response> for SendEventResponse {
+    fn from(val: delayed_state_event::msc4140::Response) -> Self {
         SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
     }
 }
@@ -281,8 +281,8 @@ impl From<delayed_state_event::unstable::Response> for SendEventResponse {
 /// as json.
 #[derive(Serialize, Debug)]
 pub(crate) struct UpdateDelayedEventResponse {}
-impl From<update_delayed_event::unstable_v1::Response> for UpdateDelayedEventResponse {
-    fn from(_: update_delayed_event::unstable_v1::Response) -> Self {
+impl From<update_delayed_event::msc4140_v1::Response> for UpdateDelayedEventResponse {
+    fn from(_: update_delayed_event::msc4140_v1::Response) -> Self {
         Self {}
     }
 }
@@ -371,8 +371,8 @@ pub(crate) struct RtcLivekitGetTokenResponse {
     pub(crate) jwt: String,
 }
 
-impl From<rtc::livekit::get_token::v1::Response> for RtcLivekitGetTokenResponse {
-    fn from(response: rtc::livekit::get_token::v1::Response) -> Self {
+impl From<rtc::livekit::get_token::msc4195::Response> for RtcLivekitGetTokenResponse {
+    fn from(response: rtc::livekit::get_token::msc4195::Response) -> Self {
         Self { jwt: response.jwt }
     }
 }
@@ -401,10 +401,10 @@ impl FromMatrixDriverResponse for RtcLivekitGetTokenResponse {
 #[derive(Serialize, Debug)]
 pub(crate) struct RtcLivekitDelegateDelayedLeaveResponse {}
 
-impl From<rtc::livekit::delegate_delayed_leave::v1::Response>
+impl From<rtc::livekit::delegate_delayed_leave::msc4195::Response>
     for RtcLivekitDelegateDelayedLeaveResponse
 {
-    fn from(_: rtc::livekit::delegate_delayed_leave::v1::Response) -> Self {
+    fn from(_: rtc::livekit::delegate_delayed_leave::msc4195::Response) -> Self {
         Self {}
     }
 }
