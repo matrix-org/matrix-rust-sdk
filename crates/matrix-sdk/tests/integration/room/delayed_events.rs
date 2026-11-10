@@ -10,10 +10,10 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::async_test;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, TestDevice, User, event_factory::EventFactory};
 #[cfg(feature = "e2e-encryption")]
-use ruma::{RoomVersionId, device_id, user_id};
-use ruma::{room_id, time::Duration};
+use ruma::RoomVersionId;
+use ruma::time::Duration;
 use serde_json::json;
 use tokio::time::timeout;
 #[cfg(feature = "e2e-encryption")]
@@ -34,7 +34,7 @@ async fn test_send_raw_into_delayed() {
     let client = server.client_builder().build().await;
 
     server.mock_room_state_encryption().plain().mount().await;
-    let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("m.room.message")))
@@ -74,7 +74,7 @@ async fn test_send_raw_into_delayed_max_scheduled_without_retry() {
         .await;
 
     server.mock_room_state_encryption().plain().mount().await;
-    let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("m.room.message")))
@@ -112,7 +112,7 @@ async fn test_send_raw_into_delayed_and_sticky_duration() {
     let client = server.client_builder().build().await;
 
     server.mock_room_state_encryption().plain().mount().await;
-    let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("org.matrix.rtc.member")))
@@ -141,28 +141,27 @@ async fn test_send_raw_into_delayed_and_sticky_duration() {
 #[cfg(feature = "e2e-encryption")]
 #[async_test]
 async fn test_send_raw_into_delayed_in_encrypted_room() {
-    let room_id = room_id!("!test:localhost");
-    let alice_user_id = user_id!("@alice:localhost");
-    let alice_device_id = device_id!("ALICEDEVICE");
+    let alice_user_id = User::Alice;
+    let alice_device_id = TestDevice::Default;
 
     let server = MatrixMockServer::new().await;
     server.mock_crypto_endpoints_preset().await;
     server.mock_room_state_encryption().encrypted().mount().await;
 
-    let alice =
-        server.client_builder_for_crypto_end_to_end(alice_user_id, alice_device_id).build().await;
+    let alice = server
+        .client_builder_for_crypto_end_to_end(alice_user_id.into(), alice_device_id.into())
+        .build()
+        .await;
 
-    let f = EventFactory::new().sender(alice_user_id).room(room_id);
+    let f = EventFactory::new().sender(alice_user_id).default_room();
 
-    server
-        .mock_sync()
-        .ok_and_run(&alice, |builder| {
-            builder.add_joined_room(
-                JoinedRoomBuilder::new(room_id)
-                    .add_state_event(f.create(alice_user_id, RoomVersionId::V1))
-                    .add_state_event(f.room_encryption()),
-            );
-        })
+    let room = server
+        .sync_room(
+            &alice,
+            JoinedRoomBuilder::default()
+                .add_state_event(f.create(alice_user_id, RoomVersionId::V1))
+                .add_state_event(f.room_encryption()),
+        )
         .await;
 
     // Sharing the room key requires the member list.
@@ -181,15 +180,13 @@ async fn test_send_raw_into_delayed_in_encrypted_room() {
             "delay_ms": 1000,
             "content": {
                 "algorithm": "m.megolm.v1.aes-sha2",
-                "device_id": "ALICEDEVICE",
+                "device_id": alice_device_id,
             },
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": "1234" })))
         .expect(1)
         .mount(server.server())
         .await;
-
-    let room = alice.get_room(room_id).expect("Alice should have access to the room");
 
     let response = room
         .send_raw("m.room.message", json!({ "msgtype": "m.text", "body": "hello" }))
@@ -206,7 +203,7 @@ async fn test_send_state_event_raw_into_delayed() {
     let client = server.client_builder().build().await;
 
     server.mock_room_state_encryption().plain().mount().await;
-    let room = server.sync_joined_room(&client, room_id!("!a:b.c")).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     Mock::given(method("PUT"))
         .and(path_regex(delayed_event_path("m.room.topic")))
