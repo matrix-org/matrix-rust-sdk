@@ -5,22 +5,22 @@ use matrix_sdk::{
     room::ThreadSubscription,
     test_utils::mocks::{MatrixMockServer, PushRuleIdSpec},
 };
-use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
-use ruma::{event_id, owned_event_id, push::RuleKind, room_id};
+use matrix_sdk_test::{JoinedRoomBuilder, TestRoom, User, async_test, event_factory::EventFactory};
+use ruma::{event_id, owned_event_id, push::RuleKind};
 
 #[async_test]
 async fn test_subscribe_thread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room_id = room_id!("!test:example.org");
+    let room_id = TestRoom::Default;
     let room = server.sync_joined_room(&client, room_id).await;
 
     let root_id = owned_event_id!("$root");
 
     server
         .mock_room_put_thread_subscription()
-        .match_room_id(room_id.to_owned())
+        .match_room_id(room_id)
         .match_thread_id(root_id.clone())
         .ok()
         .mock_once()
@@ -32,7 +32,7 @@ async fn test_subscribe_thread() {
 
     server
         .mock_room_get_thread_subscription()
-        .match_room_id(room_id.to_owned())
+        .match_room_id(room_id)
         .match_thread_id(root_id.clone())
         .ok(true)
         .mock_once()
@@ -52,7 +52,7 @@ async fn test_subscribe_thread() {
     // I can also unsubscribe from a thread.
     server
         .mock_room_delete_thread_subscription()
-        .match_room_id(room_id.to_owned())
+        .match_room_id(room_id)
         .match_thread_id(root_id.clone())
         .ok()
         .mock_once()
@@ -70,7 +70,7 @@ async fn test_subscribe_thread() {
     // error that should be non-fatal.
     server
         .mock_room_put_thread_subscription()
-        .match_room_id(room_id.to_owned())
+        .match_room_id(room_id)
         .match_thread_id(root_id.clone())
         .conflicting_unsubscription()
         .mock_once()
@@ -89,7 +89,7 @@ async fn test_subscribe_thread_if_needed() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let room_id = room_id!("!test:example.org");
+    let room_id = TestRoom::Default;
     let room = server.sync_joined_room(&client, room_id).await;
 
     // If there's no prior subscription, the function
@@ -101,7 +101,7 @@ async fn test_subscribe_thread_if_needed() {
     ] {
         server
             .mock_room_put_thread_subscription()
-            .match_room_id(room_id.to_owned())
+            .match_room_id(room_id)
             .match_thread_id(root_id.clone())
             .ok()
             .mock_once()
@@ -119,7 +119,7 @@ async fn test_subscribe_thread_if_needed() {
 
         server
             .mock_room_get_thread_subscription()
-            .match_room_id(room_id.to_owned())
+            .match_room_id(room_id)
             .match_thread_id(root_id.clone())
             .ok(true)
             .mock_once()
@@ -128,7 +128,7 @@ async fn test_subscribe_thread_if_needed() {
 
         server
             .mock_room_put_thread_subscription()
-            .match_room_id(room_id.to_owned())
+            .match_room_id(room_id)
             .match_thread_id(root_id.clone())
             .ok()
             .mock_once()
@@ -144,7 +144,7 @@ async fn test_subscribe_thread_if_needed() {
 
         server
             .mock_room_get_thread_subscription()
-            .match_room_id(room_id.to_owned())
+            .match_room_id(room_id)
             .match_thread_id(root_id.clone())
             .ok(true)
             .mock_once()
@@ -162,7 +162,7 @@ async fn test_subscribe_thread_if_needed() {
     ] {
         server
             .mock_room_get_thread_subscription()
-            .match_room_id(room_id.to_owned())
+            .match_room_id(room_id)
             .match_thread_id(root_id.clone())
             .ok(false)
             .mock_once()
@@ -196,7 +196,7 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
         .build()
         .await;
 
-    let room_id = room_id!("!test:example.org");
+    let room_id = TestRoom::Default;
     let room = server.sync_joined_room(&client, room_id).await;
 
     let thread_root_id = owned_event_id!("$root");
@@ -221,7 +221,7 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     // thread.
     server
         .mock_room_get_thread_subscription()
-        .match_room_id(room_id.to_owned())
+        .match_room_id(room_id)
         .match_thread_id(thread_root_id.clone())
         .ok(true)
         .mock_once()
@@ -271,7 +271,7 @@ async fn test_thread_push_rules_and_notification_modes() {
         .build()
         .await;
 
-    let room_id = room_id!("!test:example.org");
+    let room_id = TestRoom::Default;
     let f = EventFactory::new().room(room_id).sender(User::Alice);
     // Make it so that the client has a member event for the current user.
     let room = server
@@ -301,7 +301,7 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     server
         .mock_room_get_thread_subscription()
-        .match_room_id(room_id.to_owned())
+        .match_room_id(room_id)
         .match_thread_id(thread_root_id.clone())
         .ok(true)
         .mount()
@@ -326,7 +326,10 @@ async fn test_thread_push_rules_and_notification_modes() {
         .unwrap();
 
     // If room mode = AllMessages,
-    settings.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await.unwrap();
+    settings
+        .set_room_notification_mode(room_id.into(), RoomNotificationMode::AllMessages)
+        .await
+        .unwrap();
     // Ack the push rules change via sync, for it to be applied in the push
     // context.
     let ruleset = settings.ruleset().await;
@@ -343,7 +346,7 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // If room mode = mentions and keywords only,
     settings
-        .set_room_notification_mode(room_id, RoomNotificationMode::MentionsAndKeywordsOnly)
+        .set_room_notification_mode(room_id.into(), RoomNotificationMode::MentionsAndKeywordsOnly)
         .await
         .unwrap();
     let ruleset = settings.ruleset().await;
@@ -359,7 +362,7 @@ async fn test_thread_push_rules_and_notification_modes() {
     assert!(actions.iter().any(|action| action.should_notify()));
 
     // If room mode = mute,
-    settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
+    settings.set_room_notification_mode(room_id.into(), RoomNotificationMode::Mute).await.unwrap();
     let ruleset = settings.ruleset().await;
     server
         .mock_sync()
@@ -384,7 +387,10 @@ async fn test_thread_push_rules_and_notification_modes() {
         .unwrap();
 
     // If room mode = AllMessages,
-    settings.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await.unwrap();
+    settings
+        .set_room_notification_mode(room_id.into(), RoomNotificationMode::AllMessages)
+        .await
+        .unwrap();
     // Ack the push rules change via sync, for it to be applied in the push
     // context.
     let ruleset = settings.ruleset().await;
@@ -401,7 +407,7 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // If room mode = Mentions only,
     settings
-        .set_room_notification_mode(room_id, RoomNotificationMode::MentionsAndKeywordsOnly)
+        .set_room_notification_mode(room_id.into(), RoomNotificationMode::MentionsAndKeywordsOnly)
         .await
         .unwrap();
     // Ack the push rules change via sync, for it to be applied in the push
@@ -419,7 +425,7 @@ async fn test_thread_push_rules_and_notification_modes() {
     assert!(actions.iter().any(|action| action.should_notify()));
 
     // If room mode = mute,
-    settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
+    settings.set_room_notification_mode(room_id.into(), RoomNotificationMode::Mute).await.unwrap();
     // Ack the push rules change via sync, for it to be applied in the push
     // context.
     let ruleset = settings.ruleset().await;

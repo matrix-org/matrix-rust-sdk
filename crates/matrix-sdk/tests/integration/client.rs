@@ -2010,7 +2010,7 @@ async fn test_sync_thread_subscriptions_with_catchup() {
     // now.)
     server
         .mock_room_get_thread_subscription()
-        .match_room_id(room_id1.into())
+        .match_room_id(room_id1)
         .match_thread_id(thread1.clone())
         .ok(true)
         .mock_once()
