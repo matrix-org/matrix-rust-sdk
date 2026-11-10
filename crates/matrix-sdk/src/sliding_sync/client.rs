@@ -16,7 +16,7 @@ use ruma::{
     },
     assign,
     directory::RoomTypeFilter,
-    events::GlobalAccountDataEventType,
+    events::{GlobalAccountDataEventType, StateEventType},
     presence::PresenceState,
     uint,
 };
@@ -175,6 +175,9 @@ impl Client {
             // Only fetch the first room. The default `room_details` requests
             // no state and no timeline events.
             ranges: vec![(uint!(0), uint!(0))],
+            room_details: assign!(http::request::RoomDetails::default(), {
+                required_state: vec![(StateEventType::RoomEncryption, "".to_owned())]
+            }),
             filters: Some(assign!(http::request::ListFilters::default(), {
                 is_encrypted: Some(true),
                 is_invite: Some(false),
