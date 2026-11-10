@@ -2528,6 +2528,71 @@ async fn test_clear_all_rooms() {
 }
 
 #[async_test]
+#[should_panic(expected = "the other room's events were cleared from memory")]
+async fn test_forget_room_keeps_other_rooms() {
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    // Two rooms, each with one live event, both loaded in the event cache.
+    let forgotten_room_id = room_id!("!dodo:saucisse.bzh");
+    let kept_room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().sender(User::Bob);
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(forgotten_room_id).add_timeline_event(
+                f.text_msg("bye").room(forgotten_room_id).event_id(event_id!("$ev0")),
+            ),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(kept_room_id).add_timeline_event(
+                f.text_msg("bonchourhan").room(kept_room_id).event_id(event_id!("$ev1")),
+            ),
+        )
+        .await;
+
+    let event_cache = client.event_cache().unwrap();
+    let (_forgotten_room_cache, _drop_handles) = event_cache.room(forgotten_room_id).await.unwrap();
+    let (kept_room_cache, _drop_handles) = event_cache.room(kept_room_id).await.unwrap();
+
+    let events = kept_room_cache.events().await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_event_id!(events[0], "$ev1");
+
+    // Forget one room.
+    event_cache.forget_room(forgotten_room_id).await.unwrap();
+
+    // The forgotten room is gone from the store.
+    let (maybe_last_chunk, _) =
+        event_cache_store.load_last_chunk(LinkedChunkId::Room(forgotten_room_id)).await.unwrap();
+    assert!(maybe_last_chunk.is_none());
+
+    // The other room still has its event, in memory and in the store.
+    let events = kept_room_cache.events().await.unwrap();
+    assert_eq!(events.len(), 1, "the other room's events were cleared from memory");
+    assert_event_id!(events[0], "$ev1");
+
+    let (maybe_last_chunk, _) =
+        event_cache_store.load_last_chunk(LinkedChunkId::Room(kept_room_id)).await.unwrap();
+    assert!(maybe_last_chunk.is_some(), "the other room's events were cleared from the store");
+}
+
+#[async_test]
 async fn test_sync_while_back_paginate() {
     let server = MatrixMockServer::new().await;
 
