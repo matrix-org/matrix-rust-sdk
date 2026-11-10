@@ -1257,7 +1257,7 @@ async fn test_has_encrypted_rooms() -> Result<()> {
     let alice = TestClientBuilder::new("alice_import_secrets_test").build().await?;
 
     // A new user should not have any encrypted rooms.
-    assert!(alice.has_encrypted_rooms(Duration::from_secs(10)).await.unwrap() == false);
+    assert!(!alice.has_encrypted_rooms(Duration::from_secs(10)).await.unwrap());
 
     let request = CreateRoomRequest::new();
 
@@ -1265,7 +1265,7 @@ async fn test_has_encrypted_rooms() -> Result<()> {
     alice_room.enable_encryption().await?;
 
     // After creating an encrypted room, the user should have an encrypted room.
-    assert!(alice.has_encrypted_rooms(Duration::from_secs(10)).await.unwrap() == true);
+    assert!(alice.has_encrypted_rooms(Duration::from_secs(10)).await.unwrap());
 
     Ok(())
 }
