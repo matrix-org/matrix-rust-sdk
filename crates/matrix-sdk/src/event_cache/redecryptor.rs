@@ -1379,7 +1379,7 @@ mod tests {
     use std::{assert_matches, collections::BTreeSet, time::Duration};
 
     use eyeball_im::VectorDiff;
-    use futures_util::future::join_all;
+    use futures_util::{FutureExt, StreamExt, future::join_all};
     use matrix_sdk_base::{
         crypto::{
             store::types::RoomKeyInfo,
@@ -1420,8 +1420,8 @@ mod tests {
         Client, assert_let_timeout,
         encryption::EncryptionSettings,
         event_cache::{
-            DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
-            TimelineVectorDiffs, redecryptor::CollatorState,
+            DecryptionRetryRequest, RedecryptorReport, RoomEventCacheGenericUpdate,
+            RoomEventCacheUpdate, TimelineVectorDiffs, redecryptor::CollatorState,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -2031,7 +2031,7 @@ mod tests {
         let mut room_keys = vec![];
 
         for i in 0..EVENT_COUNT {
-            // Force 20 unique room keys so Bob's channel fills up.
+            // Force a unique room key per event so Bob's channel fills up.
             alice.get_room(room_id).unwrap().discard_room_key().await.unwrap();
             let (event, room_key) = send_encrypted(
                 &matrix_mock_server,
@@ -2053,26 +2053,16 @@ mod tests {
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
+        // Set up the necessary subscriptions.
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+        let mut reports = event_cache.subscribe_to_decryption_reports();
 
         // Mock the first sync request made by `sync_room`
-        let _first = matrix_mock_server
+        let _sync_guard = matrix_mock_server
             .mock_sync()
             .ok(|builder| {
                 builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk(events));
-            })
-            .mock_once()
-            .mount_as_scoped()
-            .await;
-
-        // Mock the second sync request made by `sync_room_keys`
-        let _second = matrix_mock_server
-            .mock_sync()
-            .ok(|builder| {
-                for key in room_keys {
-                    builder.add_to_device_event(key.deserialize_as().unwrap());
-                }
             })
             .mock_once()
             .mount_as_scoped()
@@ -2088,41 +2078,36 @@ mod tests {
             }
         });
 
-        let sync_room_keys = spawn({
-            let bob = bob.clone();
+        // The `sync_room` task should attempt to write into the store, which in
+        // turn should notify us this is the case.
+        timeout(delayed_store.wait_for_write_to_start(), Duration::from_secs(5))
+            .await
+            .expect("`sync_room` should start writing to the event cache store");
 
-            // Now we send the room keys to Bob, let's say after a delay of
-            // 1sec, so that the Event Cache had time to start handling the
-            // events and being blocked when persisting it.
-            async move {
-                // Wait on `sync_room` to hang.
-                sleep(Duration::from_secs(1)).await;
+        // Deliver each room key in its own sync, so each one is a separate
+        // broadcast on the room key stream. With R2D2 blocked on the event
+        // cache, this overflows the stream's capacity.
+        for key in room_keys {
+            let _mock = matrix_mock_server
+                .mock_sync()
+                .ok(|builder| {
+                    builder.add_to_device_event(key.deserialize_as().unwrap());
+                })
+                .mock_once()
+                .mount_as_scoped()
+                .await;
 
-                let _ = bob.sync_once(Default::default()).await.unwrap();
+            bob.sync_once(Default::default()).await.unwrap();
+        }
 
-                // Allow the redecryptor some time to retry any UTDs.
-                sleep(Duration::from_millis(100)).await;
-            }
-        });
+        // Unblock the `sync_room` task.
+        info!("Stopping the delay");
+        delayed_store.unblock_writes();
+        delayed_store.wait_for_write_to_finish().await;
 
-        let delay = spawn({
-            // Unblock `sync_room` after 2 secs, so that `sync_room_keys` has
-            // finished before `sync_room` finishes.
-            async move {
-                sleep(Duration::from_secs(2)).await;
-                info!("Stopping the delay");
-                delayed_store.unblock_writes();
-                delayed_store.wait_for_write_to_finish().await;
-            }
-        });
+        sync_room.await.expect("sync_room should succeed");
 
-        assert!(
-            join_all([sync_room, sync_room_keys, delay]).await.into_iter().all(|res| res.is_ok()),
-            "all tasks should succeed"
-        );
-
-        drop(_first);
-        drop(_second);
+        drop(_sync_guard);
 
         // The first decryption attempts should fail because the first sync
         // (the one with the events) did not contain any room keys. The
@@ -2134,7 +2119,7 @@ mod tests {
                 subscriber.recv()
         );
 
-        // There should be 20 new events, and they should all UTDs as we did not
+        // There should be 25 new events, and they should all UTDs as we did not
         // receive the room keys yet.
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Append { values } = &diffs[0]);
@@ -2149,30 +2134,33 @@ mod tests {
         );
         assert_eq!(expected_room_id, room_id);
 
-        // The redecryptor retries one room key at a time in arrival order.
-        // Collect updates until all 20 events were replaced in the order they
-        // arrived.
-        for i in 0..EVENT_COUNT {
+        // Collect updates from the event cache until every event was decrypted.
+        // R2D2 may decrypt them one key at a time, or in a single batch once
+        // the events reach its event cache update stream, depending on which it
+        // handles first.
+        let mut decrypted = BTreeSet::new();
+        while decrypted.len() < EVENT_COUNT {
             assert_let_timeout!(
                 Duration::from_secs(1),
                 Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                     subscriber.recv()
             );
-            assert_eq!(diffs.len(), 1, "expected exactly one diff per timeline update");
-            assert_let!(VectorDiff::Set { index, value } = &diffs[0]);
-            assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
-            assert_eq!(*index, i);
+            for diff in diffs {
+                assert_let!(VectorDiff::Set { index, value } = diff);
+                assert_matches!(value.kind, TimelineEventKind::Decrypted { .. });
+                decrypted.insert(index);
+            }
         }
 
-        // And the companion generic updates, one per timeline update.
-        for _ in 0..EVENT_COUNT {
-            assert_let_timeout!(
-                Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) =
-                    generic_stream.recv()
+        // R2D2 must never have missed a room key. Without the collator, the
+        // room key stream lags and R2D2 falls back to a `Lagging` report.
+        while let Some(Some(report)) = reports.next().now_or_never() {
+            assert_matches!(
+                report,
+                Ok(RedecryptorReport::ResolvedUtds { .. }),
+                "R2D2 should not have lagged"
             );
-            assert_eq!(expected_room_id, room_id);
         }
-        assert!(generic_stream.is_empty());
     }
 
     /// Helper method to send an encrypted message to a room, and capture both
