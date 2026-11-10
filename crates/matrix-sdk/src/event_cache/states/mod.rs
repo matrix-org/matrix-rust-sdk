@@ -21,6 +21,7 @@ use std::{
     sync::Arc,
 };
 
+use itertools::Either;
 use matrix_sdk_base::{
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     timer,
@@ -496,98 +497,86 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
     ) -> Result<()> {
         trace!("Reloading the state");
 
-        if let Some(room_id) = room_id {
-            // Reload a single room.
-            self.reload_room(room_id, preprocessing).await?;
+        let rooms = if let Some(room_id) = room_id {
+            Either::Left(
+                self.state.by_room.get_mut(room_id).into_iter().map(move |state| (room_id, state)),
+            )
         } else {
-            // Iterate over all states and reload them.
-            let room_ids = self.state.by_room.keys().cloned().collect::<Vec<_>>();
-            for room_id in room_ids {
-                self.reload_room(&room_id, preprocessing).await?;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn reload_room(
-        &mut self,
-        room_id: &RoomId,
-        preprocessing: ReloadPreprocessing,
-    ) -> Result<()> {
-        let Some(StateForRoom { room, threads, pinned_events, event_focused }) =
-            self.state.by_room.get_mut(room_id)
-        else {
-            return Ok(());
+            Either::Right(
+                self.state.by_room.iter_mut().map(|(event_id, state)| (event_id.as_ref(), state)),
+            )
         };
-        // Room.
-        if let Some(room_state) = room {
-            let mut room_state = StateLockWriteGuard {
-                state: StateLockWriteGuardKind::Reference(room_state),
-                store: self.store.clone(),
-                _tracing_timer: None,
-            };
 
-            let updates_as_vector_diffs = room_state.reload(preprocessing).await?;
-            room_state.update_sender.send(
-                room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+        for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in rooms {
+            // Room.
+            if let Some(room_state) = room {
+                let mut room_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(room_state),
+                    store: self.store.clone(),
+                    _tracing_timer: None,
+                };
+
+                let updates_as_vector_diffs = room_state.reload(preprocessing).await?;
+                room_state.update_sender.send(
+                    room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs: updates_as_vector_diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+                );
+            }
+
+            // Threads.
+            for thread_state in threads.values_mut() {
+                let mut thread_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(thread_state),
+                    store: self.store.clone(),
+                    _tracing_timer: None,
+                };
+
+                let (updates_as_vector_diffs, thread_summary) =
+                    thread_state.reload(preprocessing).await?;
+                thread_state.update_sender.send(
+                    thread::ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs: updates_as_vector_diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+                );
+                thread_state
+                    .update_sender
+                    .send(thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary), None);
+            }
+
+            // Pinned events.
+            if let Some(pinned_events_state) = pinned_events {
+                let mut pinned_events_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(pinned_events_state),
+                    store: self.store.clone(),
+                    _tracing_timer: None,
+                };
+
+                let updates_as_vector_diffs = pinned_events_state.reload(preprocessing).await?;
+                pinned_events_state.update_sender.send(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
-                }),
-                Some(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
-            );
-        }
+                });
+            }
 
-        // Threads.
-        for thread_state in threads.values_mut() {
-            let mut thread_state = StateLockWriteGuard {
-                state: StateLockWriteGuardKind::Reference(thread_state),
-                store: self.store.clone(),
-                _tracing_timer: None,
-            };
+            // Event-focused.
+            for event_focused_state in event_focused.values_mut() {
+                let mut event_focused_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(event_focused_state),
+                    store: self.store.clone(),
+                    _tracing_timer: None,
+                };
 
-            let (updates_as_vector_diffs, thread_summary) =
-                thread_state.reload(preprocessing).await?;
-            thread_state.update_sender.send(
-                thread::ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                let updates_as_vector_diffs = event_focused_state.reload(preprocessing).await?;
+                let _ = event_focused_state.update_sender.send(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
-                }),
-                Some(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
-            );
-            thread_state
-                .update_sender
-                .send(thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary), None);
-        }
-
-        // Pinned events.
-        if let Some(pinned_events_state) = pinned_events {
-            let mut pinned_events_state = StateLockWriteGuard {
-                state: StateLockWriteGuardKind::Reference(pinned_events_state),
-                store: self.store.clone(),
-                _tracing_timer: None,
-            };
-
-            let updates_as_vector_diffs = pinned_events_state.reload(preprocessing).await?;
-            pinned_events_state.update_sender.send(TimelineVectorDiffs {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            });
-        }
-
-        // Event-focused.
-        for event_focused_state in event_focused.values_mut() {
-            let mut event_focused_state = StateLockWriteGuard {
-                state: StateLockWriteGuardKind::Reference(event_focused_state),
-                store: self.store.clone(),
-                _tracing_timer: None,
-            };
-
-            let updates_as_vector_diffs = event_focused_state.reload(preprocessing).await?;
-            let _ = event_focused_state.update_sender.send(TimelineVectorDiffs {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            });
+                });
+            }
         }
 
         Ok(())
