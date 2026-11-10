@@ -39,17 +39,19 @@ TBD
 
 ## Extending the FFI
 
-This FFI is not published yet, but you can build can extend it by depending on
+This FFI is not published yet, but you can extend it by depending on
 this crate via a git dependency. To be able to get access to the actual inner/
-rust types, make sure to enabled the experimental `experimental-preludes` feature:
+rust types, make sure to enable the experimental `experimental-preludes`
+feature:
+
 ```toml
 [dependencies]
 matrix-sdk-ffi = { git = "https://github.com/matrix-org/matrix-rust-sdk", features = ["experimental-preludes"] }
 ```
 
-Once you have that you can use the `matrix_sdk_ffi::prelude::Client::cloned_inner` of
-the FFIClient to get access to the inner `matrix_sdk::Client` type. An example for an
-example wrapper:
+Once you have that you can use the
+`matrix_sdk_ffi::prelude::Client::cloned_inner` of the FFIClient to get access
+to the inner `matrix_sdk::Client` type. An example for an example wrapper:
 
 ```rust
 use matrix_sdk_ffi::prelude::Client;
@@ -85,5 +87,5 @@ pub fn foo_service(
 
 ```
 
-Don't forget to add the feature flag when building the cargo docs to see all the available types
-and functions.
+Don't forget to add the feature flag when building the cargo docs to see all the
+available types and functions.
