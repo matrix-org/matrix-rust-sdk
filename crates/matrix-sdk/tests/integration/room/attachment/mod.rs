@@ -16,7 +16,7 @@ use ruma::{
             message::{AddMentions, ReplyWithinThread, TextMessageEventContent},
         },
     },
-    mxc_uri, owned_mxc_uri, owned_user_id, uint,
+    mxc_uri, owned_mxc_uri, uint,
 };
 use serde_json::json;
 
@@ -312,6 +312,7 @@ async fn test_room_attachment_send_info_thumbnail() {
 #[async_test]
 async fn test_room_attachment_send_mentions() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
@@ -320,7 +321,7 @@ async fn test_room_attachment_send_mentions() {
     mock.mock_room_send()
         .body_matches_partial_json(json!({
             "m.mentions": {
-                "user_ids": ["@user:localhost"],
+                "user_ids": [mentioned],
             }
         }))
         .ok(expected_event_id)
@@ -344,8 +345,7 @@ async fn test_room_attachment_send_mentions() {
             "image",
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
-            AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")]))),
+            AttachmentConfig::new().mentions(Some(Mentions::with_user_ids([mentioned.into()]))),
         )
         .await
         .unwrap();
@@ -356,6 +356,7 @@ async fn test_room_attachment_send_mentions() {
 #[async_test]
 async fn test_room_attachment_reply_outside_thread() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let replied_to_event_id = event_id!("$foo:bar.com");
@@ -380,7 +381,7 @@ async fn test_room_attachment_reply_outside_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -404,7 +405,7 @@ async fn test_room_attachment_reply_outside_thread() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Unthreaded,
@@ -420,6 +421,7 @@ async fn test_room_attachment_reply_outside_thread() {
 #[async_test]
 async fn test_room_attachment_start_thread() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let replied_to_event_id = event_id!("$foo:bar.com");
@@ -447,7 +449,7 @@ async fn test_room_attachment_start_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -471,7 +473,7 @@ async fn test_room_attachment_start_thread() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
@@ -487,6 +489,7 @@ async fn test_room_attachment_start_thread() {
 #[async_test]
 async fn test_room_attachment_reply_on_thread_as_reply() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let thread_root_event_id = event_id!("$bar:foo.com");
@@ -514,7 +517,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -539,7 +542,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
@@ -555,6 +558,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
 #[async_test]
 async fn test_room_attachment_reply_forwarding_thread() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
@@ -583,7 +587,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -608,7 +612,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::MaybeThreaded,
