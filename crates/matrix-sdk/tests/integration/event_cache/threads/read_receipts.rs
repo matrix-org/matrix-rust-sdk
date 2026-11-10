@@ -27,14 +27,17 @@
 use std::{ops::Not, sync::Arc, time::Duration};
 
 use matrix_sdk::{
-    MemoryStore as MemoryStateStore, assert_let_timeout,
+    MemoryStore as MemoryStateStore, ThreadingSupport, assert_let_timeout,
     cross_process_lock::CrossProcessLockConfig, sleep::sleep, store::StoreConfig,
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::event_cache::store::MemoryStore;
-use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    JoinedRoomBuilder, User, async_test,
+    event_factory::{EventFactory, ReadReceiptBuilder},
+};
 use ruma::{
-    event_id,
+    UserId, event_id,
     events::{
         Mentions,
         receipt::{ReceiptThread, ReceiptType},
@@ -815,4 +818,161 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
 
     // Asserting the `ThreadInfo` has received an update too.
     assert!(thread_info_updates.next().await.is_some());
+}
+
+async fn unread_for_receipt_and_thread_support(
+    receipt: impl for<'a> Fn(&'a EventFactory, &'a UserId) -> ReadReceiptBuilder<'a>,
+) -> u64 {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!r");
+    let event_factory = EventFactory::new().room(room_id).sender(User::Bob);
+
+    let _room = server.sync_joined_room(&client, room_id).await;
+    let (thread_event_cache, _drop_handles) =
+        client.event_cache().unwrap().thread(room_id, event_id!("$3")).await.unwrap();
+    let (_, mut thread_cache_updates) = thread_event_cache.subscribe().await.unwrap();
+    assert!(thread_cache_updates.is_empty());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(event_factory.text_msg("ev1").event_id(event_id!("$1")))
+                .add_timeline_event(event_factory.text_msg("ev2").event_id(event_id!("$2")))
+                .add_timeline_event(event_factory.text_msg("ev3").event_id(event_id!("$3")))
+                .add_timeline_event(
+                    event_factory
+                        .text_msg("ev3.1")
+                        .event_id(event_id!("$3_1"))
+                        .in_thread(event_id!("$3"), event_id!("$3")),
+                )
+                .add_timeline_event(
+                    event_factory
+                        .text_msg("ev3.2")
+                        .event_id(event_id!("$3_2"))
+                        .in_thread(event_id!("$3"), event_id!("$3")),
+                )
+                .add_timeline_event(event_factory.text_msg("ev4").event_id(event_id!("$4")))
+                // The current user has read up to…
+                .add_receipt(receipt(&event_factory, own_user_id).into_event()),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = thread_cache_updates.recv());
+
+    thread_event_cache.num_unread_messages().await.unwrap()
+}
+
+// For `ReceiptThread::Thread`:
+
+// - Targeting an event in the `thread` timeline.
+
+#[async_test]
+async fn test_unread_with_thread_receipt() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(|event_factory, own_user_id| event_factory
+            .read_receipts()
+            .add(
+                event_id!("$3_1"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Thread(event_id!("$3").into()),
+            ))
+        .await,
+        // `$3_2`.
+        1
+    );
+}
+
+// - Targeting an event not in this `thread` timeline.
+
+#[async_test]
+async fn test_unread_with_thread_receipt_targeting_an_out_of_thread_event() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(|event_factory, own_user_id| event_factory
+            .read_receipts()
+            .add(
+                // It targets an event not present in this thread, either it is
+                // incorrect because the event is not part of the thread, or
+                // perhaps the event is missing (has not been synced yet).
+                event_id!("$153"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Thread(event_id!("$3").into()),
+            ))
+        .await,
+        // `$3`, `$3_1` and `$3_2`: no receipt has been received for this
+        // thread, so all the events are unread.
+        3
+    );
+}
+
+// For `ReceiptThread::Main`.
+
+// - Targeting an event in the `thread` timeline.
+
+#[async_test]
+async fn test_unread_with_main_receipt() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(|event_factory, own_user_id| event_factory
+            .read_receipts()
+            .add(
+                // It targets an in-thread event, but it's a `Main` receipt, so
+                // it's not received by this thread.
+                //
+                // This receipt is simply ignored in that specific case.
+                event_id!("$3_1"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+            ))
+        .await,
+        // `$3`, `$3_1` and `$3_2`: no receipt has been received for this
+        // thread, so all the events are unread.
+        3
+    );
+}
+
+// For `ReceiptThread::Unthreaded`.
+
+// - Targeting an event in the `thread` timeline.
+
+#[async_test]
+async fn test_unread_with_unthreaded_receipt() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(|event_factory, own_user_id| event_factory
+            .read_receipts()
+            .add(event_id!("$3_1"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded))
+        .await,
+        // `$3_2`.
+        1
+    );
+}
+
+// - Targeting an event not in this `thread` timeline.
+
+#[async_test]
+async fn test_unread_with_unthreaded_receipt_targeting_an_out_of_thread_event() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(|event_factory, own_user_id| event_factory
+            .read_receipts()
+            .add(event_id!("$1"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded))
+        .await,
+        // `$3`, `$3_1`, and `$3_2`: the acknowledged event is not part of this
+        // thread or has not been synced yet, so all events are considered
+        // unread.
+        //
+        // TODO: fix me! how? I don't know yet. If only we had automatic
+        // back-pagination?
+        3
+    );
 }

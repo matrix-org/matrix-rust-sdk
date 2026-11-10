@@ -239,7 +239,11 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
         // In that case, to know if the read receipt targets a particular
         // thread, we need to scan each thread looking for the
         // `acknowledged_event_id`.
-        let new_thread_root = if thread_root.is_none() {
+        //
+        // TODO: The `acknowledged_event_id` can be missing: in that case, the
+        // thread will never receive the receipts (automatic back-pagination
+        // could be required, but not here, it's not the correct place).
+        let thread_root_for_unthreaded_receipt = if thread_root.is_none() {
             find_thread_id_for(acknowledged_event_id, &existing_threads, maybe_room.as_ref())
                 .await?
         } else {
@@ -247,7 +251,9 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
         };
 
         // We know the thread root.
-        if let Some(thread_root) = thread_root.or_else(|| new_thread_root.as_ref()) {
+        if let Some(thread_root) =
+            thread_root.or_else(|| thread_root_for_unthreaded_receipt.as_ref())
+        {
             // 1. Create an empty `Timeline` if it doesn't exist so that it
             //    triggers the update for this thread in `Caches`. This is done
             //    by `default_entry`.

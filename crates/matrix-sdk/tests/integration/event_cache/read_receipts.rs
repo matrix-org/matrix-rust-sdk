@@ -1102,7 +1102,7 @@ async fn unread_for_receipt_and_thread_support(
                         .in_thread(event_id!("$3"), event_id!("$3")),
                 )
                 .add_timeline_event(event_factory.text_msg("ev4").event_id(event_id!("$4")))
-                // The current user has read up to ev1.
+                // The current user has read up to…
                 .add_receipt(receipt(&event_factory, own_user_id).into_event()),
         )
         .await;
@@ -1162,7 +1162,7 @@ async fn test_unread_with_main_receipt_targeting_in_thread_event_and_with_thread
     assert_eq!(
         unread_for_receipt_and_thread_support(
             |event_factory, own_user_id| event_factory.read_receipts().add(
-                // it targets an in-thread event, which is **INCORRECT** because
+                // It targets an in-thread event, which is **INCORRECT** because
                 // it's a `Main` receipt, but we are nice people, we will do
                 // something right!
                 event_id!("$3_1"),
@@ -1185,7 +1185,7 @@ async fn test_unread_with_main_receipt_targeting_in_thread_event_and_without_thr
     assert_eq!(
         unread_for_receipt_and_thread_support(
             |event_factory, own_user_id| event_factory.read_receipts().add(
-                // it targets an in-thread event, which is **INCORRECT** because
+                // It targets an in-thread event, which is **INCORRECT** because
                 // it's a `Main` receipt, but… thread support is disabled, so we
                 // still handle this case because we are nice people!
                 event_id!("$3_1"),
@@ -1251,7 +1251,7 @@ async fn test_unread_with_unthreaded_receipt_targeting_in_thread_event_and_with_
     assert_eq!(
         unread_for_receipt_and_thread_support(
             |event_factory, own_user_id| event_factory.read_receipts().add(
-                // it targets an in-thread event, which is **CORRECT** because
+                // It targets an in-thread event, which is **CORRECT** because
                 // it's a `Unthreaded` receipt, it comes for a client (from the
                 // same user!) that does **NOT** support threads.
                 event_id!("$3_1"),
@@ -1276,7 +1276,7 @@ async fn test_unread_with_unthreaded_receipt_targeting_in_thread_event_and_witho
     assert_eq!(
         unread_for_receipt_and_thread_support(
             |event_factory, own_user_id| event_factory.read_receipts().add(
-                // it targets an in-thread event, which is **CORRECT** because
+                // It targets an in-thread event, which is **CORRECT** because
                 // it's a `Unthreaded` receipt.
                 event_id!("$3_1"),
                 own_user_id,
