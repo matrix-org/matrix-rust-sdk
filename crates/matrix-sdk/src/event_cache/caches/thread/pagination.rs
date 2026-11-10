@@ -15,7 +15,6 @@
 use std::{fmt, sync::Arc};
 
 use eyeball::SharedObservable;
-use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, LinkedChunkId, Update},
@@ -210,11 +209,20 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             ChunkContent::Items(events) => {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
 
-                LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
+                // Send the diffs while the state lock is still held: the
+                // indices they carry are only valid if no other change to the
+                // linked chunk is sent before them.
+                if !timeline_event_diffs.is_empty() {
+                    state.update_sender.send(
+                        ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                            diffs: timeline_event_diffs,
+                            origin: EventsOrigin::Cache,
+                        }),
+                        Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
+                    );
                 }
+
+                LoadMoreEventsBackwardsOutcome::Events { events, reached_start }
             }
         })
     }
@@ -253,30 +261,6 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
         Ok(Some((response.chunk, response.next_batch_token)))
-    }
-
-    async fn conclude_backwards_pagination_from_disk(
-        &self,
-        events: Vec<Event>,
-        timeline_event_diffs: Vec<VectorDiff<Event>>,
-        reached_start: bool,
-    ) -> BackPaginationOutcome {
-        if !timeline_event_diffs.is_empty() {
-            self.cache.update_sender.send(
-                ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
-            );
-        }
-
-        BackPaginationOutcome {
-            reached_start,
-            // This is a backwards pagination. `BackPaginationOutcome` expects
-            // events to be in “reverse order”.
-            events: events.into_iter().rev().collect(),
-        }
     }
 
     async fn conclude_backwards_pagination_from_network(
