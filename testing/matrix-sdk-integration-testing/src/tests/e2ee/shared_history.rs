@@ -1195,7 +1195,7 @@ async fn test_room_key_is_rotated_on_leave() -> Result<()> {
     Ok(())
 }
 
-/// Test that when a user iis banned from a room that uses history sharing, the
+/// Test that when a user is banned from a room that uses history sharing, the
 /// room key is rotated so they cannot decrypt future messages.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_room_key_is_rotated_on_ban() -> Result<()> {
