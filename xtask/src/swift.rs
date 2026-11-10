@@ -44,6 +44,12 @@ enum SwiftCommand {
         #[clap(long)]
         tier3_targets: bool,
 
+        /// Skip building and use the libraries already present in the target
+        /// directory, such as ones built for each target on separate machines
+        /// and copied back in place.
+        #[clap(long)]
+        prebuilt: bool,
+
         /// Move the generated xcframework and swift sources into the given
         /// components-folder
         #[clap(long)]
@@ -84,6 +90,7 @@ impl SwiftArgs {
                 profile,
                 target: targets,
                 tier3_targets,
+                prebuilt,
                 components_path,
                 macos_deployment_target,
                 ios_deployment_target,
@@ -98,6 +105,7 @@ impl SwiftArgs {
                     profile,
                     targets,
                     tier3_targets,
+                    prebuilt,
                     components_path,
                     macos_deployment_target.as_deref(),
                     ios_deployment_target.as_deref(),
@@ -284,6 +292,7 @@ fn build_xcframework(
     profile: &str,
     targets: Option<Vec<String>>,
     tier3_targets: bool,
+    prebuilt: bool,
     components_path: Option<Utf8PathBuf>,
     macos_deployment_target: Option<&str>,
     ios_deployment_target: Option<&str>,
@@ -317,13 +326,17 @@ fn build_xcframework(
         TARGETS.iter().filter(|target| target.status == TargetStatus::TopTier).collect()
     };
 
-    let platform_build_paths = build_targets(
-        targets,
-        profile,
-        macos_deployment_target,
-        ios_deployment_target,
-        watchos_deployment_target,
-    )?;
+    let platform_build_paths = if prebuilt {
+        prebuilt_targets(targets, profile)?
+    } else {
+        build_targets(
+            targets,
+            profile,
+            macos_deployment_target,
+            ios_deployment_target,
+            watchos_deployment_target,
+        )?
+    };
     let libs = lipo_platform_libraries(&platform_build_paths, &generated_dir)?;
 
     println!("-- Generating uniffi files");
@@ -437,6 +450,23 @@ fn build_targets(
         paths.push(path);
     }
 
+    Ok(platform_build_paths)
+}
+
+/// The libraries previously built by [`build_targets`] for the specified
+/// targets and profile.
+fn prebuilt_targets(
+    targets: Vec<&Target>,
+    profile: &str,
+) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
+    let mut platform_build_paths = HashMap::new();
+    for target in targets {
+        let path = build_path_for_target(target, profile)?;
+        if !path.exists() {
+            return Err(format!("no prebuilt library for {} at {path}", target.description).into());
+        }
+        platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new).push(path);
+    }
     Ok(platform_build_paths)
 }
 
