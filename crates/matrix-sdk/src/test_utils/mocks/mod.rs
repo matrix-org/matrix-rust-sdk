@@ -5317,8 +5317,8 @@ impl<'a> MockEndpoint<'a, RoomGetThreadSubscriptionEndpoint> {
     }
 
     /// Match the request parameter against a specific room id.
-    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
-        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
+    pub fn match_room_id(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id.into());
         self
     }
     /// Match the request parameter against a specific thread root event id.
@@ -5358,8 +5358,8 @@ impl<'a> MockEndpoint<'a, RoomPutThreadSubscriptionEndpoint> {
     }
 
     /// Match the request parameter against a specific room id.
-    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
-        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
+    pub fn match_room_id(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id.into());
         self
     }
     /// Match the request parameter against a specific thread root event id.
@@ -5392,8 +5392,8 @@ impl<'a> MockEndpoint<'a, RoomDeleteThreadSubscriptionEndpoint> {
     }
 
     /// Match the request parameter against a specific room id.
-    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
-        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
+    pub fn match_room_id(mut self, room_id: impl Into<OwnedRoomId>) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id.into());
         self
     }
     /// Match the request parameter against a specific thread root event id.
