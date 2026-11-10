@@ -2528,7 +2528,6 @@ async fn test_clear_all_rooms() {
 }
 
 #[async_test]
-#[should_panic(expected = "the other room's events were cleared from memory")]
 async fn test_forget_room_keeps_other_rooms() {
     let event_cache_store = Arc::new(MemoryStore::new());
 
