@@ -82,9 +82,16 @@ impl CapabilitiesProvider for DummyCapabilitiesProvider {
 async fn run_test_driver(
     init_on_content_load: bool,
     is_room_e2ee: bool,
+    features: &[&'static str],
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     let mock_server = MatrixMockServer::new().await;
-    let client = mock_server.client_builder().build().await;
+    features
+        .iter()
+        .fold(mock_server.mock_versions(), |mock, feature| mock.with_feature(feature, true))
+        .ok()
+        .mount()
+        .await;
+    let client = mock_server.client_builder().no_server_versions().build().await;
 
     let room = mock_server.sync_default_joined_room(&client).await;
 
@@ -191,7 +198,7 @@ fn send_response(
 
 #[async_test]
 async fn test_negotiate_capabilities_immediately() {
-    let (_, _, driver_handle) = run_test_driver(false, false).await;
+    let (_, _, driver_handle) = run_test_driver(false, false, &[]).await;
 
     let caps = json!(["org.matrix.msc2762.receive.event:m.room.message"]);
 
@@ -274,7 +281,7 @@ static TOMBSTONE_EVENT: LazyLock<JsonValue> = LazyLock::new(|| {
 
 #[async_test]
 async fn test_read_messages() {
-    let (_, mock_server, driver_handle) = run_test_driver(true, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(true, false, &[]).await;
 
     {
         // Tell the driver that we're ready for communication
@@ -333,7 +340,7 @@ async fn test_read_messages() {
 
 #[async_test]
 async fn test_read_messages_with_msgtype_capabilities() {
-    let (_, mock_server, driver_handle) = run_test_driver(true, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(true, false, &[]).await;
 
     {
         // Tell the driver that we're ready for communication
@@ -402,7 +409,7 @@ async fn assert_state_synced(driver_handle: &WidgetDriverHandle, state: JsonValu
 
 #[async_test]
 async fn test_read_room_members() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -469,7 +476,7 @@ async fn test_read_room_members() {
 
 #[async_test]
 async fn test_receive_live_events() {
-    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -584,7 +591,7 @@ async fn test_receive_live_events() {
 
 #[async_test]
 async fn test_block_clear_to_device_in_e2ee_room() {
-    let (client, mock_server, driver_handle) = run_test_driver(false, true).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, true, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -726,7 +733,7 @@ async fn test_encrypted_to_device_flag_in_clear_room() {
 /// message was received in the clear) wins.
 #[async_test]
 async fn test_spoofed_encrypted_flag_is_ignored() {
-    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -823,7 +830,7 @@ async fn test_should_block_internal_to_device() {
 
 #[async_test]
 async fn test_receive_state() {
-    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     let f = EventFactory::new().default_room();
     let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(User::Bob).into();
@@ -923,7 +930,7 @@ async fn test_receive_state() {
 
 #[async_test]
 async fn test_send_room_message() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
         .await;
@@ -959,7 +966,7 @@ async fn test_send_room_message() {
 
 #[async_test]
 async fn test_send_room_name() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -998,7 +1005,7 @@ async fn test_send_room_name() {
 
 #[async_test]
 async fn test_send_delayed_message_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1043,7 +1050,7 @@ async fn test_send_delayed_message_event() {
 
 #[async_test]
 async fn test_send_delayed_state_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1089,7 +1096,7 @@ async fn test_send_delayed_state_event() {
 
 #[async_test]
 async fn test_fail_sending_delay_rate_limit() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1150,7 +1157,7 @@ async fn test_fail_sending_delay_rate_limit() {
 
 #[async_test]
 async fn test_try_send_delayed_state_event_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1185,7 +1192,7 @@ async fn test_try_send_delayed_state_event_without_permission() {
 
 #[async_test]
 async fn test_update_delayed_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4157.update_delayed_event",]))
         .await;
@@ -1218,7 +1225,7 @@ async fn test_update_delayed_event() {
 
 #[async_test]
 async fn test_try_update_delayed_event_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!([])).await;
 
@@ -1246,7 +1253,7 @@ async fn test_try_update_delayed_event_without_permission() {
 
 #[async_test]
 async fn test_try_update_delayed_event_without_permission_negotiate() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     send_request(
         &driver_handle,
@@ -1276,7 +1283,7 @@ async fn test_try_update_delayed_event_without_permission_negotiate() {
 
 #[async_test]
 async fn test_send_redaction() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1313,7 +1320,7 @@ async fn test_send_redaction() {
 /// `m.room.redaction` capability check).
 #[async_test]
 async fn test_non_redaction_event_with_redacts_field_is_not_a_redaction() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     // Only allowed to send `m.room.message`, not `m.room.redaction`.
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
@@ -1354,7 +1361,7 @@ async fn send_to_device_test_helper(
     expected_response: JsonValue,
     calls: u64,
 ) -> JsonValue {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1664,7 +1671,7 @@ async fn test_send_encrypted_to_device_wildcard_edge_cases() {
 
 #[async_test]
 async fn test_send_encrypted_to_device_event_unknown_device() {
-    let (_, _, driver_handle) = run_test_driver(false, true).await;
+    let (_, _, driver_handle) = run_test_driver(false, true, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1971,7 +1978,7 @@ async fn test_send_encrypted_to_device_different_content() {
 
 #[async_test]
 async fn test_try_download_file_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!([])).await;
 
@@ -1996,7 +2003,7 @@ async fn test_try_download_file_without_permission() {
 
 #[async_test]
 async fn test_download_non_mxc_uri_should_fail() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4039.download_file"])).await;
 
@@ -2018,7 +2025,7 @@ async fn test_download_non_mxc_uri_should_fail() {
 
 #[async_test]
 async fn test_try_download_file() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4039.download_file"])).await;
 
@@ -2057,16 +2064,17 @@ async fn test_try_download_file() {
 
 #[async_test]
 async fn test_get_rtc_transports() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) =
+        run_test_driver(false, false, &["org.matrix.msc4143.stable"]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
 
     // The homeserver advertises both the current `m.livekit` and the legacy
     // `livekit` transport types, both must be forwarded unchanged.
     Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+        .and(path_regex(r"^/_matrix/client/v1/rtc/transports"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "rtc_transports": [
+            "transports": [
                 { "type": "m.livekit", "url": "wss://livekit.example.com" },
                 { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
             ]
@@ -2099,18 +2107,18 @@ async fn test_get_rtc_transports() {
 
 #[async_test]
 async fn test_get_rtc_transports_endpoint_unsupported() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
 
     // The homeserver doesn't implement the discovery endpoint.
     Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+        .and(path_regex(r"^/_matrix/client/v1/rtc/transports"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_UNRECOGNIZED",
             "error": "Unrecognized request",
         })))
-        .expect(1)
+        .expect(0)
         .mount(mock_server.server())
         .await;
 
@@ -2131,18 +2139,18 @@ async fn test_get_rtc_transports_endpoint_unsupported() {
 
 #[async_test]
 async fn test_get_rtc_transports_falls_back_to_well_known() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
 
     // The homeserver doesn't implement the discovery endpoint…
     Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+        .and(path_regex(r"^/_matrix/client/v1/rtc/transports"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "errcode": "M_UNRECOGNIZED",
             "error": "Unrecognized request",
         })))
-        .expect(1)
+        .expect(0)
         .mount(mock_server.server())
         .await;
 
@@ -2171,7 +2179,7 @@ async fn test_get_rtc_transports_falls_back_to_well_known() {
 
 #[async_test]
 async fn test_get_rtc_transports_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!([])).await;
 
@@ -2193,7 +2201,7 @@ async fn test_get_rtc_transports_without_permission() {
 
 #[async_test]
 async fn test_rtc_livekit_get_token() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4533.rtc_livekit_get_token"]))
         .await;
@@ -2231,7 +2239,7 @@ async fn test_rtc_livekit_get_token() {
 
 #[async_test]
 async fn test_rtc_livekit_get_token_without_server_name() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4533.rtc_livekit_get_token"]))
         .await;
@@ -2267,7 +2275,7 @@ async fn test_rtc_livekit_get_token_without_server_name() {
 
 #[async_test]
 async fn test_rtc_livekit_get_token_propagates_homeserver_errors() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4533.rtc_livekit_get_token"]))
         .await;
@@ -2313,7 +2321,7 @@ async fn test_rtc_livekit_get_token_propagates_homeserver_errors() {
 
 #[async_test]
 async fn test_rtc_livekit_get_token_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!([])).await;
 
@@ -2341,7 +2349,7 @@ async fn test_rtc_livekit_get_token_without_permission() {
 
 #[async_test]
 async fn test_rtc_livekit_delegate_delayed_leave() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -2384,7 +2392,7 @@ async fn test_rtc_livekit_delegate_delayed_leave() {
 
 #[async_test]
 async fn test_rtc_livekit_delegate_delayed_leave_propagates_homeserver_errors() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -2437,7 +2445,7 @@ async fn test_rtc_livekit_delegate_delayed_leave_propagates_homeserver_errors() 
 
 #[async_test]
 async fn test_rtc_livekit_delegate_delayed_leave_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(&driver_handle, json!([])).await;
 
@@ -2493,7 +2501,7 @@ async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonVa
 #[cfg(feature = "unstable-msc4354")]
 #[async_test]
 async fn test_send_sticky_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -2533,7 +2541,7 @@ async fn test_send_sticky_event() {
 #[cfg(feature = "unstable-msc4354")]
 #[async_test]
 async fn test_send_delayed_sticky_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false, &[]).await;
 
     negotiate_capabilities(
         &driver_handle,
