@@ -1035,6 +1035,10 @@ impl Redecryptor {
         let client = event_cache.client().ok()?;
         let machine = client.olm_machine().await;
 
+        if machine.is_none() {
+            warn!("No encryption session found. Did you subscribe to the event cache too early?");
+        }
+
         machine.as_ref().map(|m| {
             (m.store().room_keys_received_stream(), m.store().room_keys_withheld_received_stream())
         })
