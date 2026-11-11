@@ -348,8 +348,9 @@ impl Timeline {
     /// before it is, this is the marker's own event ID. The read marker item
     /// itself may be placed further down, after the user's own events.
     ///
-    /// Returns `None` if there's no marker, or if the timeline doesn't track
-    /// read markers.
+    /// If the room has no `m.fully_read` marker, the user's latest read receipt
+    /// is used instead. Returns `None` if there's neither, or if the timeline
+    /// doesn't track read markers.
     pub fn fully_read_event_id(&self) -> Option<OwnedEventId> {
         self.controller.fully_read_event_id.get()
     }
