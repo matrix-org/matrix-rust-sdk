@@ -54,6 +54,8 @@ pub struct SyncResponseBuilder {
     /// The device lists of the user.
     changed_device_lists: Vec<OwnedUserId>,
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    /// The `signed_curve25519` one-time key count, reported as zero if unset.
+    one_time_keys_count: Option<u64>,
 }
 
 impl SyncResponseBuilder {
@@ -144,6 +146,16 @@ impl SyncResponseBuilder {
         self
     }
 
+    /// Set the `signed_curve25519` one-time key count reported in this and
+    /// later sync responses.
+    ///
+    /// Without it, every sync reports zero keys, so the client generates and
+    /// uploads a new batch of one-time keys on each sync.
+    pub fn set_one_time_keys_count(&mut self, count: u64) -> &mut Self {
+        self.one_time_keys_count = Some(count);
+        self
+    }
+
     /// Builds a sync response as a JSON Value containing the events we queued
     /// so far.
     ///
@@ -158,9 +170,14 @@ impl SyncResponseBuilder {
         self.batch_counter += 1;
         let next_batch = self.generate_sync_token();
 
+        let one_time_keys_count = match self.one_time_keys_count {
+            Some(count) => json!({ "signed_curve25519": count }),
+            None => json!({}),
+        };
+
         let body = json! {
             {
-                "device_one_time_keys_count": {},
+                "device_one_time_keys_count": one_time_keys_count,
                 "next_batch": next_batch,
                 "device_lists": {
                     "changed": self.changed_device_lists,
