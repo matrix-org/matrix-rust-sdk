@@ -203,10 +203,10 @@ impl TimelineMetadata {
         // unique ids across timeline clears.
         self.aggregations.clear();
         self.replies.clear();
-        self.raw_fully_read_event = None;
-        // We forgot about the fully read marker right above, so wait for a new
-        // one before attempting to update it for each new timeline item.
-        self.has_up_to_date_read_marker_item = true;
+        // Keep the fully read marker: it's room account data, not tied to the
+        // cleared events. The read marker item is placed again as events come
+        // back.
+        self.has_up_to_date_read_marker_item = false;
         self.read_receipts.clear();
     }
 
