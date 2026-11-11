@@ -1420,10 +1420,10 @@ mod tests {
     use std::{assert_matches, collections::BTreeSet, time::Duration};
 
     use eyeball_im::VectorDiff;
-    use futures_util::future::join_all;
+    use futures_util::{FutureExt, StreamExt, future::join_all};
     use matrix_sdk_base::{
         crypto::{
-            store::types::RoomKeyInfo,
+            store::{ROOM_KEYS_RECEIVED_CAPACITY, types::RoomKeyInfo},
             types::{EventEncryptionAlgorithm, events::room::encrypted::EncryptedToDeviceEvent},
         },
         deserialized_responses::{TimelineEventKind, UnableToDecryptReason, VerificationState},
@@ -1439,7 +1439,7 @@ mod tests {
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        EventId, RoomId, RoomVersionId, UserId, device_id, event_id,
+        EventId, OwnedEventId, RoomId, RoomVersionId, UserId, device_id, event_id,
         events::{
             AnySyncTimelineEvent, MessageLikeEventContent,
             relation::Thread,
@@ -1461,8 +1461,8 @@ mod tests {
         Client, assert_let_timeout,
         encryption::EncryptionSettings,
         event_cache::{
-            DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
-            TimelineVectorDiffs, redecryptor::RoomKeyCollator,
+            DecryptionRetryRequest, RedecryptorReport, RoomEventCacheGenericUpdate,
+            RoomEventCacheUpdate, TimelineVectorDiffs, redecryptor::RoomKeyCollator,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -2084,6 +2084,164 @@ mod tests {
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
+    }
+
+    #[async_test]
+    async fn test_event_is_redecrypted_even_if_redecryptor_busy() {
+        let room_id = room_id!("!test:localhost");
+
+        let (alice, bob, matrix_mock_server, delayed_store) =
+            set_up_clients(room_id, true, true).await;
+
+        let delayed_store = delayed_store.unwrap();
+
+        // Send enough messages to exceed the capacity of the internal channel
+        // used by OlmMachine's room key stream. See `CryptoStoreWrapper::new`.
+        const EVENT_COUNT: usize = ROOM_KEYS_RECEIVED_CAPACITY + 15;
+        let mut events = vec![];
+        let mut room_keys = vec![];
+
+        for i in 0..EVENT_COUNT {
+            // Force a unique room key per event so Bob's channel fills up.
+            alice.get_room(room_id).unwrap().discard_room_key().await.unwrap();
+            let (event, room_key) = send_encrypted(
+                &matrix_mock_server,
+                &alice,
+                room_id,
+                &OwnedEventId::try_from(format!("${i}")).unwrap(),
+                RoomMessageEventContent::text_plain("It's a secret to everybody"),
+            )
+            .await;
+            events.push(event);
+            room_keys.push(room_key);
+        }
+
+        let event_cache = bob.event_cache().unwrap();
+
+        // Fetch a reference to Bob's event cache so we can listen to cache
+        // updates.
+        let (room_cache, _) = event_cache
+            .room(room_id)
+            .await
+            .expect("We should be able to get to the event cache for a specific room");
+
+        // Set up the necessary subscriptions.
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+        let mut reports = event_cache.subscribe_to_decryption_reports();
+
+        // Mock the first sync request made by `sync_room`
+        let _sync_guard = matrix_mock_server
+            .mock_sync()
+            .ok(|builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk(events));
+            })
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        let sync_room = spawn({
+            let bob = bob.clone();
+
+            // Let us forward the events to Bob, immediately. This will block
+            // before persisting everything in the store (since we're using a
+            // delayed store).
+            async move {
+                let _ = bob.sync_once(Default::default()).await.unwrap();
+            }
+        });
+
+        // The `sync_room` task should attempt to write into the store, which in
+        // turn should notify us this is the case.
+        timeout(delayed_store.wait_for_write_to_start(), Duration::from_secs(5))
+            .await
+            .expect("`sync_room` should start writing to the event cache store");
+
+        // Deliver each room key in its own sync, so each one is a separate
+        // broadcast on the room key stream. With R2D2 blocked on the event
+        // cache, this overflows the stream's capacity.
+        for key in room_keys {
+            let _mock = matrix_mock_server
+                .mock_sync()
+                .ok(|builder| {
+                    // Report a full set of one-time keys, otherwise Bob
+                    // generates new ones on every sync, and every crypto
+                    // store commit slows down as his account grows.
+                    builder
+                        .set_one_time_keys_count(50)
+                        .add_to_device_event(key.deserialize_as().unwrap());
+                })
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            bob.sync_once(Default::default()).await.unwrap();
+        }
+
+        // Unblock the `sync_room` task.
+        info!("Stopping the delay");
+        delayed_store.unblock_writes();
+        delayed_store.wait_for_write_to_finish().await;
+
+        sync_room.await.expect("sync_room should succeed");
+
+        drop(_sync_guard);
+
+        // The first decryption attempts should fail because the first sync
+        // (the one with the events) did not contain any room keys. The
+        // redecryptor receives the room keys later.
+
+        // Bob has received an update from the cache.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
+        );
+
+        // All events should be appended as UTDs, as we did not receive the room
+        // keys yet. They may span several appends, one per linked chunk.
+        let mut appended = 0;
+        for diff in diffs {
+            assert_let!(VectorDiff::Append { values } = diff);
+            for value in &values {
+                assert_matches!(&value.kind, TimelineEventKind::UnableToDecrypt { .. });
+            }
+            appended += values.len();
+        }
+        assert_eq!(appended, EVENT_COUNT);
+
+        // And the companion generic update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+
+        // Collect updates from the event cache until every event was decrypted.
+        // R2D2 may decrypt them one key at a time, or in a single batch once
+        // the events reach its event cache update stream, depending on which it
+        // handles first.
+        let mut decrypted = BTreeSet::new();
+        while decrypted.len() < EVENT_COUNT {
+            assert_let_timeout!(
+                Duration::from_secs(1),
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                    subscriber.recv()
+            );
+            for diff in diffs {
+                assert_let!(VectorDiff::Set { index, value } = diff);
+                assert_matches!(value.kind, TimelineEventKind::Decrypted { .. });
+                decrypted.insert(index);
+            }
+        }
+
+        // R2D2 must never have missed a room key. Without the collator, the
+        // room key stream lags and R2D2 falls back to a `Lagging` report.
+        while let Some(Some(report)) = reports.next().now_or_never() {
+            assert_matches!(
+                report,
+                Ok(RedecryptorReport::ResolvedUtds { .. }),
+                "R2D2 should not have lagged"
+            );
+        }
     }
 
     /// Helper method to send an encrypted message to a room, and capture both
