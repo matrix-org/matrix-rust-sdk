@@ -985,7 +985,11 @@ impl RoomKeyCollator {
     /// The default maximum size of the lists of stored room keys and withheld
     /// keys. If we are asked to add more than this number of either, we
     /// throw away the oldest to make room.
+    #[cfg(not(test))]
     const CAPACITY: usize = 10_000;
+    /// Use a reduced capacity for tests to reduce running times.
+    #[cfg(test)]
+    const CAPACITY: usize = 100;
 
     /// An iterator over all collated room keys in arrival order.
     pub fn room_keys_iter(&self) -> impl Iterator<Item = &RoomKeyInfo> {
@@ -2102,7 +2106,7 @@ mod tests {
         const EVENT_COUNT: usize = ROOM_KEYS_RECEIVED_CAPACITY + 15;
         let (events, room_keys) =
             send_encrypted_with_unique_keys(&matrix_mock_server, &alice, room_id, EVENT_COUNT)
-            .await;
+                .await;
 
         let event_cache = bob.event_cache().unwrap();
 
@@ -2201,6 +2205,70 @@ mod tests {
                 "R2D2 should not have lagged"
             );
         }
+    }
+
+    #[async_test]
+    async fn test_lagging_is_reported_when_collator_capacity_is_exceeded() {
+        let room_id = room_id!("!test:localhost");
+
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
+
+        // Provide the collator with one key more than it can hold, with a
+        // unique room key per event.
+        const EVENT_COUNT: usize = RoomKeyCollator::CAPACITY + 1;
+        let (events, room_keys) =
+            send_encrypted_with_unique_keys(&matrix_mock_server, &alice, room_id, EVENT_COUNT)
+                .await;
+
+        let event_cache = bob.event_cache().unwrap();
+
+        let (room_cache, _) = event_cache
+            .room(room_id)
+            .await
+            .expect("We should be able to get to the event cache for a specific room");
+
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+        let mut reports = event_cache.subscribe_to_decryption_reports();
+
+        // Sync the events to Bob before any room key arrives ...
+        sync_room(
+            &matrix_mock_server,
+            &bob,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(events),
+        )
+        .await;
+
+        // ... which should all land in the event cache as UTDs.
+        assert_appended_as_utds(&mut subscriber, EVENT_COUNT).await;
+
+        // Now deliver all the room keys in a single sync. The OlmMachine
+        // persists them in one go and broadcasts them as a single batch, which
+        // the collation task flattens and adds to the collator while holding
+        // its lock.
+        sync_room_keys(&matrix_mock_server, &bob, &room_keys).await;
+
+        // The main task therefore cannot drain the collator part way through,
+        // and the collator must evict the oldest key and report the lag, which
+        // should surface as a `RedecryptorReport::Lagging`.
+        timeout(
+            async {
+                loop {
+                    match reports.next().await {
+                        Some(Ok(RedecryptorReport::Lagging)) => break,
+                        Some(_) => (),
+                        None => panic!("the report stream should not close"),
+                    }
+                }
+            },
+            Duration::from_secs(10),
+        )
+        .await
+        .expect("evicting room keys from the collator should produce a `Lagging` report");
+
+        // Despite the eviction, every event should eventually decrypt. All the
+        // keys are in the crypto store, and the lag report comes with a
+        // retry of every in-memory UTD.
+        assert_all_decrypted(&mut subscriber, EVENT_COUNT, Duration::from_secs(10)).await;
     }
 
     /// Helper method to send an encrypted message to a room, and capture both
