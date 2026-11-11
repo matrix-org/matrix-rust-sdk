@@ -77,7 +77,7 @@ use ruma::{
             uiaa,
             user_directory::search_users,
         },
-        error::{ErrorKind, FromHttpResponseError, UnknownTokenErrorData},
+        error::{ErrorKind, FromHttpResponseError, IntoHttpError, UnknownTokenErrorData},
         path_builder::PathBuilder,
     },
     assign,
@@ -3114,11 +3114,24 @@ impl Client {
     /// Fetch the RTC transports advertised by the homeserver from the network,
     /// bypassing the cache.
     pub async fn fetch_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
-        let response = self
-            .send(transports::msc4143::Request::new())
+        match self
+            .send(transports::v1::Request::new())
             .with_request_config(RequestConfig::short_retry())
-            .await?;
-        Ok(response.rtc_transports)
+            .await
+        {
+            Ok(response) => Ok(response.transports),
+            Err(HttpError::IntoHttp(IntoHttpError::NoUnstablePath)) => {
+                debug!(
+                    "homeserver does not implement stable RTC transports endpoint, falling back to unstable"
+                );
+                let response = self
+                    .send(transports::msc4143::Request::new())
+                    .with_request_config(RequestConfig::short_retry())
+                    .await?;
+                Ok(response.rtc_transports)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Empty the RTC transports cache.
@@ -5165,6 +5178,15 @@ pub(crate) mod tests {
             "wss://livekit.example.com".to_owned(),
         ))];
 
+        server
+            .mock_versions()
+            .with_feature("org.matrix.msc4143.stable", true)
+            .ok()
+            .named("versions mock")
+            .expect(1)
+            .mount()
+            .await;
+
         let transports_mock = server
             .mock_get_rtc_transports()
             .ok()
@@ -5173,7 +5195,7 @@ pub(crate) mod tests {
             .mount_as_scoped()
             .await;
 
-        let client = server.client_builder().build().await;
+        let client = server.client_builder().no_server_versions().build().await;
 
         // First call hits the network.
         assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
@@ -5217,14 +5239,24 @@ pub(crate) mod tests {
     async fn test_rtc_transports_unsupported_caching() {
         let server = MatrixMockServer::new().await;
 
-        // The homeserver doesn't implement the endpoint: it responds with a 404
-        // and an `M_UNRECOGNIZED` error (as a homeserver does for an
-        // unrecognized endpoint). We expect it to be hit only once, despite
-        // several calls, thanks to the negative caching.
+        // Neither the stable nor unstable RTC transports are implemented.
         server
             .mock_get_rtc_transports()
             .error_unrecognized()
-            .named("unrecognized transports mock")
+            .named("transports mock")
+            // Should not be tried at all, since the server doesn't advertise
+            // support for feature `org.matrix.msc4143.stable`.
+            .expect(0)
+            .mount()
+            .await;
+        server
+            .mock_get_rtc_transports_unstable()
+            .error_unrecognized()
+            .named("unstable transports mock")
+            // Will be hit even though the server doesn't advertise support for
+            // feature `org.matrix.msc4143`, because Ruma tries unstable
+            // endpoints regardless of features. However there should still only
+            // be 1 request, since the response should be cached.
             .expect(1)
             .mount()
             .await;
@@ -5240,28 +5272,62 @@ pub(crate) mod tests {
         assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
     }
 
-    /// Mounts a scoped mock for the MSC4143 RTC transports endpoint, either
-    /// advertising a single LiveKit transport, or responding with the
-    /// `M_UNRECOGNIZED` error of a homeserver that doesn't implement it.
-    async fn mock_rtc_transports_endpoint(
+    /// Mounts scoped mocks for the stable and unstable RTC transports endpoints
+    /// which respond with `M_UNRECOGNIZED` if unsupported, and mounts a scoped
+    /// `/versions` mock advertising the right unstable features.
+    async fn mock_rtc_transports(
         server: &MatrixMockServer,
         supported: bool,
-    ) -> wiremock::MockGuard {
-        let endpoint = server.mock_get_rtc_transports();
+        unstable_supported: bool,
+    ) -> (wiremock::MockGuard, wiremock::MockGuard, wiremock::MockGuard) {
+        let endpoint_mock = {
+            let endpoint = server.mock_get_rtc_transports();
+            let mock = if supported { endpoint.ok() } else { endpoint.error_unrecognized() };
+            mock.named("transports mock")
+                .expect(if supported { 1 } else { 0 })
+                .mount_as_scoped()
+                .await
+        };
 
-        let mock = if supported { endpoint.ok() } else { endpoint.error_unrecognized() };
+        let unstable_endpoint_mock = {
+            let endpoint = server.mock_get_rtc_transports_unstable();
+            let mock =
+                if unstable_supported { endpoint.ok() } else { endpoint.error_unrecognized() };
+            mock.named("unstable transports mock")
+                .expect(if supported {
+                    // Stable endpoint is supported, so we expect the client to
+                    // never fall back to this unstable endpoint.
+                    0
+                } else {
+                    // Since this endpoint is unstable, Ruma will try it even if
+                    // the `org.matrix.msc4143` feature is not found.
+                    1
+                })
+                .mount_as_scoped()
+                .await
+        };
 
-        mock.named("transports mock").expect(1).mount_as_scoped().await
+        let versions_mock = server
+            .mock_versions()
+            .with_feature("org.matrix.msc4143.stable", supported)
+            .with_feature("org.matrix.msc4143", unstable_supported)
+            .ok()
+            .named("versions mock")
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        (endpoint_mock, unstable_endpoint_mock, versions_mock)
     }
 
     #[async_test]
-    async fn test_discover_rtc_transports_prefers_the_endpoint() {
+    async fn test_discover_rtc_transports_prefers_stable_endpoint() {
         let server = MatrixMockServer::new().await;
         let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
             "wss://livekit.example.com".to_owned(),
         ))];
 
-        let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
+        let _transports_mocks = mock_rtc_transports(&server, true, true).await;
 
         // The homeserver implements the discovery endpoint, so the well-known
         // must not be queried at all.
@@ -5273,7 +5339,31 @@ pub(crate) mod tests {
             .mount_as_scoped()
             .await;
 
-        let client = server.client_builder().build().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(transports));
+    }
+
+    #[async_test]
+    async fn test_discover_rtc_transports_falls_back_to_unstable_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
+        ))];
+
+        let _transports_mocks = mock_rtc_transports(&server, false, true).await;
+
+        // The homeserver implements the discovery endpoint, so the well-known
+        // must not be queried at all.
+        let _well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well-known mock")
+            .expect(0)
+            .mount_as_scoped()
+            .await;
+
+        let client = server.client_builder().no_server_versions().build().await;
 
         assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(transports));
     }
@@ -5286,7 +5376,7 @@ pub(crate) mod tests {
             "wss://livekit.example.com".to_owned(),
         ))];
 
-        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+        let _transports_mocks = mock_rtc_transports(&server, false, false).await;
 
         let _well_known_mock = server
             .mock_well_known()
@@ -5296,7 +5386,7 @@ pub(crate) mod tests {
             .mount_as_scoped()
             .await;
 
-        let client = server.client_builder().build().await;
+        let client = server.client_builder().no_server_versions().build().await;
 
         // The homeserver doesn't implement the discovery endpoint, so the
         // well-known foci are used instead.
@@ -5312,7 +5402,7 @@ pub(crate) mod tests {
     async fn test_well_known_lookup_disabled() {
         let server = MatrixMockServer::new().await;
 
-        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+        let _transports_mocks = mock_rtc_transports(&server, false, false).await;
 
         // There should be no requests to fetch the well-known.
         let _well_known_mock = mock_well_known_never_called(&server).await;
@@ -5320,6 +5410,7 @@ pub(crate) mod tests {
         // Disable well-known lookups at client build time.
         let client = server
             .client_builder()
+            .no_server_versions()
             .on_builder(|builder| builder.disable_well_known_lookup(true))
             .build()
             .await;
@@ -5337,13 +5428,13 @@ pub(crate) mod tests {
     async fn test_well_known_lookup_disabled_after_build() {
         let server = MatrixMockServer::new().await;
 
-        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+        let _transports_mocks = mock_rtc_transports(&server, false, false).await;
 
         // There should be no requests to fetch the well-known.
         let _well_known_mock = mock_well_known_never_called(&server).await;
 
         // Disable well-known lookups after building the client.
-        let client = server.client_builder().build().await;
+        let client = server.client_builder().no_server_versions().build().await;
         client.disable_well_known_lookup(true);
 
         // The homeserver doesn't implement the discovery endpoint, and falling
