@@ -633,6 +633,70 @@ async fn test_redact_nonexisting_item() {
 }
 
 #[async_test]
+async fn test_fully_read_event_id() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    assert_eq!(timeline.fully_read_event_id(), None);
+    let mut fully_read = timeline.subscribe_fully_read_event_id();
+
+    let f = EventFactory::new();
+    let event_id_a = event_id!("$a");
+    let reaction_id = event_id!("$reaction");
+    let event_id_b = event_id!("$b");
+
+    // A message and a (hidden) reaction to it.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("A").sender(User::Bob).event_id(event_id_a))
+                .add_timeline_event(
+                    f.reaction(event_id_a, "👍").sender(User::Bob).event_id(reaction_id),
+                ),
+        )
+        .await;
+
+    // The fully read marker moves to the reaction, which isn't rendered: the
+    // closest previous visible event is published instead.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_account_data(f.fully_read(reaction_id)),
+        )
+        .await;
+
+    assert_let_timeout!(Some(event_id) = fully_read.next());
+    assert_eq!(event_id.as_deref(), Some(event_id_a));
+    assert_eq!(timeline.fully_read_event_id().as_deref(), Some(event_id_a));
+
+    // The fully read marker moves to a rendered event.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("B").sender(User::Bob).event_id(event_id_b)),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_account_data(f.fully_read(event_id_b)),
+        )
+        .await;
+
+    assert_let_timeout!(Some(event_id) = fully_read.next());
+    assert_eq!(event_id.as_deref(), Some(event_id_b));
+    assert_eq!(timeline.fully_read_event_id().as_deref(), Some(event_id_b));
+}
+
+#[async_test]
 async fn test_read_marker() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
