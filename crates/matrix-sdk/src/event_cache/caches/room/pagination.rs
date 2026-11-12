@@ -19,6 +19,7 @@
 
 use std::{
     fmt,
+    iter::empty,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -45,7 +46,6 @@ use super::{
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
-        read_receipts::{contains_a_receipt_target, unresolved_receipt_targets},
     },
     RoomEventCacheInner, RoomEventCacheUpdate,
 };
@@ -266,27 +266,27 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             ChunkContent::Items(events) => {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
 
-                // This chunk may reveal the event a read receipt points to,
-                // which the unread counts couldn't find last time. Only the
-                // counts need recomputing, and it must happen before the
-                // timeline update is sent, or observers see the diff with a
-                // stale count.
-                let reveals_a_receipt_target = self.weak_room.get().is_some_and(|room| {
-                    let read_receipts = room.read_receipts();
-
-                    contains_a_receipt_target(&events, &unresolved_receipt_targets(&read_receipts))
-                });
-
-                if reveals_a_receipt_target {
-                    let result = state.update_read_receipts(None).await;
-
-                    if let Err(err) = result {
-                        error!(
-                            ?err,
-                            "error when recomputing the read receipts after loading a chunk from disk"
-                        );
-                    }
-                }
+                // Run the post-processing: no event, no receipt event, but a
+                // new event might be acknowledged by a pending receipt, in that
+                // case, we want to recompute the read receipts!
+                state
+                    .post_process_upserted_events(
+                        // We don't want to post-process these events: they
+                        // are coming from the cache, they have been
+                        // post-processed already!
+                        empty(),
+                        // A back-pagination can't include new read receipt
+                        // events, as those are ephemeral events not included in
+                        // /messages responses, so we can safely set the receipt
+                        // event to None here.
+                        //
+                        // Note: read receipts may be updated anyhow in the
+                        // post-processing step, as the back-pagination may have
+                        // revealed the event pointed to by the latest read
+                        // receipt.
+                        None,
+                    )
+                    .await?;
 
                 // Send the diffs while the state lock is still held: the
                 // indices they carry are only valid if no other change to the
