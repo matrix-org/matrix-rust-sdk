@@ -1,31 +1,26 @@
-use matrix_sdk::{
-    config::{SyncSettings, SyncToken},
-    sync::Notification,
-};
+use matrix_sdk::{sync::Notification, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedTimelineEvent;
 use matrix_sdk_test::{
-    InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory,
+    InvitedRoomBuilder, JoinedRoomBuilder, TestRoom, User, async_test, event_factory::EventFactory,
 };
 use ruma::{
     OwnedRoomId, event_id,
     events::{AnyStrippedStateEvent, StateEventType},
-    owned_user_id, room_id,
     serde::Raw,
-    user_id,
 };
 use strass::assert_let;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{logged_in_client_with_server, mock_sync};
-
 #[async_test]
 async fn test_notifications_joined() {
-    let (client, server) = logged_in_client_with_server().await;
-    let room_id = room_id!("!joined_room:localhost");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = TestRoom::Default;
     let user_id = client.user_id().unwrap();
+    let bob = User::Bob;
+    let f = EventFactory::new().default_room();
 
     let (sender, receiver) = mpsc::channel::<(OwnedRoomId, Notification)>(10);
     let mut receiver_stream = ReceiverStream::new(receiver);
@@ -40,43 +35,39 @@ async fn test_notifications_joined() {
         .await;
 
     // Set up the room state, no notifications.
-    let mut sync_builder = SyncResponseBuilder::new();
-    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
-    let joined_room = JoinedRoomBuilder::new(room_id).add_state_bulk([
-        f.power_levels()
-            .set_users([
-                (owned_user_id!("@example:localhost"), 100),
-                (owned_user_id!("@bob:localhost"), 0),
-            ])
-            .into_raw_sync_state(),
-        f.member(user_id).display_name("example").into_raw_sync_state(),
-    ]);
-    sync_builder.add_joined_room(joined_room);
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_bulk([
+                f.power_levels()
+                    .set_users([(user_id, 100), (bob.into(), 0)])
+                    .sender(user_id)
+                    .into_raw_sync_state(),
+                f.member(user_id).display_name("example").into_raw_sync_state(),
+            ]),
+        )
+        .await;
 
     assert_pending!(receiver_stream);
 
     // Sync with two notifications.
-    let f = EventFactory::new();
-    let joined_room = JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-        f.text_msg("Hello example!")
-            .event_id(event_id!("$aaa"))
-            .server_ts(2189)
-            .sender(user_id!("@bob:example.com"))
-            .into_raw_sync(),
-        f.text_msg("How are you?")
-            .event_id(event_id!("$bbb"))
-            .server_ts(3189)
-            .sender(user_id!("@bob:example.com"))
-            .into_raw_sync(),
-    ]);
-    sync_builder.add_joined_room(joined_room);
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_timeline_bulk([
+                f.text_msg("Hello example!")
+                    .event_id(event_id!("$aaa"))
+                    .server_ts(2189)
+                    .sender(bob)
+                    .into_raw_sync(),
+                f.text_msg("How are you?")
+                    .event_id(event_id!("$bbb"))
+                    .server_ts(3189)
+                    .sender(bob)
+                    .into_raw_sync(),
+            ]),
+        )
+        .await;
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
@@ -95,9 +86,12 @@ async fn test_notifications_joined() {
 
 #[async_test]
 async fn test_notifications_invite() {
-    let (client, server) = logged_in_client_with_server().await;
-    let room_id = room_id!("!invited_room:localhost");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = TestRoom::Invited;
     let user_id = client.user_id().unwrap();
+    let bob = User::Bob;
+    let f = EventFactory::new().room(room_id);
 
     let (sender, receiver) = mpsc::channel::<(OwnedRoomId, Notification)>(10);
     let mut receiver_stream = ReceiverStream::new(receiver);
@@ -111,27 +105,19 @@ async fn test_notifications_invite() {
         })
         .await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
-    let power_levels_event: Raw<AnyStrippedStateEvent> = f
-        .power_levels()
-        .set_users([
-            (owned_user_id!("@example:localhost"), 100),
-            (owned_user_id!("@bob:localhost"), 0),
-        ])
-        .into();
-    // Factory sends @example by default, but in reality these events come from
-    // Bob.
-    let bob = user_id!("@bob:localhost");
-    let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
-        power_levels_event,
-        f.member(bob).sender(bob).into(),
-        f.member(bob).sender(bob).invited(user_id).display_name("example").into(),
-    ]);
-    sync_builder.add_invited_room(invited_room);
+    let power_levels_event: Raw<AnyStrippedStateEvent> =
+        f.power_levels().set_users([(user_id, 100), (bob.into(), 0)]).sender(user_id).into();
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    server
+        .sync_room(
+            &client,
+            InvitedRoomBuilder::new(room_id).add_state_bulk([
+                power_levels_event,
+                f.member(bob).into(),
+                f.member(bob).invited(user_id).display_name("example").into(),
+            ]),
+        )
+        .await;
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);
