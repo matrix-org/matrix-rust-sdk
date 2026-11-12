@@ -346,7 +346,7 @@ pub struct CrossSigningResetHandle {
 
 impl CrossSigningResetHandle {
     /// Set up a new `CrossSigningResetHandle`.
-    pub fn new(
+    pub(crate) fn new(
         client: Client,
         inner: UncommittedCrossSigningReset,
         auth_type: CrossSigningResetAuthType,
