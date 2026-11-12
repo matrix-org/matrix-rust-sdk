@@ -35,17 +35,17 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
 };
-use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    JoinedRoomBuilder, TestDevice, TestRoom, User, async_test, event_factory::EventFactory,
+};
 use ruma::{
-    OwnedRoomId, device_id, event_id,
+    event_id,
     events::{
         AnySyncStateEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
         room::{member::MembershipState, message::RoomMessageEventContent},
     },
-    owned_room_id, room_id,
     serde::{Base64, JsonObject, Raw},
     to_device::DeviceIdOrAllDevices,
-    user_id,
 };
 use serde::Serialize;
 use serde_json::{Value as JsonValue, Value, json};
@@ -69,7 +69,6 @@ macro_rules! json_string {
 type HandledDeviceEventMutex = Arc<Mutex<(Option<Raw<AnyToDeviceEvent>>, Option<EncryptionInfo>)>>;
 
 const WIDGET_ID: &str = "test-widget";
-static ROOM_ID: LazyLock<OwnedRoomId> = LazyLock::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
 struct DummyCapabilitiesProvider;
 
@@ -87,7 +86,7 @@ async fn run_test_driver(
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
-    let room = mock_server.sync_joined_room(&client, &*ROOM_ID).await;
+    let room = mock_server.sync_default_joined_room(&client).await;
 
     if is_room_e2ee {
         mock_server.mock_room_state_encryption().encrypted().mount().await;
@@ -127,7 +126,7 @@ async fn run_test_driver_e2e_with_room_encryption(
     mock_server.mock_crypto_endpoints_preset().await;
     let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
 
-    let room = mock_server.sync_joined_room(&alice, &*ROOM_ID).await;
+    let room = mock_server.sync_default_joined_room(&alice).await;
 
     if is_room_e2ee {
         mock_server.mock_room_state_encryption().encrypted().mount().await;
@@ -252,9 +251,9 @@ static HELLO_EVENT: LazyLock<JsonValue> = LazyLock::new(|| {
         },
         "event_id": "$msda7m0df9E9op3",
         "origin_server_ts": 152037280,
-        "sender": "@example:localhost",
+        "sender": User::Default,
         "type": "m.room.message",
-        "room_id": &*ROOM_ID,
+        "room_id": TestRoom::Default,
     })
 });
 
@@ -266,10 +265,10 @@ static TOMBSTONE_EVENT: LazyLock<JsonValue> = LazyLock::new(|| {
         },
         "event_id": "$foun39djjod0f",
         "origin_server_ts": 152039280,
-        "sender": "@bob:localhost",
+        "sender": User::Bob,
         "state_key": "",
         "type": "m.room.tombstone",
-        "room_id": &*ROOM_ID,
+        "room_id": TestRoom::Default,
     })
 });
 
@@ -356,7 +355,7 @@ async fn test_read_messages_with_msgtype_capabilities() {
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let f = EventFactory::new().room(&*ROOM_ID).sender(user_id!("@example:localhost"));
+    let f = EventFactory::new().default_room().sender(User::Default);
 
     let end = "t47409-4357353_219380_26003_2269";
     let chunk2 = vec![
@@ -416,15 +415,15 @@ async fn test_read_room_members() {
     // No further messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let f = EventFactory::new().room(&*ROOM_ID);
+    let f = EventFactory::new().default_room();
 
     let leave_event = f
-        .member(user_id!("@example:localhost"))
+        .member(User::Default)
         .membership(MembershipState::Leave)
         .previous(MembershipState::Join)
         .into_raw_timeline();
     let join_event = f
-        .member(user_id!("@example:localhost"))
+        .member(User::Default)
         .membership(MembershipState::Join)
         .previous(MembershipState::Leave)
         .into_raw_timeline();
@@ -496,14 +495,14 @@ async fn test_receive_live_events() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
-                JoinedRoomBuilder::new(&*ROOM_ID)
+                JoinedRoomBuilder::default()
                     // text message from alice - matches filter #2
                     .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // emote from alice - doesn't match
                     .add_timeline_event(f.emote("emote message").sender(User::Alice))
                     // pointless member event - matches filter #4
                     .add_timeline_event(
-                        f.member(user_id!("@example:localhost"))
+                        f.member(User::Default)
                             .membership(MembershipState::Join)
                             .previous(MembershipState::Join),
                     )
@@ -511,9 +510,7 @@ async fn test_receive_live_events() {
                     // `#@example:localhost` bit is about the state_key, not the
                     // sender
                     .add_timeline_event(
-                        f.member(user_id!("@example:localhost"))
-                            .banned(User::Alice)
-                            .previous(MembershipState::Join),
+                        f.member(User::Default).banned(User::Alice).previous(MembershipState::Join),
                     )
                     // set room topic - doesn't match
                     .add_timeline_event(f.room_topic("new room topic").sender(User::Bob))
@@ -522,7 +519,7 @@ async fn test_receive_live_events() {
             );
             // to device message - doesn't match
             sync_builder.add_to_device_event(json!({
-              "sender": "@alice:example.com",
+              "sender": User::Alice,
               "type": "m.not_matching.to.device",
               "content": {
                 "a": "test",
@@ -530,7 +527,7 @@ async fn test_receive_live_events() {
             }));
             // to device message - matches filter #6
             sync_builder.add_to_device_event(json!({
-                    "sender": "@alice:example.com",
+                    "sender": User::Alice,
                     "type": "my.custom.to.device",
                     "content": {
                       "a": "test",
@@ -556,15 +553,15 @@ async fn test_receive_live_events() {
     assert_eq!(events[0]["api"], "toWidget");
     assert_eq!(events[0]["action"], "send_event");
     assert_eq!(events[0]["data"]["type"], "m.room.message");
-    assert_eq!(events[0]["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(events[0]["data"]["room_id"], TestRoom::Default);
     assert_eq!(events[0]["data"]["content"]["msgtype"], "m.text");
     assert_eq!(events[0]["data"]["content"]["body"], "simple text message");
 
     assert_eq!(events[1]["api"], "toWidget");
     assert_eq!(events[1]["action"], "send_event");
     assert_eq!(events[1]["data"]["type"], "m.room.member");
-    assert_eq!(events[1]["data"]["room_id"], ROOM_ID.as_str());
-    assert_eq!(events[1]["data"]["state_key"], "@example:localhost");
+    assert_eq!(events[1]["data"]["room_id"], TestRoom::Default);
+    assert_eq!(events[1]["data"]["state_key"], User::Default);
     assert_eq!(events[1]["data"]["content"]["membership"], "join");
     assert_eq!(events[1]["data"]["unsigned"]["prev_content"]["membership"], "join");
 
@@ -602,13 +599,12 @@ async fn test_block_clear_to_device_in_e2ee_room() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_to_device_event(json!({
-                    "sender": "@alice:example.com",
-                    "type": "my.custom.to.device",
-                    "content": {
-                      "a": "test",
-                    }
-                  }
-            ));
+                "sender": User::Alice,
+                "type": "my.custom.to.device",
+                "content": {
+                    "a": "test",
+                }
+            }));
         })
         .await;
 
@@ -620,6 +616,9 @@ async fn test_block_clear_to_device_in_e2ee_room() {
 #[async_test]
 async fn test_accept_encrypted_to_device_in_e2ee_room() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+    let alice_id = alice.user_id().unwrap();
+    let alice_device_id = alice.device_id().unwrap();
+    let bob_id = bob.user_id().unwrap();
 
     negotiate_capabilities(
         &driver_handle,
@@ -627,12 +626,8 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     )
     .await;
 
-    let bob_alice_device = bob
-        .encryption()
-        .get_device(alice.user_id().unwrap(), alice.device_id().unwrap())
-        .await
-        .unwrap()
-        .unwrap();
+    let bob_alice_device =
+        bob.encryption().get_device(alice_id, alice_device_id).await.unwrap().unwrap();
 
     let content_raw = Raw::new(&json!({
         "call_id": "",
@@ -641,7 +636,7 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     .cast_unchecked();
 
     let event_synced_future =
-        mock_server.mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice).await;
+        mock_server.mock_capture_put_to_device_then_sync_back(bob_id, &alice).await;
 
     bob.encryption()
         .encrypt_and_send_raw_to_device(
@@ -665,7 +660,7 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     let data = msg["data"].as_object().unwrap();
     assert_eq!(data["type"], "my.custom.to.device");
     assert_eq!(data["content"]["call_id"], "");
-    assert_eq!(data["sender"], "@bob:example.org");
+    assert_eq!(data["sender"], bob_id.as_str());
     // The message was received encrypted, so the widget is told so.
     assert_eq!(data["encrypted"], true);
     // Only these 4 fields should be exposed to the widget (no
@@ -680,6 +675,9 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
 async fn test_encrypted_to_device_flag_in_clear_room() {
     let (alice, bob, mock_server, driver_handle) =
         run_test_driver_e2e_with_room_encryption(false, false).await;
+    let alice_id = alice.user_id().unwrap();
+    let alice_device_id = alice.device_id().unwrap();
+    let bob_id = bob.user_id().unwrap();
 
     negotiate_capabilities(
         &driver_handle,
@@ -687,12 +685,8 @@ async fn test_encrypted_to_device_flag_in_clear_room() {
     )
     .await;
 
-    let bob_alice_device = bob
-        .encryption()
-        .get_device(alice.user_id().unwrap(), alice.device_id().unwrap())
-        .await
-        .unwrap()
-        .unwrap();
+    let bob_alice_device =
+        bob.encryption().get_device(alice_id, alice_device_id).await.unwrap().unwrap();
 
     let content_raw = Raw::new(&json!({
         "call_id": "",
@@ -721,7 +715,7 @@ async fn test_encrypted_to_device_flag_in_clear_room() {
 
     let data = msg["data"].as_object().unwrap();
     assert_eq!(data["type"], "my.custom.to.device");
-    assert_eq!(data["sender"], "@bob:example.org");
+    assert_eq!(data["sender"], bob_id.as_str());
     // Even though the room is in the clear, the message arrived encrypted.
     assert_eq!(data["encrypted"], true);
     assert_eq!(data.len(), 4);
@@ -746,7 +740,7 @@ async fn test_spoofed_encrypted_flag_is_ignored() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_to_device_event(json!({
-                "sender": "@alice:example.com",
+                "sender": User::Alice,
                 "type": "my.custom.to.device",
                 // Forged flag that a malicious sender might inject.
                 "encrypted": true,
@@ -781,29 +775,23 @@ async fn test_should_block_internal_to_device() {
     )
     .await;
 
-    let room_id = room_id!("!room_id:localhost");
-
     let alice_user_id = alice.user_id().unwrap();
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
     // Let's emulate what `MatrixMockServer::sync_joined_room()` does.
-    mock_server
-        .mock_sync()
-        .ok_and_run(&bob, |builder| {
-            builder.add_joined_room(
-                JoinedRoomBuilder::new(room_id)
-                    .add_state_event(f.room_encryption().sender(User::Bob))
-                    .add_state_event(
-                        f.member(alice_user_id).sender(alice_user_id).display_name("Alice"),
-                    ),
-            );
-        })
+    let room_bob_pov = mock_server
+        .sync_room(
+            &bob,
+            JoinedRoomBuilder::default()
+                .add_state_event(f.room_encryption().sender(User::Bob))
+                .add_state_event(f.member(alice_user_id).display_name("Alice")),
+        )
         .await;
 
     // Needed for the message to be sent in an encrypted room
     mock_server
         .mock_get_members()
-        .ok(vec![f.member(alice_user_id).sender(alice_user_id).display_name("Alice").into_raw()])
+        .ok(vec![f.member(alice_user_id).display_name("Alice").into_raw()])
         .mock_once()
         .mount()
         .await;
@@ -812,7 +800,6 @@ async fn test_should_block_internal_to_device() {
         mock_server.mock_capture_put_to_device(bob.user_id().unwrap()).await;
 
     let msg = RoomMessageEventContent::text_plain("Hello world");
-    let room_bob_pov = bob.get_room(room_id).unwrap();
 
     // We don't need to mock the room send end point for our test, just let the
     // event in queue the important part is the room key
@@ -838,7 +825,7 @@ async fn test_should_block_internal_to_device() {
 async fn test_receive_state() {
     let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
-    let f = EventFactory::new().room(&*ROOM_ID);
+    let f = EventFactory::new().default_room();
     let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(User::Bob).into();
 
     mock_server
@@ -846,7 +833,7 @@ async fn test_receive_state() {
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
                 // set room name - matches filter
-                JoinedRoomBuilder::new(&*ROOM_ID).add_state_event(name_event_1),
+                JoinedRoomBuilder::default().add_state_event(name_event_1),
             );
         })
         .await;
@@ -863,7 +850,7 @@ async fn test_receive_state() {
     assert_eq!(msg["action"], "update_state");
     assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
     assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
-    assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["state"][0]["room_id"], TestRoom::Default);
     assert_eq!(msg["data"]["state"][0]["sender"], User::Bob);
     assert_eq!(msg["data"]["state"][0]["state_key"], "");
     assert_eq!(msg["data"]["state"][0]["content"]["name"], "room name");
@@ -880,7 +867,7 @@ async fn test_receive_state() {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(
-                JoinedRoomBuilder::new(&*ROOM_ID)
+                JoinedRoomBuilder::default()
                     // text message from alice - doesn't match
                     .add_timeline_event(f.text_msg("simple text message").sender(User::Alice))
                     // set room topic - doesn't match
@@ -910,7 +897,7 @@ async fn test_receive_state() {
     assert_eq!(msg["api"], "toWidget");
     assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
     assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
-    assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["state"][0]["room_id"], TestRoom::Default);
     assert_eq!(msg["data"]["state"][0]["sender"], User::Bob);
     assert_eq!(msg["data"]["state"][0]["state_key"], "");
     assert_eq!(msg["data"]["state"][0]["content"]["name"], "even newer room name");
@@ -919,7 +906,7 @@ async fn test_receive_state() {
     assert_eq!(msg["api"], "toWidget");
     assert_eq!(msg["action"], "send_event");
     assert_eq!(msg["data"]["type"], "m.room.name");
-    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["room_id"], TestRoom::Default);
     assert_eq!(msg["data"]["sender"], User::Bob);
     assert_eq!(msg["data"]["state_key"], "");
     assert_eq!(msg["data"]["content"]["name"], "new room name");
@@ -928,7 +915,7 @@ async fn test_receive_state() {
     assert_eq!(msg["api"], "toWidget");
     assert_eq!(msg["action"], "send_event");
     assert_eq!(msg["data"]["type"], "m.room.name");
-    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["room_id"], TestRoom::Default);
     assert_eq!(msg["data"]["sender"], User::Bob);
     assert_eq!(msg["data"]["state_key"], "");
     assert_eq!(msg["data"]["content"]["name"], "even newer room name");
@@ -1317,11 +1304,8 @@ async fn test_send_redaction() {
     let msg = recv_message(&driver_handle).await;
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_event");
-    let redact_event_id = msg["response"]["event_id"].as_str().unwrap();
-    let redact_room_id = msg["response"]["room_id"].as_str().unwrap();
-
-    assert_eq!(redact_event_id, "$redact_event_id");
-    assert_eq!(redact_room_id, "!a98sd12bjh:example.org");
+    assert_eq!(msg["response"]["event_id"], "$redact_event_id");
+    assert_eq!(msg["response"]["room_id"], TestRoom::Default);
 }
 
 /// A non-redaction event with a `redacts` field in its content must be sent as
@@ -1361,7 +1345,7 @@ async fn test_non_redaction_event_with_redacts_field_is_not_a_redaction() {
     let msg = recv_message(&driver_handle).await;
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_event");
-    assert_eq!(msg["response"]["event_id"].as_str().unwrap(), "$foobar");
+    assert_eq!(msg["response"]["event_id"], "$foobar");
 }
 
 async fn send_to_device_test_helper(
@@ -1406,8 +1390,8 @@ async fn test_send_to_device_event() {
             "type":"my.custom.to_device_type",
             "encrypted": false,
             "messages":{
-                "@username:test.org": {
-                    "DEVICEID": {
+                User::Alice: {
+                    TestDevice::Default: {
                         "param1":"test",
                     },
                 },
@@ -1427,8 +1411,8 @@ async fn test_error_to_device_event_no_permission() {
             "type": "my.unallowed_type",
             "encrypted": false,
             "messages": {
-                "@username:test.org": {
-                    "DEVICEID": {
+                User::Alice: {
+                    TestDevice::Default: {
                         "param1":"test",
                     },
                 },
@@ -1445,6 +1429,11 @@ async fn test_error_to_device_event_no_permission() {
 async fn test_alice_send_encrypted_to_device_that_and_carl_and_bob_receive() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
     let carl = mock_server.set_up_carl_for_encryption(&alice, &bob).await;
+    let alice_id = alice.user_id().unwrap();
+    let bob_id = bob.user_id().unwrap();
+    let bob_device_id = bob.device_id().unwrap();
+    let carl_id = carl.user_id().unwrap();
+    let carl_device_id = carl.device_id().unwrap();
 
     negotiate_capabilities(
         &driver_handle,
@@ -1457,13 +1446,13 @@ async fn test_alice_send_encrypted_to_device_that_and_carl_and_bob_receive() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-            bob.user_id().unwrap().to_string(): {
-                bob.device_id().unwrap().to_string(): {
+            bob_id: {
+                bob_device_id: {
                     "param1":"test",
                 },
             },
-            carl.user_id().unwrap().to_string(): {
-                carl.device_id().unwrap().to_string(): {
+            carl_id: {
+                carl_device_id: {
                     "param1":"test",
                 },
             },
@@ -1472,8 +1461,7 @@ async fn test_alice_send_encrypted_to_device_that_and_carl_and_bob_receive() {
 
     let queue: Arc<std::sync::Mutex<PendingToDeviceMessages>> = Default::default();
 
-    let guard =
-        mock_server.capture_put_to_device_traffic(alice.user_id().unwrap(), queue.clone()).await;
+    let guard = mock_server.capture_put_to_device_traffic(alice_id, queue.clone()).await;
 
     let bob_received: Arc<Mutex<(Option<AnyToDeviceEvent>, Option<EncryptionInfo>)>> =
         Default::default();
@@ -1534,15 +1522,18 @@ async fn test_alice_send_encrypted_to_device_that_and_carl_and_bob_receive() {
 #[async_test]
 async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+    let bob_id = bob.user_id().unwrap();
+    let bob_device1_id = bob.device_id().unwrap();
 
-    let bob_2 = mock_server
-        .set_up_new_device_for_encryption(&bob, device_id!("BOB2BOB2"), vec![&alice])
+    let bob_device2_id = TestDevice::Alt2;
+    let _bob_2 = mock_server
+        .set_up_new_device_for_encryption(&bob, bob_device2_id.into(), vec![&alice])
         .await;
 
     mock_server
         .mock_sync()
         .ok_and_run(&alice, |builder| {
-            builder.add_change_device(bob.user_id().unwrap());
+            builder.add_change_device(bob_id);
         })
         .await;
 
@@ -1557,7 +1548,7 @@ async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-            bob.user_id().unwrap().to_string(): {
+            bob_id: {
                 "*": {
                     "param1":"test",
                 },
@@ -1584,10 +1575,10 @@ async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(
-            bob.user_id().unwrap().to_owned(),
+            bob_id.into(),
             BTreeSet::from([
-                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
-                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_device1_id.into()),
+                DeviceIdOrAllDevices::DeviceId(bob_device2_id.into()),
             ]),
         )])
     );
@@ -1599,15 +1590,18 @@ async fn test_send_encrypted_to_device_with_wildcard_expands_to_all_devices() {
 #[async_test]
 async fn test_send_encrypted_to_device_wildcard_edge_cases() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+    let bob_id = bob.user_id().unwrap();
+    let bob_device1_id = bob.device_id().unwrap();
 
-    let bob_2 = mock_server
-        .set_up_new_device_for_encryption(&bob, device_id!("BOB2BOB2"), vec![&alice])
+    let bob_device2_id = TestDevice::Alt2;
+    let _bob_2 = mock_server
+        .set_up_new_device_for_encryption(&bob, bob_device2_id.into(), vec![&alice])
         .await;
 
     mock_server
         .mock_sync()
         .ok_and_run(&alice, |builder| {
-            builder.add_change_device(bob.user_id().unwrap());
+            builder.add_change_device(bob_id);
         })
         .await;
 
@@ -1622,7 +1616,7 @@ async fn test_send_encrypted_to_device_wildcard_edge_cases() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-            bob.user_id().unwrap().to_string(): {
+            bob_id: {
                 "*": {
                     "param1":"test",
                 },
@@ -1630,7 +1624,7 @@ async fn test_send_encrypted_to_device_wildcard_edge_cases() {
                     "param1":"test",
                 },
             },
-            "@carl:example.org": {
+            User::Carol: {
                 "*": {
                     "param1":"test",
                 },
@@ -1659,10 +1653,10 @@ async fn test_send_encrypted_to_device_wildcard_edge_cases() {
     assert_eq!(
         recipients_of(&sent_messages[0]),
         BTreeMap::from([(
-            bob.user_id().unwrap().to_owned(),
+            bob_id.into(),
             BTreeSet::from([
-                DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()),
-                DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()),
+                DeviceIdOrAllDevices::DeviceId(bob_device1_id.into()),
+                DeviceIdOrAllDevices::DeviceId(bob_device2_id.into()),
             ]),
         )])
     );
@@ -1683,7 +1677,7 @@ async fn test_send_encrypted_to_device_event_unknown_device() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-            "@carl:example.org": {
+            User::Carol: {
                 "UNKNOWN_DEVICE": {
                     "param1":"test",
                 },
@@ -1701,13 +1695,11 @@ async fn test_send_encrypted_to_device_event_unknown_device() {
     let response = msg["response"].clone();
     assert_eq!(
         response,
-        json!(
-            {
-                "failures": {
-                    "@carl:example.org": ["UNKNOWN_DEVICE"]
-                }
+        json!({
+            "failures": {
+                User::Carol: ["UNKNOWN_DEVICE"]
             }
-        )
+        })
     );
 }
 
@@ -1750,8 +1742,8 @@ async fn test_send_internal_to_device_event() {
         let data = json!({
             "type": internal_type,
             "messages": {
-                bob.user_id().unwrap().to_string(): {
-                    bob.device_id().unwrap().to_string(): {
+                bob.user_id().unwrap(): {
+                    bob.device_id().unwrap(): {
                         "foo":"bar",
                     },
                 },
@@ -1788,13 +1780,13 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-            "@carl:example.org": {
+            User::Carol: {
                 "UNKNOWN_DEVICE": {
                     "param1":"test",
                 },
             },
-            bob.user_id().unwrap().to_string(): {
-                bob.device_id().unwrap().to_string(): {
+            bob.user_id().unwrap(): {
+                bob.device_id().unwrap(): {
                     "param1":"test",
                 },
             },
@@ -1823,19 +1815,19 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     let response = msg["response"].clone();
     assert_eq!(
         response,
-        json!(
-            {
-                "failures": {
-                    "@carl:example.org": ["UNKNOWN_DEVICE"]
-                }
+        json!({
+            "failures": {
+                User::Carol: ["UNKNOWN_DEVICE"]
             }
-        )
+        })
     );
 }
 
 #[async_test]
 async fn test_send_encrypted_to_device_event_server_error() {
     let (_, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+    let bob_id = bob.user_id().unwrap();
+    let bob_device_id = bob.device_id().unwrap();
 
     negotiate_capabilities(
         &driver_handle,
@@ -1848,8 +1840,8 @@ async fn test_send_encrypted_to_device_event_server_error() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-            bob.user_id().unwrap().to_string(): {
-                bob.device_id().unwrap().to_string(): {
+            bob_id: {
+                bob_device_id: {
                     "param1":"test",
                 },
             },
@@ -1871,7 +1863,7 @@ async fn test_send_encrypted_to_device_event_server_error() {
         json!(
             {
                 "failures": {
-                    bob.user_id().unwrap().to_string(): [bob.device_id().unwrap().to_string()]
+                    bob_id: [bob_device_id]
                 }
             }
         )
@@ -1883,8 +1875,12 @@ async fn test_send_encrypted_to_device_event_server_error() {
 #[async_test]
 async fn test_send_encrypted_to_device_different_content() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+    let bob_id = bob.user_id().unwrap();
+    let bob_device_id = bob.device_id().unwrap();
 
     let carl = mock_server.set_up_carl_for_encryption(&alice, &bob).await;
+    let carl_id = carl.user_id().unwrap();
+    let carl_device_id = carl.device_id().unwrap();
 
     negotiate_capabilities(
         &driver_handle,
@@ -1897,14 +1893,14 @@ async fn test_send_encrypted_to_device_different_content() {
     let data = json!({
         "type": "my.custom.to_device_type",
         "messages": {
-             carl.user_id().unwrap().to_string(): {
-                carl.device_id().unwrap().to_string(): {
+             carl_id: {
+                carl_device_id: {
                     "param1":"This for carl",
                     "param2": "val",
                 },
             },
-            bob.user_id().unwrap().to_string(): {
-                bob.device_id().unwrap().to_string(): {
+            bob_id: {
+                bob_device_id: {
                     "param1":"This for bob",
                     "param2":"val",
                 },
