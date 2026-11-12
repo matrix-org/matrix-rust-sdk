@@ -58,15 +58,28 @@ pub(crate) struct CryptoStoreWrapper {
     historic_room_key_bundles_broadcaster: broadcast::Sender<RoomKeyBundleInfo>,
 }
 
+/// Capacity of the room keys received broadcast channel.
+pub const ROOM_KEYS_RECEIVED_CAPACITY: usize = 10;
+/// Capacity of the room keys withheld broadcast channel.
+pub const ROOM_KEYS_WITHHELD_RECEIVED_CAPACITY: usize = 10;
+/// Capacity of the secrets inbox broadcast channel.
+pub const SECRETS_BROADCASTER_CAPACITY: usize = 10;
+/// Capacity of the identity data broadcast channel.
+pub const IDENTITIES_BROADCASTER_CAPACITY: usize = 20;
+/// Capacity of the historic room key bundle broadcast channel.
+pub const HISTORIC_ROOM_KEY_BUNDLES_BROADCASTER_CAPACITY: usize = 10;
+
 impl CryptoStoreWrapper {
     pub(crate) fn new(user_id: &UserId, device_id: &DeviceId, store: impl IntoCryptoStore) -> Self {
-        let room_keys_received_sender = broadcast::Sender::new(10);
-        let room_keys_withheld_received_sender = broadcast::Sender::new(10);
-        let secrets_broadcaster = broadcast::Sender::new(10);
+        let room_keys_received_sender = broadcast::Sender::new(ROOM_KEYS_RECEIVED_CAPACITY);
+        let room_keys_withheld_received_sender =
+            broadcast::Sender::new(ROOM_KEYS_WITHHELD_RECEIVED_CAPACITY);
+        let secrets_broadcaster = broadcast::Sender::new(SECRETS_BROADCASTER_CAPACITY);
         // The identities broadcaster is responsible for user identities as well
         // as devices, that's why we increase the capacity here.
-        let identities_broadcaster = broadcast::Sender::new(20);
-        let historic_room_key_bundles_broadcaster = broadcast::Sender::new(10);
+        let identities_broadcaster = broadcast::Sender::new(IDENTITIES_BROADCASTER_CAPACITY);
+        let historic_room_key_bundles_broadcaster =
+            broadcast::Sender::new(HISTORIC_ROOM_KEY_BUNDLES_BROADCASTER_CAPACITY);
 
         Self {
             user_id: user_id.to_owned(),
