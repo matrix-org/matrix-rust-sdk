@@ -100,9 +100,7 @@
 //! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
 use std::{
-    borrow::Borrow,
     collections::HashSet,
-    hash::Hash,
     ops::{ControlFlow, Deref, DerefMut, Not},
 };
 
@@ -164,32 +162,17 @@ fn paginate_for_read_receipt(
     }
 }
 
-/// The receipt event ids the unread counts are still chasing, i.e. those whose
-/// target event hasn't been found in the linked chunk yet.
-pub(super) fn unresolved_receipt_targets(read_receipts: &ReadReceipts) -> HashSet<&EventId> {
-    read_receipts
-        .pending
-        .iter()
-        .map(|event_id| &**event_id)
-        .chain(read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id))
-        .collect()
-}
-
-/// Whether `events` contains the target of one of `targets`.
-pub(super) fn contains_a_receipt_target<T>(events: &[TimelineEvent], targets: &HashSet<T>) -> bool
-where
-    T: Borrow<EventId> + Eq + Hash,
-{
-    events.iter().any(|event| event.event_id().is_some_and(|id| targets.contains(id)))
-}
-
 /// A stop predicate that fires as soon as a batch loads any of `targets`. With
 /// no targets it never fires, so the request runs to its batch cap.
 fn stop_on_event_ids(
     targets: HashSet<OwnedEventId>,
 ) -> impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static {
     move |outcome| {
-        if contains_a_receipt_target(&outcome.events, &targets) {
+        if outcome
+            .events
+            .iter()
+            .any(|event| event.event_id().is_some_and(|id| targets.contains(id)))
+        {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -646,8 +629,13 @@ pub(crate) async fn compute_unread_counts<T>(
     // even found the latest active receipt! Hand it the receipt event ids we're
     // chasing so the backfill can stop as soon as one of them is loaded.
     if let Some(back_pagination_queue) = back_pagination_queue {
-        let targets =
-            unresolved_receipt_targets(read_receipts).into_iter().map(ToOwned::to_owned).collect();
+        let targets = read_receipts
+            .pending
+            .iter()
+            .cloned()
+            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
+            .collect::<HashSet<_>>();
+
         paginate_for_read_receipt(back_pagination_queue, event_filter.room_id(), targets);
     }
 
