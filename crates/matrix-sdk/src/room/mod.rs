@@ -4477,6 +4477,66 @@ impl Room {
         }
     }
 
+    /// Subscribe to changes of the effective message retention policy for this
+    /// room.
+    ///
+    /// The returned stream first yields the current effective retention
+    /// policy, as [`Self::effective_retention`] would compute it with
+    /// `can_refresh_global_configuration` set to `false`. Then it yields a new
+    /// value whenever it changes, either because the cached server retention
+    /// configuration was updated (see
+    /// [`Client::subscribe_to_retention_configuration`]) or because the room's
+    /// `m.room.retention` state event changed.
+    ///
+    /// This never makes a request to the homeserver: use
+    /// [`Client::fetch_retention_configuration`] or
+    /// [`Client::retention_configuration`] to refresh the cached server
+    /// configuration. `None` is yielded while the server configuration was
+    /// never fetched, since we can't know whether the homeserver supports
+    /// MSC1763.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub fn subscribe_to_effective_retention(
+        &self,
+    ) -> impl Stream<Item = Option<RoomRetentionEventContent>> + use<> {
+        let room = self.clone();
+        // Subscribe before computing the initial value, so no change is missed.
+        let mut updates = futures_stream::select(
+            self.client.subscribe_to_retention_configuration().map(|_| ()),
+            self.subscribe_info().map(|_| ()),
+        );
+
+        let compute = move || {
+            room.client
+                .inner
+                .caches
+                .retention_configuration
+                .get()
+                .and_then(|config| room.effective_retention_with_server_config(config.data()))
+        };
+        // `RoomRetentionEventContent` doesn't implement `PartialEq`.
+        let key = |retention: &Option<RoomRetentionEventContent>| {
+            retention.as_ref().map(|r| (r.min_lifetime(), r.max_lifetime()))
+        };
+
+        stream! {
+            let mut current = compute();
+            yield current.clone();
+
+            // The room info changes for many reasons unrelated to retention, so
+            // only yield actual changes of the effective retention.
+            while updates.next().await.is_some() {
+                let new = compute();
+                if key(&new) != key(&current) {
+                    current = new;
+                    yield current.clone();
+                }
+            }
+        }
+    }
+
     /// Access the room settings related to privacy and visibility.
     pub fn privacy_settings(&self) -> RoomPrivacySettings<'_> {
         RoomPrivacySettings::new(&self.inner, &self.client)
@@ -5762,6 +5822,97 @@ mod tests {
         let result = room.effective_retention(true).await.unwrap().unwrap();
         assert_eq!(result.max_lifetime(), Some(ONE_WEEK));
         assert!(result.min_lifetime().is_none());
+    }
+
+    #[async_test]
+    async fn test_subscribe_to_effective_retention() {
+        use futures_util::pin_mut;
+        use stream_assert::assert_pending;
+
+        use crate::assert_next_matches_with_timeout;
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_joined_room(&client, retention_room_id()).await;
+        let f = EventFactory::new().sender(user_id!("@alice:b.c"));
+
+        let stream = room.subscribe_to_effective_retention();
+        pin_mut!(stream);
+
+        // The server configuration was never fetched.
+        assert_next_matches_with_timeout!(stream, None);
+        assert_pending!(stream);
+
+        // The server configuration is fetched: the server default applies.
+        {
+            let _mock = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new().at_most(ONE_WEEK).unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mount_as_scoped()
+                .await;
+
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        assert_next_matches_with_timeout!(stream, Some(retention) => {
+            assert_eq!(retention.max_lifetime(), Some(ONE_WEEK));
+        });
+        assert_pending!(stream);
+
+        // The room sets its own retention policy.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(retention_room_id()).add_state_event(
+                    f.event(RoomRetentionEventContent::new().at_most(ONE_DAY).unwrap())
+                        .state_key(""),
+                ),
+            )
+            .await;
+
+        assert_next_matches_with_timeout!(stream, Some(retention) => {
+            assert_eq!(retention.max_lifetime(), Some(ONE_DAY));
+        });
+        assert_pending!(stream);
+
+        // A room info change unrelated to the retention doesn't yield anything.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(retention_room_id()).add_state_event(f.room_name("Name")),
+            )
+            .await;
+
+        assert_pending!(stream);
+
+        // The server configuration is refreshed with a per-room override, which
+        // takes precedence over the room's policy.
+        {
+            let _mock = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::RoomId(retention_room_id().to_owned()),
+                        RoomRetentionEventContent::new().at_most(ONE_HOUR).unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mount_as_scoped()
+                .await;
+
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        assert_next_matches_with_timeout!(stream, Some(retention) => {
+            assert_eq!(retention.max_lifetime(), Some(ONE_HOUR));
+        });
+        assert_pending!(stream);
     }
 
     #[async_test]
