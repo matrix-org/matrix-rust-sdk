@@ -47,6 +47,7 @@ pub(super) enum RendezvousInfo<'a> {
     #[cfg(feature = "unstable-msc4388")]
     Msc4388 {
         rendezvous_id: &'a RendezvousId,
+        base_url: &'a LimitedUrl,
     },
 }
 
@@ -121,9 +122,10 @@ impl RendezvousChannel {
                 RendezvousInfo::Msc4108 { rendezvous_url: channel.rendezvous_url() }
             }
             #[cfg(feature = "unstable-msc4388")]
-            RendezvousChannel::Msc4388(channel) => {
-                RendezvousInfo::Msc4388 { rendezvous_id: channel.rendezvous_id() }
-            }
+            RendezvousChannel::Msc4388(channel) => RendezvousInfo::Msc4388 {
+                rendezvous_id: channel.rendezvous_id(),
+                base_url: &channel.base_url,
+            },
         }
     }
 

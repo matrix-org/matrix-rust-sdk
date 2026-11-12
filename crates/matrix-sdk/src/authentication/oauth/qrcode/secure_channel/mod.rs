@@ -77,14 +77,15 @@ impl SecureChannel {
                 (crypto_channel, qr_code_data)
             }
             #[cfg(feature = "unstable-msc4388")]
-            RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
+            RendezvousInfo::Msc4388 { rendezvous_id, base_url } => {
                 let crypto_channel = CryptoChannel::new_hpke();
 
                 let qr_code_data = QrCodeData::new_msc4388(
                     crypto_channel.public_key(),
                     // TODO: Avoid the double conversion here?
                     rendezvous_id.as_str().to_owned(),
-                    client.homeserver(),
+                    // Use the channel's base URL, so the QR code and the AAD agree.
+                    base_url.as_url().clone(),
                     QrCodeIntent::Login,
                 )?;
 
@@ -115,12 +116,13 @@ impl SecureChannel {
                 );
             }
             #[cfg(feature = "unstable-msc4388")]
-            RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
+            RendezvousInfo::Msc4388 { rendezvous_id, base_url } => {
                 channel.qr_code_data = QrCodeData::new_msc4388(
                     channel.crypto_channel.public_key(),
                     // TODO: Avoid the double conversion here?
                     rendezvous_id.as_str().to_owned(),
-                    homeserver_url.clone(),
+                    // Use the channel's base URL, so the QR code and the AAD agree.
+                    base_url.as_url().clone(),
                     QrCodeIntent::Reciprocate,
                 )?;
             }
