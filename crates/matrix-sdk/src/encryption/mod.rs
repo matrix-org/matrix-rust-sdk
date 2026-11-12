@@ -439,10 +439,6 @@ impl CrossSigningResetHandle {
             Err(Error::Timeout)
         })?;
 
-        if let Some(olm) = self.client.olm_machine().await.as_ref() {
-            self.client.encryption().query_own_keys(olm).await;
-        }
-
         // We must not continue with the reset if the signing keys weren't
         // uploaded, since would leave the client and the server in an
         // inconsistent state.
@@ -464,6 +460,11 @@ impl CrossSigningResetHandle {
             self.client.send_outgoing_request(req).await?;
         }
         self.client.send(upload_signatures_req).await?;
+
+        // Query our own device keys since we just updated them.
+        if let Some(olm) = self.client.olm_machine().await.as_ref() {
+            self.client.encryption().query_own_keys(olm).await;
+        }
 
         // Finally, drop the inner handle to mark the cross-signing reset as
         // completed.
