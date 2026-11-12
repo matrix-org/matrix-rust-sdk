@@ -733,7 +733,7 @@ mod tests {
             )
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                    .sync_mode(SlidingSyncMode::new_selective().range(0..=10)),
             )
             .build()
             .await?;
@@ -907,7 +907,7 @@ mod tests {
             .sliding_sync("test")?
             .add_list(
                 SlidingSyncList::builder("all")
-                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                    .sync_mode(SlidingSyncMode::new_selective().range(0..=10)),
             )
             .build()
             .await?;
