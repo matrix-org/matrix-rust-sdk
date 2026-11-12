@@ -801,7 +801,15 @@ impl OlmMachine {
         let identity = self.inner.user_identity.lock().await.clone();
 
         let mut requests = if reset || identity.is_empty().await {
-            self.reset_cross_signing().await?.commit().await?
+            let handle = self.reset_cross_signing().await?;
+            let upload_signing_keys_req = handle.upload_signing_keys_req().clone();
+            let upload_signatures_req = handle.commit().await?;
+
+            CrossSigningBootstrapRequests {
+                upload_signing_keys_req,
+                upload_keys_req: None,
+                upload_signatures_req,
+            }
         } else {
             info!("Trying to upload the existing cross signing identity");
             let upload_signing_keys_req = identity.as_upload_request().await;
@@ -819,14 +827,11 @@ impl OlmMachine {
             }
         };
 
-        // If we have no existing upload request, and there are any _device_
-        // keys to upload (i.e. the account isn't shared), reupload them
-        // before we upload the signatures, since the signatures may
-        // reference keys to be uploaded.
-        if requests.upload_keys_req.is_none() {
-            requests.upload_keys_req =
-                self.upload_device_keys().await?.map(|(_, request)| OutgoingRequest::from(request));
-        }
+        // If there are any _device_ keys to upload (i.e. the account isn't
+        // shared), upload them before we upload the signatures, since the
+        // signatures may reference keys to be uploaded.
+        requests.upload_keys_req =
+            self.upload_device_keys().await?.map(|(_, request)| OutgoingRequest::from(request));
 
         Ok(requests)
     }
@@ -3368,9 +3373,12 @@ impl UncommittedCrossSigningReset {
     ///
     /// This will store the new cross-signing identity in the crypto store,
     /// overwriting any previous identity. This method is idempotent.
-    pub async fn commit(&self) -> Result<CrossSigningBootstrapRequests, CryptoStoreError> {
-        let Self { olm_machine, identity, public, upload_signing_keys_req, upload_signatures_req } =
-            self;
+    ///
+    /// Returns the request to upload the signatures for the new cross-signing
+    /// keys. It should be sent out after any pending device keys have been
+    /// uploaded, since the signatures may reference keys yet to be uploaded.
+    pub async fn commit(&self) -> Result<UploadSignaturesRequest, CryptoStoreError> {
+        let Self { olm_machine, identity, public, upload_signatures_req, .. } = self;
 
         *olm_machine.inner.user_identity.lock().await = identity.clone();
 
@@ -3386,16 +3394,7 @@ impl UncommittedCrossSigningReset {
             })
             .await?;
 
-        let upload_keys_req = olm_machine
-            .upload_device_keys()
-            .await?
-            .map(|(_, request)| OutgoingRequest::from(request));
-
-        Ok(CrossSigningBootstrapRequests {
-            upload_keys_req,
-            upload_signing_keys_req: upload_signing_keys_req.clone(),
-            upload_signatures_req: upload_signatures_req.clone(),
-        })
+        Ok(upload_signatures_req.clone())
     }
 }
 

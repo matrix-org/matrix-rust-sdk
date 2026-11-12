@@ -445,18 +445,20 @@ impl CrossSigningResetHandle {
             return Ok(());
         };
 
-        let CrossSigningBootstrapRequests { upload_keys_req, upload_signatures_req, .. } =
-            handle.commit().await?;
+        let upload_signatures_req = handle.commit().await?;
 
-        if let Some(req) = upload_keys_req {
-            self.client.send_outgoing_request(req).await?;
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
+
+        // Upload any pending device keys before the signatures, since the
+        // signatures may reference keys yet to be uploaded.
+        if let Some((_, request)) = olm.upload_device_keys().await? {
+            self.client.send_outgoing_request(request.into()).await?;
         }
         self.client.send(upload_signatures_req).await?;
 
         // Query our own device keys since we just updated them.
-        if let Some(olm) = self.client.olm_machine().await.as_ref() {
-            self.client.encryption().query_own_keys(olm).await;
-        }
+        self.client.encryption().query_own_keys(olm).await;
 
         // Finally, drop the inner handle to mark the cross-signing reset as
         // completed.
@@ -1698,13 +1700,12 @@ impl Encryption {
                 Err(error.into())
             }
         } else {
-            // Once the signing keys are uploaded, we can commit the reset and
-            // upload the new keys and signatures.
-            let CrossSigningBootstrapRequests { upload_keys_req, upload_signatures_req, .. } =
-                handle.commit().await?;
+            // Once the signing keys are uploaded, we can commit the reset,
+            // upload any pending device keys, and upload the signatures.
+            let upload_signatures_req = handle.commit().await?;
 
-            if let Some(req) = upload_keys_req {
-                self.client.send_outgoing_request(req).await?;
+            if let Some((_, request)) = olm.upload_device_keys().await? {
+                self.client.send_outgoing_request(request.into()).await?;
             }
 
             self.client.send(upload_signatures_req).await?;
