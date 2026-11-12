@@ -2,21 +2,22 @@ use assert_matches::assert_matches;
 use js_int::uint;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_base::{RequestedRequiredStates, RoomState};
-use matrix_sdk_test::{InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, async_test};
+use matrix_sdk_test::{
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, TestRoom, User, async_test,
+};
 use ruma::{
     api::client::sync::sync_events::msc4186::{self as sliding_sync_http, response::Hero},
     assign,
     events::room::member::MembershipState,
-    owned_user_id, room_id,
 };
 
 #[async_test]
 async fn test_room_preview_leave_invited() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!room:localhost");
+    let room_id = TestRoom::Default;
 
-    let room = server.sync_room(&client, InvitedRoomBuilder::new(room_id)).await;
+    let room = server.sync_room(&client, InvitedRoomBuilder::default()).await;
 
     server
         .mock_room_summary()
@@ -38,9 +39,9 @@ async fn test_room_preview_leave_invited() {
 async fn test_room_preview_invite_leave_room_summary_msc3266_disabled() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!room:localhost");
+    let room_id = TestRoom::Default;
 
-    let room = server.sync_room(&client, InvitedRoomBuilder::new(room_id)).await;
+    let room = server.sync_room(&client, InvitedRoomBuilder::default()).await;
 
     // A preview should be built from the sync data above
     let preview = client
@@ -66,9 +67,9 @@ async fn test_room_preview_invite_leave_room_summary_msc3266_disabled() {
 async fn test_room_preview_leave_knocked() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!room:localhost");
+    let room_id = TestRoom::Default;
 
-    let room = server.sync_room(&client, KnockedRoomBuilder::new(room_id)).await;
+    let room = server.sync_room(&client, KnockedRoomBuilder::default()).await;
 
     server
         .mock_room_summary()
@@ -90,9 +91,9 @@ async fn test_room_preview_leave_knocked() {
 async fn test_room_preview_leave_joined() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!room:localhost");
+    let room_id = TestRoom::Default;
 
-    let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
+    let room = server.sync_room(&client, JoinedRoomBuilder::default()).await;
 
     server.mock_room_leave().ok(room_id).mock_once().mount().await;
 
@@ -108,26 +109,26 @@ async fn test_room_preview_leave_joined() {
 async fn test_room_preview_leave_unknown_room_fails() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!room:localhost");
+    let room_id = TestRoom::Default;
 
     server.mock_room_summary().ok(room_id).mock_once().mount().await;
 
     let room_preview = client.get_room_preview(room_id.into(), Vec::new()).await.unwrap();
     assert!(room_preview.state.is_none());
 
-    assert!(client.get_room(room_id).is_none());
+    assert!(client.get_room(room_id.into()).is_none());
 }
 
 #[async_test]
 async fn test_room_preview_computes_name_if_room_is_known() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room_id = room_id!("!room:localhost");
+    let room_id = TestRoom::Default;
 
     // Given a room with no name but a hero
     let room = assign!(sliding_sync_http::response::Room::new(), {
         name: None,
-        heroes: Some(vec![assign!(Hero::new(owned_user_id!("@alice:matrix.org")), {
+        heroes: Some(vec![assign!(Hero::new(User::Alice.into()), {
             name: Some("Alice".to_owned()),
             avatar: None,
         })]),
@@ -135,7 +136,7 @@ async fn test_room_preview_computes_name_if_room_is_known() {
         invited_count: Some(uint!(1)),
     });
     let mut response = sliding_sync_http::Response::new("0".to_owned());
-    response.rooms.insert(room_id.to_owned(), room);
+    response.rooms.insert(room_id.into(), room);
 
     client
         .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
