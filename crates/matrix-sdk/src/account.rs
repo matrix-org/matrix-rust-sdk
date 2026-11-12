@@ -37,7 +37,7 @@ use ruma::profile::{CallProfileField, StatusProfileField};
 use ruma::{
     ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
     api::{
-        Metadata,
+        MatrixVersion, Metadata,
         client::{
             account::{
                 add_3pid, change_password, deactivate, delete_3pid, get_3pids,
@@ -1156,12 +1156,35 @@ impl Account {
         Ok(())
     }
 
+    /// Whether the homeserver supports the invite permission configuration,
+    /// i.e. whether it enforces [`InvitePermissionConfigEventContent`].
+    ///
+    /// Invite permission was added in Matrix v1.18, so this returns `true` if
+    /// the homeserver advertises support for v1.18 or later.
+    ///
+    /// Setting the configuration on a homeserver that doesn't support it
+    /// succeeds, since it is stored as regular account data, but it has no
+    /// effect: invites are still delivered. Clients should check this before
+    /// offering the user to block invites.
+    ///
+    /// This is async and fallible as it may use the network to retrieve the
+    /// server supported versions, if they aren't cached already.
+    ///
+    /// See the [Matrix specification](https://spec.matrix.org/v1.19/client-server-api/#invite-permission).
+    pub async fn is_invite_permission_config_supported(&self) -> Result<bool> {
+        let versions = self.client.server_versions().await?;
+        Ok(versions.iter().any(|version| *version >= MatrixVersion::V1_18))
+    }
+
     /// Set the invite permission configuration for this account.
     ///
     /// The configuration determines how the server should handle incoming
     /// room invitations. If `default_action` is unset, then it allows
     /// invitations as normal, but it is still subject to other
     /// restrictions such as ignored users.
+    ///
+    /// The configuration only has an effect if the homeserver supports it,
+    /// see [`Account::is_invite_permission_config_supported()`].
     ///
     /// See the [Matrix specification](https://spec.matrix.org/v1.19/client-server-api/#minvite_permission_config).
     pub async fn set_invite_permission_config(

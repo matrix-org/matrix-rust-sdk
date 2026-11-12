@@ -2334,6 +2334,15 @@ impl Client {
         Ok(self.inner.server_vendor_info(None).await?)
     }
 
+    /// Whether the homeserver supports the room invite permission
+    /// configuration.
+    ///
+    /// If it doesn't, setting the invite permission has no effect and invites
+    /// are still delivered, so clients should not offer to block invites.
+    pub async fn is_invite_permission_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.account().is_invite_permission_config_supported().await?)
+    }
+
     /// Subscribe to changes in the room invite permission configuration.
     pub async fn subscribe_to_invite_permission(
         &self,
