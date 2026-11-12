@@ -209,9 +209,9 @@ trait ReadReceiptsExt {
     /// will update the notification count in the room.
     fn find_and_process_events<'a>(
         &mut self,
-        receipt_event_id: &EventId,
+        acknowledged_event_id: Option<&EventId>,
         user_id: &UserId,
-        events: impl Iterator<Item = &'a TimelineEvent>,
+        events: impl Iterator<Item = (&'a TimelineEvent, bool)>,
     ) -> bool;
 }
 
@@ -260,21 +260,36 @@ impl ReadReceiptsExt for ReadReceipts {
 
     /// Try to find the event to which the receipt attaches to, and if found,
     /// will update the notification count in the room.
+    ///
+    /// `events` is an iterator returning the event and a bool representing when
+    /// the event is a candidate, i.e. it is not filtered by
+    /// `EventFilter::filter`.
     #[instrument(skip_all)]
     fn find_and_process_events<'a>(
         &mut self,
-        receipt_event_id: &EventId,
+        acknowledged_event_id: Option<&EventId>,
         user_id: &UserId,
-        events: impl Iterator<Item = &'a TimelineEvent>,
+        events: impl Iterator<Item = (&'a TimelineEvent, bool)>,
     ) -> bool {
-        let mut counting_receipts = false;
+        // If `acknowledged_event_id` is `None`, we want to count all processed
+        // events, otherwise, we want to find the start.
+        let mut counting_receipts = acknowledged_event_id.is_none();
 
-        for event in events {
+        for (event, is_candidate) in events {
             // Sliding sync sometimes sends the same event multiple times, so it
             // can be at the beginning and end of a batch, for instance. In that
             // case, just reset every time we see the event matching the
             // receipt.
-            if event.event_id() == Some(receipt_event_id) {
+
+            let event_id = event.event_id();
+
+            // The event is invalid: should be unreachable, but let's skip
+            // it.
+            if event_id.is_none() {
+                continue;
+            };
+
+            if event_id == acknowledged_event_id {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
@@ -283,7 +298,7 @@ impl ReadReceiptsExt for ReadReceipts {
                 continue;
             }
 
-            if counting_receipts {
+            if counting_receipts && is_candidate {
                 self.process_event(event, user_id);
             }
         }
@@ -299,7 +314,7 @@ pub trait EventFilter {
     fn room_id(&self) -> &RoomId;
 
     /// Decide whether an event is a candidate for a read receipt.
-    fn filter(&self, event: &TimelineEvent) -> bool;
+    fn is_candidate(&self, event: &TimelineEvent) -> bool;
 
     /// Check whether a given [`ReceiptThread`] is valid, i.e. matches our
     /// expectation of possible `ReceiptThread` for `Self`.
@@ -344,7 +359,7 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
         self.room_id
     }
 
-    fn filter(&self, event: &TimelineEvent) -> bool {
+    fn is_candidate(&self, event: &TimelineEvent) -> bool {
         // This type is built from a `RoomEventCacheState`. The room event cache
         // contains all events, including in-thread events. We need to filter
         // them!
@@ -360,8 +375,6 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        // We want to prioritize an `Unthreaded` receipt over a `Main`-threaded
-        // one, for better compatibility with thread-unaware clients.
         for receipt_thread in [ReceiptThread::Unthreaded, ReceiptThread::Main] {
             let receipt_event = self
                 .state_store
@@ -386,8 +399,13 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
 
 /// Type to filter in-thread events that are candidates for read receipts.
 pub struct ThreadReadReceiptEventFilter<'cache> {
+    /// The room ID.
     room_id: &'cache RoomId,
+
+    /// The thread ID.
     thread_id: &'cache EventId,
+
+    /// The state store to access stored receipt events.
     state_store: &'cache DynStateStore,
 }
 
@@ -410,7 +428,7 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
         self.room_id
     }
 
-    fn filter(&self, _event: &TimelineEvent) -> bool {
+    fn is_candidate(&self, _event: &TimelineEvent) -> bool {
         // This type is built from a `ThreadEventCacheState`. The thread event
         // cache contains all in-thread events for this particular thread. No
         // need to filter them.
@@ -418,10 +436,11 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
     }
 
     fn receipt_thread_matches(&self, receipt_thread: &ReceiptThread) -> bool {
-        matches!(
-            receipt_thread,
-            ReceiptThread::Thread(thread_id) if self.thread_id == thread_id
-        )
+        match receipt_thread {
+            ReceiptThread::Unthreaded => true,
+            ReceiptThread::Thread(thread_id) => self.thread_id == thread_id,
+            _ => false,
+        }
     }
 
     async fn stored_receipt_event_for_user(
@@ -429,16 +448,27 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
         user_id: &UserId,
         receipt_type: ReceiptType,
     ) -> Option<(OwnedEventId, Receipt)> {
-        self.state_store
-            .get_user_room_receipt_event(
-                self.room_id,
-                receipt_type,
-                &ReceiptThread::Thread(self.thread_id.to_owned()),
-                user_id,
-            )
-            .await
-            .ok()
-            .flatten()
+        for receipt_thread in
+            [ReceiptThread::Unthreaded, ReceiptThread::Thread(self.thread_id.to_owned())]
+        {
+            let receipt_event = self
+                .state_store
+                .get_user_room_receipt_event(
+                    self.room_id,
+                    receipt_type.clone(),
+                    &receipt_thread,
+                    user_id,
+                )
+                .await
+                .ok()
+                .flatten();
+
+            if receipt_event.is_some() {
+                return receipt_event;
+            }
+        }
+
+        None
     }
 }
 
@@ -498,9 +528,10 @@ where
 
     let mut receipt = None;
 
-    for (event, event_id) in linked_chunk.revents().filter_map(|(_pos, event)| {
-        event_filter.filter(event).then_some((event, event.event_id()?))
-    }) {
+    for (event, event_id) in
+        // Scan **ALL** events to find the targeted event.
+        linked_chunk.revents().filter_map(|(_pos, event)| Some((event, event.event_id()?)))
+    {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent
             // receipt.
@@ -512,7 +543,8 @@ where
             }
             // Try to find an implicit read receipt (i.e. an event sent by the
             // current user).
-            else if event.sender().as_deref() == Some(user_id) {
+            else if event.sender().as_deref() == Some(user_id) && event_filter.is_candidate(event)
+            {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
             }
@@ -618,24 +650,24 @@ pub(crate) async fn compute_unread_counts<T>(
         read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
     );
 
-    if let Some(event_id) = better_receipt {
-        // We've found the id of an event to which the receipt attaches. The
+    if let Some(acknowledged_event_id) = better_receipt {
+        // We've found the ID of an event to which the receipt attaches. The
         // associated event may either come from the new batch of events
         // associated to this sync, or it may live in the past timeline events
         // we know about.
 
-        // First, save the event id as the latest one that has a read receipt.
-        trace!(%event_id, "Saving a new active read receipt");
-        read_receipts.latest_active = Some(LatestReadReceipt { event_id: event_id.clone() });
+        // First, save the acknowledged event id as the latest one that has a
+        // read receipt.
+        trace!(%acknowledged_event_id, "Saving a new active read receipt");
+        read_receipts.latest_active =
+            Some(LatestReadReceipt { event_id: acknowledged_event_id.clone() });
 
         // The event for the receipt is in the linked chunk, so we'll find it
         // and can count safely from here.
         read_receipts.find_and_process_events(
-            &event_id,
+            Some(&acknowledged_event_id),
             user_id,
-            linked_chunk
-                .events()
-                .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event)),
+            linked_chunk.events().map(|(_pos, event)| (event, event_filter.is_candidate(event))),
         );
 
         debug!(?read_receipts, "after finding a better receipt");
@@ -659,12 +691,11 @@ pub(crate) async fn compute_unread_counts<T>(
     // events. Reset the number of unreads, and recount them all.
     read_receipts.reset();
 
-    for event in linked_chunk
-        .events()
-        .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event))
-    {
-        read_receipts.process_event(event, user_id);
-    }
+    read_receipts.find_and_process_events(
+        None,
+        user_id,
+        linked_chunk.events().map(|(_pos, event)| (event, event_filter.is_candidate(event))),
+    );
 
     debug!(?read_receipts, "no better receipt");
 }
@@ -673,12 +704,12 @@ pub(crate) async fn compute_unread_counts<T>(
 fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
     // Parse the sender from the raw event.
     if event.get_field::<OwnedUserId>("sender").ok().flatten().as_deref() == Some(user_id) {
-        tracing::trace!("not interesting because sent by the current user");
+        trace!("not interesting because sent by the current user");
         return false;
     }
 
     let Some(event_type) = event.get_field::<MessageLikeEventType>("type").ok().flatten() else {
-        tracing::trace!(
+        trace!(
             "failed to parse event type for event with id {:?}, skipping it",
             event.get_field::<OwnedEventId>("event_id").ok().flatten()
         );
@@ -696,20 +727,20 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
         | MessageLikeEventType::Sticker => {}
 
         _ => {
-            tracing::trace!("not interesting because not an interesting message-like");
+            trace!("not interesting because not an interesting message-like");
             return false;
         }
     }
 
     // Filter out edits.
     if let Some((RelationType::Replacement, _)) = extract_relation(event) {
-        tracing::trace!("not interesting because edited");
+        trace!("not interesting because edited");
         return false;
     }
 
     // Filter out redacted events.
     if is_redacted(event) {
-        tracing::trace!("not interesting because redacted");
+        trace!("not interesting because redacted");
         return false;
     }
 
@@ -773,7 +804,7 @@ impl FromIterator<(OwnedEventId, Receipts)> for MaybeReceiptEventContent {
 
 #[cfg(test)]
 mod tests {
-    use std::{num::NonZeroUsize, ops::Not as _};
+    use std::{iter::empty, num::NonZeroUsize, ops::Not as _};
 
     use matrix_sdk_base::{read_receipts::ReadReceipts, store::MemoryStore};
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
@@ -1007,7 +1038,7 @@ mod tests {
         // When provided with no events, we report not finding the event to
         // which the receipt relates.
         let mut receipts = ReadReceipts::default();
-        assert!(receipts.find_and_process_events(ev0, user_id, [].iter()).not());
+        assert!(receipts.find_and_process_events(Some(ev0), user_id, empty()).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1030,7 +1061,11 @@ mod tests {
         };
         assert!(
             receipts
-                .find_and_process_events(ev0, user_id, [make_event(event_id!("$1"))].iter())
+                .find_and_process_events(
+                    Some(ev0),
+                    user_id,
+                    [(&make_event(event_id!("$1")), true)].into_iter()
+                )
                 .not()
         );
         assert_eq!(receipts.num_unread, 42);
@@ -1046,7 +1081,11 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts.find_and_process_events(ev0, user_id, [make_event(ev0)].iter()));
+        assert!(receipts.find_and_process_events(
+            Some(ev0),
+            user_id,
+            [(&make_event(ev0), true)].into_iter()
+        ));
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -1062,14 +1101,14 @@ mod tests {
         assert!(
             receipts
                 .find_and_process_events(
-                    ev0,
+                    Some(ev0),
                     user_id,
                     [
-                        make_event(event_id!("$1")),
-                        make_event(event_id!("$2")),
-                        make_event(event_id!("$3"))
+                        (&make_event(event_id!("$1")), true),
+                        (&make_event(event_id!("$2")), true),
+                        (&make_event(event_id!("$3")), true),
                     ]
-                    .iter(),
+                    .into_iter(),
                 )
                 .not()
         );
@@ -1087,15 +1126,15 @@ mod tests {
         };
         assert!(
             receipts.find_and_process_events(
-                ev0,
+                Some(ev0),
                 user_id,
                 [
-                    make_event(event_id!("$1")),
-                    make_event(ev0),
-                    make_event(event_id!("$2")),
-                    make_event(event_id!("$3"))
+                    (&make_event(event_id!("$1")), true),
+                    (&make_event(ev0), true),
+                    (&make_event(event_id!("$2")), true),
+                    (&make_event(event_id!("$3")), true),
                 ]
-                .iter(),
+                .into_iter(),
             )
         );
         assert_eq!(receipts.num_unread, 2);
@@ -1112,16 +1151,16 @@ mod tests {
         };
         assert!(
             receipts.find_and_process_events(
-                ev0,
+                Some(ev0),
                 user_id,
                 [
-                    make_event(ev0),
-                    make_event(event_id!("$1")),
-                    make_event(ev0),
-                    make_event(event_id!("$2")),
-                    make_event(event_id!("$3"))
+                    (&make_event(ev0), true),
+                    (&make_event(event_id!("$1")), true),
+                    (&make_event(ev0), true),
+                    (&make_event(event_id!("$2")), true),
+                    (&make_event(event_id!("$3")), true),
                 ]
-                .iter(),
+                .into_iter(),
             )
         );
         assert_eq!(receipts.num_unread, 2);
@@ -1167,7 +1206,7 @@ mod tests {
             make_in_thread_event(bob, room_id, event_id!("$some_other_thread_root")),
         ]
         .into_iter()
-        .filter(|event| event_filter.filter(event))
+        .filter(|event| event_filter.is_candidate(event))
         {
             receipts.process_event(&event, own_alice);
         }
@@ -1184,7 +1223,7 @@ mod tests {
             .event_id(event_id!("$ida"))
             .into_event()]
         .into_iter()
-        .filter(|event| event_filter.filter(event))
+        .filter(|event| event_filter.is_candidate(event))
         {
             receipts.process_event(&event, own_alice);
         }
@@ -1534,7 +1573,7 @@ mod tests {
 
     #[test]
     fn test_maybe_receipt_event_content_from_empty_iterator() {
-        let maybe: MaybeReceiptEventContent = std::iter::empty().collect();
+        let maybe: MaybeReceiptEventContent = empty().collect();
 
         assert!(maybe.is_none());
     }

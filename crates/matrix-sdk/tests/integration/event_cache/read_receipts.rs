@@ -35,9 +35,12 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
-use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    JoinedRoomBuilder, User, async_test,
+    event_factory::{EventFactory, ReadReceiptBuilder},
+};
 use ruma::{
-    event_id,
+    UserId, event_id,
     events::{
         Mentions,
         receipt::{ReceiptThread, ReceiptType},
@@ -1050,4 +1053,240 @@ async fn test_compute_unread_counts_after_backfill_from_disk() {
     assert_let_timeout!(Duration::from_secs(2), Ok(_) = room_cache_updates.recv());
 
     assert_eq!(room.num_unread_messages(), 3);
+}
+
+async fn unread_for_receipt_and_thread_support(
+    receipt: impl for<'a> Fn(&'a EventFactory, &'a UserId) -> ReadReceiptBuilder<'a>,
+    thread_support: bool,
+) -> u64 {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(if thread_support {
+                ThreadingSupport::Enabled { with_subscriptions: false }
+            } else {
+                ThreadingSupport::Disabled
+            })
+        })
+        .build()
+        .await;
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!r");
+    let event_factory = EventFactory::new().room(room_id).sender(User::Bob);
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) =
+        client.event_cache().unwrap().room(room_id).await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(event_factory.text_msg("ev1").event_id(event_id!("$1")))
+                .add_timeline_event(event_factory.text_msg("ev2").event_id(event_id!("$2")))
+                .add_timeline_event(event_factory.text_msg("ev3").event_id(event_id!("$3")))
+                .add_timeline_event(
+                    event_factory
+                        .text_msg("ev3.1")
+                        .event_id(event_id!("$3_1"))
+                        .in_thread(event_id!("$3"), event_id!("$3")),
+                )
+                .add_timeline_event(
+                    event_factory
+                        .text_msg("ev3.2")
+                        .event_id(event_id!("$3_2"))
+                        .in_thread(event_id!("$3"), event_id!("$3")),
+                )
+                .add_timeline_event(event_factory.text_msg("ev4").event_id(event_id!("$4")))
+                // The current user has read up to…
+                .add_receipt(receipt(&event_factory, own_user_id).into_event()),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    room.num_unread_messages()
+}
+
+// For `ReceiptThread::Main`:
+
+// - Targeting an event in the `main` timeline, with thread support.
+
+#[async_test]
+async fn test_unread_with_main_receipt_and_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                event_id!("$2"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+            ),
+            true
+        )
+        .await,
+        // `$3` and `$4`.
+        // `$3_1` and `$3_2` are ignored from the count.
+        2
+    );
+}
+
+// - Targeting an event in the `main` timeline, without thread support.
+
+#[async_test]
+async fn test_unread_with_main_receipt_and_without_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                event_id!("$2"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+            ),
+            false
+        )
+        .await,
+        // `$3`, `$3_1`, `$3_2` and `$4`.
+        4
+    );
+}
+
+// - Targeting an event in a `thread` timeline, with thread support.
+
+#[async_test]
+async fn test_unread_with_main_receipt_targeting_in_thread_event_and_with_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                // It targets an in-thread event, which is **INCORRECT** because
+                // it's a `Main` receipt, but we are nice people, we will do
+                // something right!
+                event_id!("$3_1"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+            ),
+            true
+        )
+        .await,
+        // `$4` because `$3_2` is not a candidate event.
+        1
+    );
+}
+
+// - Targeting an event in a `thread` timeline, without thread support.
+
+#[async_test]
+async fn test_unread_with_main_receipt_targeting_in_thread_event_and_without_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                // It targets an in-thread event, which is **INCORRECT** because
+                // it's a `Main` receipt, but… thread support is disabled, so we
+                // still handle this case because we are nice people!
+                event_id!("$3_1"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+            ),
+            false
+        )
+        .await,
+        // `$3_2` and $4`.
+        2
+    );
+}
+
+// For `ReceiptThread::Unthreaded`.
+
+// - Targeting an event in the `main` timeline, with thread support.
+
+#[async_test]
+async fn test_unread_with_unthreaded_receipt_and_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                event_id!("$2"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Unthreaded,
+            ),
+            true
+        )
+        .await,
+        // `$3` and `$4`.
+        // `$3_1` and `$3_2` are ignored from the count.
+        2
+    );
+}
+
+// - Targeting an event in the `main` timeline, without thread support.
+
+#[async_test]
+async fn test_unread_with_unthreaded_receipt_and_without_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                event_id!("$2"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Unthreaded,
+            ),
+            false
+        )
+        .await,
+        // `$3`, `$3_1`, `$3_2` and `$4`.
+        4
+    );
+}
+
+// - Targeting an event in a `thread` timeline, with thread support.
+
+#[async_test]
+async fn test_unread_with_unthreaded_receipt_targeting_in_thread_event_and_with_thread_support() {
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                // It targets an in-thread event, which is **CORRECT** because
+                // it's a `Unthreaded` receipt, it comes for a client (from the
+                // same user!) that does **NOT** support threads.
+                event_id!("$3_1"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Unthreaded,
+            ),
+            true
+        )
+        .await,
+        // Should be `$3_2` and `$4` **BUT** we are smarter than the spec! We
+        // only count `$4` here because thread support is enabled.
+        1
+    );
+}
+
+// - Targeting an event in a `thread` timeline, without thread support.
+
+#[async_test]
+async fn test_unread_with_unthreaded_receipt_targeting_in_thread_event_and_without_thread_support()
+{
+    assert_eq!(
+        unread_for_receipt_and_thread_support(
+            |event_factory, own_user_id| event_factory.read_receipts().add(
+                // It targets an in-thread event, which is **CORRECT** because
+                // it's a `Unthreaded` receipt.
+                event_id!("$3_1"),
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+            ),
+            false
+        )
+        .await,
+        // `$3_2` and $4`.
+        2
+    );
 }
