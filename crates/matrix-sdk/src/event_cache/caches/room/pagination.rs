@@ -423,17 +423,25 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // Update the store.
         state.propagate_changes().await?;
 
-        // A back-pagination can't include new read receipt events, as those are
-        // ephemeral events not included in /messages responses, so we can
-        // safely set the receipt event to None here.
-        //
-        // Note: read receipts may be updated anyhow in the post-processing
-        // step, as the back-pagination may have revealed the event pointed to
-        // by the latest read receipt.
-        let receipt_event = None;
-
-        // Post-process newly inserted events.
-        state.post_process_upserted_events(topo_ordered_events.iter(), receipt_event).await?;
+        // Run the post-processing: new events have been inserted, no receipt
+        // event, but a new event might be acknowledged by a pending receipt, in
+        // that case, we want to recompute the read receipts!
+        state
+            .post_process_upserted_events(
+                // We do want to post-processed these events: they are coming
+                // from the network, they have NOT been post-processed already!
+                topo_ordered_events.iter(),
+                // A back-pagination can't include new read receipt events, as
+                // those are ephemeral events not included in /messages
+                // responses, so we can safely set the receipt event to None
+                // here.
+                //
+                // Note: read receipts may be updated anyhow in the
+                // post-processing step, as the back-pagination may have
+                // revealed the event pointed to by the latest read receipt.
+                None,
+            )
+            .await?;
 
         let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
 
