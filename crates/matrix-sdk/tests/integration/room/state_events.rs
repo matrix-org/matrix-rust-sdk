@@ -9,7 +9,9 @@ use matrix_sdk::{
     assert_next_with_timeout, deserialized_responses::RawAnySyncOrStrippedState,
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    JoinedRoomBuilder, TestDevice, User, async_test, event_factory::EventFactory,
+};
 use ruma::events::StateEventType;
 use strass::assert_let;
 use stream_assert::assert_pending;
@@ -52,7 +54,7 @@ async fn test_subscribe_to_state_events() {
         .sync_room(
             &client,
             JoinedRoomBuilder::default()
-                .add_state_event(f.call_membership_state(alice, "ALICEDEVICE".to_owned()))
+                .add_state_event(f.call_membership_state(alice, TestDevice::Default.into()))
                 .add_state_event(f.custom_state_event().sender(alice)),
         )
         .await;
@@ -70,7 +72,7 @@ async fn test_subscribe_to_state_events() {
             &client,
             JoinedRoomBuilder::default()
                 .use_state_after()
-                .add_state_event(f.call_membership_state(bob, "BOBDEVICE".to_owned())),
+                .add_state_event(f.call_membership_state(bob, TestDevice::Alt1.into())),
         )
         .await;
 
@@ -116,8 +118,8 @@ async fn test_subscribe_to_state_events_yields_one_snapshot_per_sync() {
         .sync_room(
             &client,
             JoinedRoomBuilder::default()
-                .add_state_event(f.call_membership_state(alice, "PHONE".to_owned()))
-                .add_state_event(f.call_membership_state(alice, "LAPTOP".to_owned())),
+                .add_state_event(f.call_membership_state(alice, TestDevice::Default.into()))
+                .add_state_event(f.call_membership_state(alice, TestDevice::Alt1.into())),
         )
         .await;
 
@@ -147,8 +149,9 @@ async fn test_subscribe_to_state_events_ignores_the_timeline() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::default()
-                .add_timeline_event(f.call_membership_state(User::Alice, "DEVICE".to_owned())),
+            JoinedRoomBuilder::default().add_timeline_event(
+                f.call_membership_state(User::Alice, TestDevice::Default.into()),
+            ),
         )
         .await;
 
