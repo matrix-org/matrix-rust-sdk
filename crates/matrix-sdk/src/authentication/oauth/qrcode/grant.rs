@@ -655,6 +655,11 @@ mod test {
         DeviceAlreadyExists,
         DeviceNotCreated,
         InvalidJsonMessage,
+        /// Alice cancels before Bob sends `m.login.protocol`. Bob signals on
+        /// reaching the point of sending it, which is after receiving
+        /// `m.login.protocols` if Alice sends one, and exits without sending
+        /// anything.
+        CancelledBeforeLoginProtocol(oneshot::Sender<()>),
         /// Alice cancels after Bob signals that he received
         /// `m.login.protocol_accepted`.
         CancelledWhileWaitingForAuth(oneshot::Sender<()>),
@@ -718,6 +723,12 @@ mod test {
                 // Send an unexpected message and exit.
                 let message = QrAuthMessage::LoginSuccess;
                 bob.send_json(message).await.unwrap();
+                return;
+            }
+            BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx) => {
+                // Let Alice know it is time to cancel and exit. Alice is
+                // dropped when cancelled, so we won't be told about it.
+                bob_done_tx.send(()).expect("Bob should be able to signal when done");
                 return;
             }
             BobBehaviour::LoginFailureInsteadOfLoginProtocol => {
@@ -1015,7 +1026,7 @@ mod test {
         let message = bob
             .receive_json()
             .await
-            .expect("Bob should receive the LoginProtocolAccepted message from Alice");
+            .expect("Bob should receive the LoginProtocols message from Alice");
 
         let (protocols, alice_homeserver) = if is_using_msc_4388 {
             assert_let!(
@@ -1045,6 +1056,12 @@ mod test {
                 // Send an unexpected message and exit.
                 let message = QrAuthMessage::LoginSuccess;
                 bob.send_json(message).await.unwrap();
+                return;
+            }
+            BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx) => {
+                // Let Alice know it is time to cancel and exit. Alice is
+                // dropped when cancelled, so we won't be told about it.
+                bob_done_tx.send(()).expect("Bob should be able to signal when done");
                 return;
             }
             BobBehaviour::LoginFailureInsteadOfLoginProtocol => {
@@ -1849,6 +1866,7 @@ mod test {
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
+        let (bob_done_tx, bob_done_rx) = oneshot::channel();
 
         // Spawn the updates task.
         let mut updates = grant.subscribe_to_progress();
@@ -1871,6 +1889,14 @@ mod test {
                             .expect("The checkcode should only be forwarded once")
                             .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
+
+                        // Only cancel once Bob is done, which is after
+                        // receiving the login protocols. This ensures that
+                        // Alice got to send them, although Alice might still
+                        // be finishing that request rather than waiting for
+                        // Bob's reply. Bob doesn't send one, so Alice can't
+                        // finish in any other way.
+                        bob_done_rx.await.expect("Bob should signal when done");
                         cancel.cancel();
                         break;
                     }
@@ -1886,7 +1912,7 @@ mod test {
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
             request_login_with_generated_qr_code(
-                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx),
                 channel,
                 checkcode_rx,
                 None,
