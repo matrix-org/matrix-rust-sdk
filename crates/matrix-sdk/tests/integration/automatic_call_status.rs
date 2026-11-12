@@ -27,18 +27,15 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::room_id;
 
 /// A join-shaped `m.call.member` state event for `(user_id, device_id)`.
 fn join_call_event(user_id: &UserId, device_id: &DeviceId) -> Raw<AnySyncStateEvent> {
-    EventFactory::new()
-        .call_membership_state(user_id.to_owned(), device_id.to_string())
-        .into_raw_sync_state()
+    EventFactory::new().call_membership_state(user_id, device_id.into()).into_raw_sync_state()
 }
 
 /// A leave-shaped `m.call.member` state event for `(user_id, device_id)`.
 fn leave_call_event(user_id: &UserId, device_id: &DeviceId) -> Raw<AnySyncStateEvent> {
-    let state_key = CallMemberStateKey::new(user_id.to_owned(), Some(device_id.to_string()), true);
+    let state_key = CallMemberStateKey::new(user_id.into(), Some(device_id.into()), true);
     EventFactory::new()
         .event(CallMemberEventContent::new_empty(None))
         .sender(user_id)
@@ -60,60 +57,57 @@ async fn make_client() -> (MatrixMockServer, Client) {
 #[async_test]
 async fn test_auto_sync_sets_m_call_when_own_device_joins_a_room_call() {
     let (mock_server, client) = make_client().await;
-    let own_user_id = client.user_id().unwrap().to_owned();
-    let own_device_id = client.device_id().unwrap().to_owned();
+    let own_user_id = client.user_id().unwrap();
+    let own_device_id = client.device_id().unwrap();
 
     client.enable_automatic_call_status(true);
 
     let _put = mock_server
-        .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+        .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
         .ok()
         .mock_once()
         .named("PUT on join")
         .mount_as_scoped()
         .await;
 
-    let room_id = room_id!("!room:example.org");
-    let joined = JoinedRoomBuilder::new(room_id)
-        .add_state_event(join_call_event(&own_user_id, &own_device_id));
+    let joined =
+        JoinedRoomBuilder::default().add_state_event(join_call_event(own_user_id, own_device_id));
     mock_server.sync_room(&client, joined).await;
 }
 
 #[async_test]
 async fn test_auto_sync_clears_m_call_when_own_device_leaves_the_room_call() {
     let (mock_server, client) = make_client().await;
-    let own_user_id = client.user_id().unwrap().to_owned();
-    let own_device_id = client.device_id().unwrap().to_owned();
+    let own_user_id = client.user_id().unwrap();
+    let own_device_id = client.device_id().unwrap();
 
     client.enable_automatic_call_status(true);
 
-    let room_id = room_id!("!room:example.org");
-
     {
         let _put = mock_server
-            .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .mock_once()
             .named("PUT on join")
             .mount_as_scoped()
             .await;
 
-        let joined = JoinedRoomBuilder::new(room_id)
-            .add_state_event(join_call_event(&own_user_id, &own_device_id));
+        let joined = JoinedRoomBuilder::default()
+            .add_state_event(join_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, joined).await;
     }
 
     {
         let _delete = mock_server
-            .mock_delete_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_delete_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .mock_once()
             .named("DELETE on leave")
             .mount_as_scoped()
             .await;
 
-        let leaving = JoinedRoomBuilder::new(room_id)
-            .add_state_event(leave_call_event(&own_user_id, &own_device_id));
+        let leaving = JoinedRoomBuilder::default()
+            .add_state_event(leave_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, leaving).await;
     }
 }
@@ -121,12 +115,12 @@ async fn test_auto_sync_clears_m_call_when_own_device_leaves_the_room_call() {
 #[async_test]
 async fn test_auto_sync_does_nothing_when_disabled() {
     let (mock_server, client) = make_client().await;
-    let own_user_id = client.user_id().unwrap().to_owned();
-    let own_device_id = client.device_id().unwrap().to_owned();
+    let own_user_id = client.user_id().unwrap();
+    let own_device_id = client.device_id().unwrap();
 
     // Deliberately do NOT enable auto-sync.
     let _no_put = mock_server
-        .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+        .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
         .ok()
         .expect(0)
         .named("no PUT while disabled")
@@ -134,16 +128,15 @@ async fn test_auto_sync_does_nothing_when_disabled() {
         .await;
 
     let _no_delete = mock_server
-        .mock_delete_profile_field(&own_user_id, ProfileFieldName::Call)
+        .mock_delete_profile_field(own_user_id, ProfileFieldName::Call)
         .ok()
         .expect(0)
         .named("no DELETE while disabled")
         .mount_as_scoped()
         .await;
 
-    let room_id = room_id!("!room:example.org");
-    let joined = JoinedRoomBuilder::new(room_id)
-        .add_state_event(join_call_event(&own_user_id, &own_device_id));
+    let joined =
+        JoinedRoomBuilder::default().add_state_event(join_call_event(own_user_id, own_device_id));
     mock_server.sync_room(&client, joined).await;
 }
 
@@ -154,38 +147,36 @@ async fn test_auto_sync_still_fires_delete_after_failed_put() {
     // optimistically for exactly this reason.
 
     let (mock_server, client) = make_client().await;
-    let own_user_id = client.user_id().unwrap().to_owned();
-    let own_device_id = client.device_id().unwrap().to_owned();
+    let own_user_id = client.user_id().unwrap();
+    let own_device_id = client.device_id().unwrap();
 
     client.enable_automatic_call_status(true);
 
-    let room_id = room_id!("!room:example.org");
-
     {
         let _fail = mock_server
-            .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
             .error500()
             .expect(1)
             .named("PUT fails")
             .mount_as_scoped()
             .await;
 
-        let joined = JoinedRoomBuilder::new(room_id)
-            .add_state_event(join_call_event(&own_user_id, &own_device_id));
+        let joined = JoinedRoomBuilder::default()
+            .add_state_event(join_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, joined).await;
     }
 
     {
         let _delete = mock_server
-            .mock_delete_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_delete_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .mock_once()
             .named("DELETE on leave after prior PUT failed")
             .mount_as_scoped()
             .await;
 
-        let leaving = JoinedRoomBuilder::new(room_id)
-            .add_state_event(leave_call_event(&own_user_id, &own_device_id));
+        let leaving = JoinedRoomBuilder::default()
+            .add_state_event(leave_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, leaving).await;
     }
 }
@@ -193,24 +184,22 @@ async fn test_auto_sync_still_fires_delete_after_failed_put() {
 #[async_test]
 async fn test_runtime_toggle_off_stops_writes_and_on_resumes_them() {
     let (mock_server, client) = make_client().await;
-    let own_user_id = client.user_id().unwrap().to_owned();
-    let own_device_id = client.device_id().unwrap().to_owned();
-
-    let room_id = room_id!("!room:example.org");
+    let own_user_id = client.user_id().unwrap();
+    let own_device_id = client.device_id().unwrap();
 
     // Phase 1: enable + join → one PUT.
     client.enable_automatic_call_status(true);
     {
         let _put = mock_server
-            .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .mock_once()
             .named("phase 1: PUT on join while enabled")
             .mount_as_scoped()
             .await;
 
-        let joined = JoinedRoomBuilder::new(room_id)
-            .add_state_event(join_call_event(&own_user_id, &own_device_id));
+        let joined = JoinedRoomBuilder::default()
+            .add_state_event(join_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, joined).await;
     }
 
@@ -218,22 +207,22 @@ async fn test_runtime_toggle_off_stops_writes_and_on_resumes_them() {
     client.enable_automatic_call_status(false);
     {
         let _no_put = mock_server
-            .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .expect(0)
             .named("phase 2: no PUT while disabled")
             .mount_as_scoped()
             .await;
         let _no_delete = mock_server
-            .mock_delete_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_delete_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .expect(0)
             .named("phase 2: no DELETE while disabled")
             .mount_as_scoped()
             .await;
 
-        let leaving = JoinedRoomBuilder::new(room_id)
-            .add_state_event(leave_call_event(&own_user_id, &own_device_id));
+        let leaving = JoinedRoomBuilder::default()
+            .add_state_event(leave_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, leaving).await;
     }
 
@@ -241,15 +230,15 @@ async fn test_runtime_toggle_off_stops_writes_and_on_resumes_them() {
     client.enable_automatic_call_status(true);
     {
         let _put = mock_server
-            .mock_set_profile_field(&own_user_id, ProfileFieldName::Call)
+            .mock_set_profile_field(own_user_id, ProfileFieldName::Call)
             .ok()
             .mock_once()
             .named("phase 3: PUT on rejoin after re-enable")
             .mount_as_scoped()
             .await;
 
-        let rejoined = JoinedRoomBuilder::new(room_id)
-            .add_state_event(join_call_event(&own_user_id, &own_device_id));
+        let rejoined = JoinedRoomBuilder::default()
+            .add_state_event(join_call_event(own_user_id, own_device_id));
         mock_server.sync_room(&client, rejoined).await;
     }
 }
