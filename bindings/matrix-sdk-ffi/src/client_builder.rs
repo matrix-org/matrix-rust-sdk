@@ -622,13 +622,25 @@ impl ClientBuilder {
                 inner_builder = inner_builder
                     .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::None)
             }
-            SlidingSyncVersionBuilder::Native => {
+            SlidingSyncVersionBuilder::Unstable => {
                 inner_builder = inner_builder
-                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Native)
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Unstable)
             }
-            SlidingSyncVersionBuilder::DiscoverNative => {
+            SlidingSyncVersionBuilder::Stable => {
                 inner_builder = inner_builder
-                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverNative)
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Stable)
+            }
+            SlidingSyncVersionBuilder::DiscoverUnstable => {
+                inner_builder = inner_builder
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverUnstable)
+            }
+            SlidingSyncVersionBuilder::DiscoverStable => {
+                inner_builder = inner_builder
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverStable)
+            }
+            SlidingSyncVersionBuilder::Discover => {
+                inner_builder = inner_builder
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Discover)
             }
         }
 
@@ -866,8 +878,11 @@ pub struct RequestConfig {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersionBuilder {
     None,
-    Native,
-    DiscoverNative,
+    Unstable,
+    Stable,
+    DiscoverUnstable,
+    DiscoverStable,
+    Discover,
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]

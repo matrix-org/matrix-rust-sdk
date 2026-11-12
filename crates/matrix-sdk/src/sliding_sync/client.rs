@@ -43,13 +43,16 @@ pub enum Version {
 
     /// Use the version of the sliding sync implementation inside Synapse, i.e.
     /// MSC4186.
-    Native,
+    Unstable,
+
+    /// Use the stable version of sliding sync, i.e. the merged MSC4186.
+    Stable,
 }
 
 impl Version {
     #[cfg(test)]
-    pub(crate) fn is_native(&self) -> bool {
-        matches!(self, Self::Native)
+    pub(crate) fn is_unstable(&self) -> bool {
+        matches!(self, Self::Unstable)
     }
 }
 
@@ -66,7 +69,15 @@ pub enum VersionBuilderError {
         "`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, \
          or it's not set to true."
     )]
-    NativeVersionIsUnset,
+    UnstableVersionIsUnset,
+
+    /// `/versions` does not contain `org.matrix.simplified_msc3575.stable` in
+    /// its `unstable_features`, or it's not set to true.
+    #[error(
+        "`/versions` does not contain `org.matrix.simplified_msc3575.stable` in its \
+         `unstable_features`, or it's not set to true."
+    )]
+    StableVersionIsUnset,
 }
 
 /// A builder for [`Version`].
@@ -75,18 +86,32 @@ pub enum VersionBuilder {
     /// Build a [`Version::None`].
     None,
 
-    /// Build a [`Version::Native`].
-    Native,
+    /// Build a [`Version::Unstable`].
+    Unstable,
 
-    /// Build a [`Version::Native`] by auto-discovering it.
+    /// Build a [`Version::Stable`].
+    Stable,
+
+    /// Build a [`Version::Unstable`] by auto-discovering it.
     ///
     /// It is available if the server enables it via `/versions`.
-    DiscoverNative,
+    DiscoverUnstable,
+
+    /// Build a [`Version::Stable`] by auto-discovering it.
+    ///
+    /// It is available if the server enables it via `/versions`.
+    DiscoverStable,
+
+    /// Build a [`Version::Stable`] by auto-discovering it, or a
+    /// [`Version::Unstable`] if the stable version isn't available.
+    ///
+    /// They are available if the server enables them via `/versions`.
+    Discover,
 }
 
 impl VersionBuilder {
     pub(crate) fn needs_get_supported_versions(&self) -> bool {
-        matches!(self, Self::DiscoverNative)
+        matches!(self, Self::DiscoverUnstable | Self::DiscoverStable | Self::Discover)
     }
 
     /// Build a [`Version`].
@@ -100,19 +125,37 @@ impl VersionBuilder {
         Ok(match self {
             Self::None => Version::None,
 
-            Self::Native => Version::Native,
+            Self::Unstable => Version::Unstable,
 
-            Self::DiscoverNative => {
+            Self::Stable => Version::Stable,
+
+            Self::DiscoverUnstable => {
                 let Some(supported) = supported else {
                     return Err(VersionBuilderError::MissingVersionsResponse);
                 };
 
                 if supported.features.contains(&FeatureFlag::Msc4186) {
-                    Version::Native
+                    Version::Unstable
                 } else {
-                    return Err(VersionBuilderError::NativeVersionIsUnset);
+                    return Err(VersionBuilderError::UnstableVersionIsUnset);
                 }
             }
+
+            Self::DiscoverStable => {
+                let Some(supported) = supported else {
+                    return Err(VersionBuilderError::MissingVersionsResponse);
+                };
+
+                if supported.features.contains(&FeatureFlag::Msc4186Stable) {
+                    Version::Stable
+                } else {
+                    return Err(VersionBuilderError::StableVersionIsUnset);
+                }
+            }
+
+            Self::Discover => Self::DiscoverStable
+                .build(supported)
+                .or_else(|_| Self::DiscoverUnstable.build(supported))?,
         })
     }
 }
@@ -128,7 +171,7 @@ impl Client {
     pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
         let supported_versions = self.supported_versions().await.ok();
 
-        [VersionBuilder::DiscoverNative]
+        [VersionBuilder::DiscoverStable, VersionBuilder::DiscoverUnstable]
             .into_iter()
             .filter_map(|version_builder| version_builder.build(supported_versions.as_ref()).ok())
             .collect()
@@ -493,37 +536,117 @@ mod tests {
     }
 
     #[test]
-    fn test_version_builder_native() {
-        assert_matches!(VersionBuilder::Native.build(None), Ok(Version::Native));
+    fn test_version_builder_unstable() {
+        assert_matches!(VersionBuilder::Unstable.build(None), Ok(Version::Unstable));
     }
 
     #[test]
-    fn test_version_builder_discover_native() {
+    fn test_version_builder_stable() {
+        assert_matches!(VersionBuilder::Stable.build(None), Ok(Version::Stable));
+    }
+
+    #[test]
+    fn test_version_builder_discover_stable() {
         let mut response = get_supported_versions::Response::new(vec![]);
-        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+        response.unstable_features =
+            [("org.matrix.simplified_msc3575.stable".to_owned(), true)].into();
 
         assert_matches!(
-            VersionBuilder::DiscoverNative.build(Some(&response.as_supported_versions())),
-            Ok(Version::Native)
+            VersionBuilder::DiscoverStable.build(Some(&response.as_supported_versions())),
+            Ok(Version::Stable)
         );
     }
 
     #[test]
-    fn test_version_builder_discover_native_no_supported_versions() {
+    fn test_version_builder_discover_stable_no_supported_versions() {
         assert_matches!(
-            VersionBuilder::DiscoverNative.build(None),
+            VersionBuilder::DiscoverStable.build(None),
             Err(VersionBuilderError::MissingVersionsResponse)
         );
     }
 
     #[test]
-    fn test_version_builder_discover_native_unstable_features_is_disabled() {
+    fn test_version_builder_discover_stable_with_the_unstable_feature_only() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+
+        assert_matches!(
+            VersionBuilder::DiscoverStable.build(Some(&response.as_supported_versions())),
+            Err(VersionBuilderError::StableVersionIsUnset)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features = [
+            ("org.matrix.simplified_msc3575".to_owned(), true),
+            ("org.matrix.simplified_msc3575.stable".to_owned(), true),
+        ]
+        .into();
+
+        assert_matches!(
+            VersionBuilder::Discover.build(Some(&response.as_supported_versions())),
+            Ok(Version::Stable)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_with_the_unstable_feature_only() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+
+        assert_matches!(
+            VersionBuilder::Discover.build(Some(&response.as_supported_versions())),
+            Ok(Version::Unstable)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_no_supported_versions() {
+        assert_matches!(
+            VersionBuilder::Discover.build(None),
+            Err(VersionBuilderError::MissingVersionsResponse)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_without_any_feature() {
+        let response = get_supported_versions::Response::new(vec![]);
+
+        assert_matches!(
+            VersionBuilder::Discover.build(Some(&response.as_supported_versions())),
+            Err(VersionBuilderError::UnstableVersionIsUnset)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_unstable() {
+        let mut response = get_supported_versions::Response::new(vec![]);
+        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+
+        assert_matches!(
+            VersionBuilder::DiscoverUnstable.build(Some(&response.as_supported_versions())),
+            Ok(Version::Unstable)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_unstable_no_supported_versions() {
+        assert_matches!(
+            VersionBuilder::DiscoverUnstable.build(None),
+            Err(VersionBuilderError::MissingVersionsResponse)
+        );
+    }
+
+    #[test]
+    fn test_version_builder_discover_unstable_unstable_features_is_disabled() {
         let mut response = get_supported_versions::Response::new(vec![]);
         response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), false)].into();
 
         assert_matches!(
-            VersionBuilder::DiscoverNative.build(Some(&response.as_supported_versions())),
-            Err(VersionBuilderError::NativeVersionIsUnset)
+            VersionBuilder::DiscoverUnstable.build(Some(&response.as_supported_versions())),
+            Err(VersionBuilderError::UnstableVersionIsUnset)
         );
     }
 
@@ -538,7 +661,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_available_sliding_sync_versions_native() {
+    async fn test_available_sliding_sync_versions_unstable() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
@@ -548,7 +671,29 @@ mod tests {
 
         // `/versions` is available.
         assert_eq!(available_versions.len(), 1);
-        assert_matches!(available_versions[0], Version::Native);
+        assert_matches!(available_versions[0], Version::Unstable);
+    }
+
+    #[async_test]
+    async fn test_available_sliding_sync_versions_stable_and_unstable() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server
+            .mock_versions()
+            .with_simplified_sliding_sync()
+            .with_feature("org.matrix.simplified_msc3575.stable", true)
+            .ok()
+            .mock_once()
+            .mount()
+            .await;
+
+        let available_versions = client.available_sliding_sync_versions().await;
+
+        // The stable version comes first.
+        assert_eq!(available_versions.len(), 2);
+        assert_matches!(available_versions[0], Version::Stable);
+        assert_matches!(available_versions[1], Version::Unstable);
     }
 
     #[async_test]

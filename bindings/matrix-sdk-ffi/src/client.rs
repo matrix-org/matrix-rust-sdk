@@ -3707,14 +3707,16 @@ impl MediaFileHandle {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersion {
     None,
-    Native,
+    Unstable,
+    Stable,
 }
 
 impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
     fn from(value: SdkSlidingSyncVersion) -> Self {
         match value {
             SdkSlidingSyncVersion::None => Self::None,
-            SdkSlidingSyncVersion::Native => Self::Native,
+            SdkSlidingSyncVersion::Unstable => Self::Unstable,
+            SdkSlidingSyncVersion::Stable => Self::Stable,
         }
     }
 }
@@ -3725,7 +3727,8 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
     fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
         Ok(match value {
             SlidingSyncVersion::None => Self::None,
-            SlidingSyncVersion::Native => Self::Native,
+            SlidingSyncVersion::Unstable => Self::Unstable,
+            SlidingSyncVersion::Stable => Self::Stable,
         })
     }
 }
