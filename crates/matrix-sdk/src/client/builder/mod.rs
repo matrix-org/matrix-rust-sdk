@@ -155,7 +155,7 @@ impl ClientBuilder {
     pub(crate) fn new() -> Self {
         Self {
             homeserver_cfg: None,
-            sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
+            sliding_sync_version_builder: SlidingSyncVersionBuilder::Unstable,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::new(
                 CrossProcessLockConfig::multi_process(
@@ -1103,8 +1103,8 @@ pub(crate) mod tests {
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
         let _client = builder.build().await.unwrap();
 
-        // Then a client should be built with native support for sliding sync.
-        assert!(_client.sliding_sync_version().is_native());
+        // Then a client should be built with unstable support for sliding sync.
+        assert!(_client.sliding_sync_version().is_unstable());
     }
 
     #[async_test]
@@ -1151,10 +1151,10 @@ pub(crate) mod tests {
         builder = builder.server_name_or_homeserver_url(server.uri());
         let client = builder.build().await.unwrap();
 
-        // Then a client should be built with native support for sliding sync.
-        // It's native support because it's the default. Nothing is checked
+        // Then a client should be built with unstable support for sliding sync.
+        // It's unstable support because it's the default. Nothing is checked
         // here.
-        assert!(client.sliding_sync_version().is_native());
+        assert!(client.sliding_sync_version().is_unstable());
     }
 
     #[async_test]
@@ -1267,21 +1267,21 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_sliding_sync_discover_native() {
+    async fn test_sliding_sync_discover_unstable() {
         // Given a homeserver with a `/versions` file.
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
 
         // When building the client with sliding sync to auto-discover the
-        // native version.
+        // unstable version.
         builder = builder
             .server_name_or_homeserver_url(homeserver.uri())
-            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverNative);
+            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverUnstable);
 
         let client = builder.build().await.unwrap();
 
-        // Then, sliding sync has the correct native version.
-        assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Native);
+        // Then, sliding sync has the correct unstable version.
+        assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Unstable);
     }
 
     #[async_test]

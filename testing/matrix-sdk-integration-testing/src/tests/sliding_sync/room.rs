@@ -319,7 +319,7 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
 
     let alice = Client::builder()
         .homeserver_url(hs)
-        .sliding_sync_version_builder(VersionBuilder::Native)
+        .sliding_sync_version_builder(VersionBuilder::Unstable)
         .build()
         .await
         .unwrap();
