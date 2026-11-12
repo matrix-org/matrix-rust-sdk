@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ruma::{api::client::keys::upload_signing_keys, assign};
+
 use crate::types::CrossSigningKey;
 
 /// Request that will publish a cross signing identity.
@@ -29,4 +31,21 @@ pub struct UploadSigningKeysRequest {
     /// or by the user's most recently uploaded master key if no master key is
     /// included in the request.
     pub user_signing_key: Option<CrossSigningKey>,
+}
+
+impl From<&UploadSigningKeysRequest> for upload_signing_keys::v3::Request {
+    fn from(req: &UploadSigningKeysRequest) -> Self {
+        assign!(upload_signing_keys::v3::Request::new(), {
+            auth: None,
+            master_key: req.master_key.as_ref().map(|c| c.to_raw()),
+            self_signing_key: req.self_signing_key.as_ref().map(|c| c.to_raw()),
+            user_signing_key: req.user_signing_key.as_ref().map(|c| c.to_raw()),
+        })
+    }
+}
+
+impl From<UploadSigningKeysRequest> for upload_signing_keys::v3::Request {
+    fn from(req: UploadSigningKeysRequest) -> Self {
+        (&req).into()
+    }
 }
