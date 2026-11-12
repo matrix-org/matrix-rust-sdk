@@ -28,10 +28,13 @@ use std::{ops::Not, sync::Arc, time::Duration};
 
 use matrix_sdk::{
     MemoryStore as MemoryStateStore, assert_let_timeout,
-    cross_process_lock::CrossProcessLockConfig, sleep::sleep, store::StoreConfig,
+    cross_process_lock::CrossProcessLockConfig,
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    sleep::sleep,
+    store::StoreConfig,
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_base::event_cache::store::MemoryStore;
+use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
 use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
@@ -815,4 +818,117 @@ async fn test_read_receipt_from_store_used_as_latest_active() {
 
     // Asserting the `ThreadInfo` has received an update too.
     assert!(thread_info_updates.next().await.is_some());
+}
+
+/// Test that the unread counts are recomputed when the read-receipt backfill
+/// resolves the receipt's target event from the local store, instead of the
+/// network.
+#[async_test]
+async fn test_compute_unread_counts_after_backfill_from_disk() {
+    let room_id = room_id!("!r");
+    let thread_id = event_id!("$t");
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
+
+    // Set up the event cache store with two item chunks, and no gap: only the
+    // last one will be loaded in memory, the first one has to be paginated in
+    // from the store.
+    let event_cache_store = MemoryStore::new();
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Thread(room_id, thread_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![
+                        f.text_msg("hello 1")
+                            .event_id(event_id!("$1"))
+                            .in_thread(thread_id, thread_id)
+                            .into_event(),
+                        f.text_msg("hello 2")
+                            .event_id(event_id!("$2"))
+                            .in_thread(thread_id, thread_id)
+                            .into_event(),
+                        f.text_msg("hello 3")
+                            .event_id(event_id!("$3"))
+                            .in_thread(thread_id, thread_id)
+                            .into_event(),
+                    ],
+                },
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: vec![
+                        f.text_msg("hello 4")
+                            .event_id(event_id!("$4"))
+                            .in_thread(thread_id, thread_id)
+                            .into_event(),
+                        f.text_msg("hello 5")
+                            .event_id(event_id!("$5"))
+                            .in_thread(thread_id, thread_id)
+                            .into_event(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_enable_automatic_back_pagination(true).store_config(
+                StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                    holder_name: "foo".to_owned(),
+                })
+                .event_cache_store(event_cache_store),
+            )
+        })
+        .build()
+        .await;
+    let own_user_id = client.user_id().unwrap();
+
+    let _ = server.sync_joined_room(&client, room_id).await;
+    let (thread_event_cache, _drop_handles) =
+        client.event_cache().unwrap().thread(room_id, thread_id).await.unwrap();
+    let (initial_events, mut thread_cache_updates) = thread_event_cache.subscribe().await.unwrap();
+
+    // Only the last chunk is loaded: $4 and $5. $1, $2 and $3 are in the store.
+    assert_eq!(initial_events.len(), 2);
+
+    // Now, a read receipt on $2 arrives: its target event isn't loaded in
+    // memory.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(
+                        event_id!("$2"),
+                        own_user_id,
+                        ReceiptType::Read,
+                        ReceiptThread::Thread(thread_id.to_owned()),
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = thread_cache_updates.recv());
+
+    // 2 unread messages because the acknowledged event has not been found, so
+    // all loaded events count as unread.
+    assert_eq!(thread_event_cache.num_unread_messages().await.unwrap(), 2);
+
+    // Do a pagination. It does contain an acknowledged event by a pending
+    // receipt…
+    thread_event_cache.pagination().run_backwards_once(8).await.unwrap();
+
+    // … so the unread count is recalculated, and is now correct!
+    assert_eq!(thread_event_cache.num_unread_messages().await.unwrap(), 3);
 }
