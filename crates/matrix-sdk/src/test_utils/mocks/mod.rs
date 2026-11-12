@@ -40,6 +40,7 @@ use ruma::{
         client::{
             discovery::get_capabilities::v3::Capabilities,
             receipt::create_receipt::v3::ReceiptType,
+            retention::{RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits},
             room::Visibility,
             sync::sync_events::msc4186,
             threads::get_thread_subscriptions_changes::msc4308::{
@@ -56,7 +57,10 @@ use ruma::{
         AnyGlobalAccountDataEventContent, AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
         GlobalAccountDataEventType, MessageLikeEventType, RoomAccountDataEventType, StateEventType,
         receipt::ReceiptThread,
-        room::member::{MembershipState, RoomMemberEvent},
+        room::{
+            member::{MembershipState, RoomMemberEvent},
+            retention::RoomRetentionEventContent,
+        },
         tag::TagName,
     },
     media::Method,
@@ -1891,6 +1895,63 @@ impl MatrixMockServer {
     ) -> MockEndpoint<'_, GetHomeserverCapabilitiesEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/capabilities"));
         self.mock_endpoint(mock, GetHomeserverCapabilitiesEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get the message
+    /// retention configuration of the homeserver
+    /// ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use std::{collections::BTreeMap, time::Duration};
+    ///
+    /// use matrix_sdk::{
+    ///     ruma::{
+    ///         api::client::retention::{
+    ///             RoomIdOrAllRooms,
+    ///             get_retention_configuration::msc1763::{
+    ///                 LifetimeLimits, RetentionLimits,
+    ///             },
+    ///         },
+    ///         events::room::retention::RoomRetentionEventContent,
+    ///     },
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// let one_day = Duration::from_secs(24 * 60 * 60);
+    ///
+    /// mock_server
+    ///     .mock_get_retention_configuration()
+    ///     .ok(
+    ///         BTreeMap::from([(
+    ///             RoomIdOrAllRooms::AllRooms,
+    ///             RoomRetentionEventContent::new().at_most(one_day).unwrap(),
+    ///         )]),
+    ///         RetentionLimits::new(
+    ///             None,
+    ///             LifetimeLimits::from_range(..=one_day * 7),
+    ///         ),
+    ///     )
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let config = client.fetch_retention_configuration().await?;
+    /// assert_eq!(config.policies.len(), 1);
+    /// assert_eq!(config.limits.max_lifetime.unwrap().max(), Some(one_day * 7));
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_get_retention_configuration(
+        &self,
+    ) -> MockEndpoint<'_, GetRetentionConfigurationEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"));
+        self.mock_endpoint(mock, GetRetentionConfigurationEndpoint).expect_default_access_token()
     }
 
     /// Create a prebuilt mock for the endpoint used to deactivate an account
@@ -5784,6 +5845,33 @@ impl<'a> MockEndpoint<'a, GetHomeserverCapabilitiesEndpoint> {
     pub fn ok_with_capabilities(self, capabilities: Capabilities) -> MatrixMock<'a> {
         self.ok_json(json!({
             "capabilities": capabilities,
+        }))
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /_matrix/client/unstable/org.matrix.msc1763/retention/configuration`.
+pub struct GetRetentionConfigurationEndpoint;
+
+impl<'a> MockEndpoint<'a, GetRetentionConfigurationEndpoint> {
+    /// Returns a successful response without any policies or limits.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        self.ok(BTreeMap::new(), RetentionLimits::default())
+    }
+
+    /// Returns a successful response with the given policies and limits.
+    ///
+    /// `policies` maps a room ID (or all rooms) to its retention policy, and
+    /// `limits` are the limits to apply to the policies defined in
+    /// `m.room.retention` state events.
+    pub fn ok(
+        self,
+        policies: BTreeMap<RoomIdOrAllRooms, RoomRetentionEventContent>,
+        limits: RetentionLimits,
+    ) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "policies": policies,
+            "limits": limits,
         }))
     }
 }

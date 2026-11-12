@@ -4573,6 +4573,7 @@ struct PreJoinRoomInfo {
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use std::{
+        collections::BTreeMap,
         pin::pin,
         sync::{
             Arc,
@@ -4605,6 +4606,9 @@ pub(crate) mod tests {
         api::{
             FeatureFlag, MatrixVersion,
             client::{
+                retention::{
+                    RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits,
+                },
                 room::create_room::v3::Request as CreateRoomRequest,
                 rtc::{LiveKitRtcTransport, RtcTransport},
             },
@@ -4616,6 +4620,7 @@ pub(crate) mod tests {
                 InvitePermissionAction, InvitePermissionConfigEventContent,
             },
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
+            room::retention::RoomRetentionEventContent,
         },
         owned_device_id,
         presence::PresenceState,
@@ -6632,23 +6637,10 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_fetch_retention_configuration() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path},
-        };
-
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "policies": {},
-                "limits": {},
-            })))
-            .expect(1)
-            .mount(server.server())
-            .await;
+        server.mock_get_retention_configuration().ok_empty().mock_once().mount().await;
 
         let response = client.fetch_retention_configuration().await;
         assert!(response.is_ok());
@@ -6660,26 +6652,18 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_retention_configuration_is_cached_and_observable() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path},
-        };
-
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
         let mut subscriber = client.subscribe_to_retention_configuration();
         assert!(subscriber.get().is_none());
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "policies": {},
-                "limits": {},
-            })))
+        server
+            .mock_get_retention_configuration()
+            .ok_empty()
             // Only the first call hits the network, the second one uses the cache.
-            .expect(1)
-            .mount(server.server())
+            .mock_once()
+            .mount()
             .await;
 
         client.retention_configuration().await.unwrap();
@@ -6694,11 +6678,6 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_retention_configuration_is_persisted() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path},
-        };
-
         let server = MatrixMockServer::new().await;
         let memory_store = Arc::new(MemoryStore::new());
         let build_client = || {
@@ -6714,14 +6693,19 @@ pub(crate) mod tests {
         };
 
         {
-            let _guard = Mock::given(method("GET"))
-                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                    "policies": { "*": { "max_lifetime": 86_400_000 } },
-                    "limits": {},
-                })))
-                .expect(1)
-                .mount_as_scoped(server.server())
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_secs(24 * 60 * 60))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
                 .await;
 
             let client = build_client().await;
@@ -6745,11 +6729,6 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_retention_configuration_falls_back_to_stale_value() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path},
-        };
-
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
@@ -6758,14 +6737,19 @@ pub(crate) mod tests {
             .await;
 
         {
-            let _guard = Mock::given(method("GET"))
-                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                    "policies": { "*": { "max_lifetime": 86_400_000 } },
-                    "limits": {},
-                })))
-                .expect(1)
-                .mount_as_scoped(server.server())
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_secs(24 * 60 * 60))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
                 .await;
 
             client.fetch_retention_configuration().await.unwrap();
@@ -6778,11 +6762,11 @@ pub(crate) mod tests {
 
         // The homeserver is unreachable: the stale value is returned.
         {
-            let _guard = Mock::given(method("GET"))
-                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-                .respond_with(ResponseTemplate::new(503))
-                .expect(1)
-                .mount_as_scoped(server.server())
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error500()
+                .mock_once()
+                .mount_as_scoped()
                 .await;
 
             let config = client.retention_configuration().await.unwrap();
@@ -6791,14 +6775,11 @@ pub(crate) mod tests {
 
         // The homeserver doesn't implement the endpoint: the error is returned.
         {
-            let _guard = Mock::given(method("GET"))
-                .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-                .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                    "errcode": "M_UNRECOGNIZED",
-                    "error": "Unrecognized request",
-                })))
-                .expect(1)
-                .mount_as_scoped(server.server())
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error_unrecognized()
+                .mock_once()
+                .mount_as_scoped()
                 .await;
 
             let error = client.retention_configuration().await.unwrap_err();
