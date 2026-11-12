@@ -36,7 +36,9 @@ use ruma::{
     IdParseError,
     api::{
         client::uiaa::{UiaaInfo, UiaaResponse},
-        error::{ErrorKind, FromHttpResponseError, IntoHttpError, RetryAfter},
+        error::{
+            ErrorKind, FromHttpResponseError, IntoHttpError, RetryAfter, UnknownTokenErrorData,
+        },
     },
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
@@ -127,7 +129,7 @@ impl HttpError {
     /// with.
     pub(crate) fn is_rejected_token(&self) -> bool {
         match self {
-            Self::RefreshToken(_) => true,
+            Self::RefreshToken(error) => error.session_rejection().is_some(),
             Self::Cached(inner) => inner.is_rejected_token(),
             _ => matches!(self.client_api_error_kind(), Some(ErrorKind::UnknownToken(_))),
         }
@@ -163,8 +165,10 @@ impl HttpError {
             },
 
             HttpError::RefreshToken(error) => {
-                if error.is_session_rejected() {
+                if error.session_rejection().is_some() {
                     RetryKind::Permanent
+                } else if let RefreshTokenError::MatrixAuth(http_error) = error {
+                    http_error.retry_kind()
                 } else {
                     RetryKind::Transient { retry_after: None }
                 }
@@ -721,22 +725,29 @@ pub enum RefreshTokenError {
 }
 
 impl RefreshTokenError {
-    /// Whether the session was rejected, as opposed to the refresh request
-    /// itself not getting through.
-    pub(crate) fn is_session_rejected(&self) -> bool {
+    /// Returns the [`UnknownTokenErrorData`] if the session was rejected, as
+    /// opposed to the refresh request itself not getting through.
+    pub(crate) fn session_rejection(&self) -> Option<UnknownTokenErrorData> {
         match self {
             // There is no refresh token to exchange and retrying won't fix it.
-            Self::RefreshTokenRequired => true,
+            Self::RefreshTokenRequired => Some(UnknownTokenErrorData::default()),
 
-            Self::MatrixAuth(http_error) => http_error
-                .as_client_api_error()
-                .is_some_and(|error| !error.status_code.is_server_error()),
+            Self::MatrixAuth(error) => {
+                if error.as_client_api_error()?.status_code != StatusCode::UNAUTHORIZED {
+                    return None;
+                }
+                match error.client_api_error_kind()? {
+                    ErrorKind::UnknownToken(data) => Some(data.clone()),
+                    _ => None,
+                }
+            }
 
             Self::OAuth(oauth_error) => matches!(
                 &**oauth_error,
                 OAuthError::RefreshToken(RequestTokenError::ServerResponse(error_response))
                     if *error_response.error() == BasicErrorResponseType::InvalidGrant
-            ),
+            )
+            .then(UnknownTokenErrorData::default),
         }
     }
 }
@@ -847,6 +858,26 @@ mod tests {
         assert_matches!(
             HttpError::RefreshToken(RefreshTokenError::RefreshTokenRequired).retry_kind(),
             RetryKind::Permanent
+        );
+
+        assert_matches!(
+            refresh_failure(
+                StatusCode::NOT_FOUND,
+                r#"{"errcode": "M_UNRECOGNIZED", "error": "Not found"}"#
+            )
+            .retry_kind(),
+            RetryKind::Permanent
+        );
+
+        assert_matches!(
+            refresh_failure(
+                StatusCode::TOO_MANY_REQUESTS,
+                r#"{"errcode": "M_LIMIT_EXCEEDED", "error": "Too many requests", "retry_after_ms": 2000}"#,
+            )
+            .retry_kind(),
+            RetryKind::Transient { retry_after: Some(delay) } => {
+                assert_eq!(delay, Duration::from_secs(2));
+            }
         );
     }
 
