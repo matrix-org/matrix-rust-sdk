@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, iter::empty, sync::Arc};
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
@@ -208,6 +208,28 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
             ChunkContent::Items(events) => {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+
+                // Run the post-processing: no event, no receipt event, but a
+                // new event might be acknowledged by a pending receipt, in that
+                // case, we want to recompute the read receipts!
+                state
+                    .post_process_upserted_events(
+                        // We don't want to post-process these events: they
+                        // are coming from the cache, they have been
+                        // post-processed already!
+                        empty(),
+                        // A back-pagination can't include new read receipt
+                        // events, as those are ephemeral events not included in
+                        // /relations responses, so we can safely set the
+                        // receipt event to None here.
+                        //
+                        // Note: read receipts may be updated anyhow in the
+                        // post-processing step, as the back-pagination may have
+                        // revealed the event pointed to by the latest read
+                        // receipt.
+                        None,
+                    )
+                    .await?;
 
                 // Send the diffs while the state lock is still held: the
                 // indices they carry are only valid if no other change to the
