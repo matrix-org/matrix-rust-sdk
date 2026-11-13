@@ -1462,7 +1462,8 @@ mod tests {
         encryption::EncryptionSettings,
         event_cache::{
             DecryptionRetryRequest, RedecryptorReport, RoomEventCacheGenericUpdate,
-            RoomEventCacheUpdate, TimelineVectorDiffs, redecryptor::RoomKeyCollator,
+            RoomEventCacheUpdate, TimelineVectorDiffs, caches::subscriber::Subscriber,
+            redecryptor::RoomKeyCollator,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -2096,25 +2097,12 @@ mod tests {
         let delayed_store = delayed_store.unwrap();
 
         // Send enough messages to exceed the capacity of the internal channel
-        // used by OlmMachine's room key stream. See `CryptoStoreWrapper::new`.
+        // used by OlmMachine's room key stream, each with a unique room key so
+        // Bob's channel fills up. See `CryptoStoreWrapper::new`.
         const EVENT_COUNT: usize = ROOM_KEYS_RECEIVED_CAPACITY + 15;
-        let mut events = vec![];
-        let mut room_keys = vec![];
-
-        for i in 0..EVENT_COUNT {
-            // Force a unique room key per event so Bob's channel fills up.
-            alice.get_room(room_id).unwrap().discard_room_key().await.unwrap();
-            let (event, room_key) = send_encrypted(
-                &matrix_mock_server,
-                &alice,
-                room_id,
-                &OwnedEventId::try_from(format!("${i}")).unwrap(),
-                RoomMessageEventContent::text_plain("It's a secret to everybody"),
-            )
+        let (events, room_keys) =
+            send_encrypted_with_unique_keys(&matrix_mock_server, &alice, room_id, EVENT_COUNT)
             .await;
-            events.push(event);
-            room_keys.push(room_key);
-        }
 
         let event_cache = bob.event_cache().unwrap();
 
@@ -2191,23 +2179,9 @@ mod tests {
         // (the one with the events) did not contain any room keys. The
         // redecryptor receives the room keys later.
 
-        // Bob has received an update from the cache.
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                subscriber.recv()
-        );
-
         // All events should be appended as UTDs, as we did not receive the room
-        // keys yet. They may span several appends, one per linked chunk.
-        let mut appended = 0;
-        for diff in diffs {
-            assert_let!(VectorDiff::Append { values } = diff);
-            for value in &values {
-                assert_matches!(&value.kind, TimelineEventKind::UnableToDecrypt { .. });
-            }
-            appended += values.len();
-        }
-        assert_eq!(appended, EVENT_COUNT);
+        // keys yet.
+        assert_appended_as_utds(&mut subscriber, EVENT_COUNT).await;
 
         // And the companion generic update.
         assert_let_timeout!(
@@ -2216,22 +2190,7 @@ mod tests {
         assert_eq!(expected_room_id, room_id);
 
         // Collect updates from the event cache until every event was decrypted.
-        // R2D2 may decrypt them one key at a time, or in a single batch once
-        // the events reach its event cache update stream, depending on which it
-        // handles first.
-        let mut decrypted = BTreeSet::new();
-        while decrypted.len() < EVENT_COUNT {
-            assert_let_timeout!(
-                Duration::from_secs(1),
-                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                    subscriber.recv()
-            );
-            for diff in diffs {
-                assert_let!(VectorDiff::Set { index, value } = diff);
-                assert_matches!(value.kind, TimelineEventKind::Decrypted { .. });
-                decrypted.insert(index);
-            }
-        }
+        assert_all_decrypted(&mut subscriber, EVENT_COUNT, Duration::from_secs(1)).await;
 
         // R2D2 must never have missed a room key. Without the collator, the
         // room key stream lags and R2D2 falls back to a `Lagging` report.
@@ -2275,6 +2234,81 @@ mod tests {
             .expect("the send should have shared a new room key - did you forget to rotate?");
 
         (event, room_key)
+    }
+
+    /// Helper method to send `count` encrypted messages to a room, discarding
+    /// the room key before each send so every event is encrypted with a
+    /// unique session.
+    async fn send_encrypted_with_unique_keys(
+        matrix_mock_server: &MatrixMockServer,
+        client: &Client,
+        room_id: &RoomId,
+        count: usize,
+    ) -> (Vec<Raw<AnySyncTimelineEvent>>, Vec<Raw<EncryptedToDeviceEvent>>) {
+        let mut events = Vec::with_capacity(count);
+        let mut room_keys = Vec::with_capacity(count);
+
+        for i in 0..count {
+            client.get_room(room_id).unwrap().discard_room_key().await.unwrap();
+            let (event, room_key) = send_encrypted(
+                matrix_mock_server,
+                client,
+                room_id,
+                &OwnedEventId::try_from(format!("${i}")).unwrap(),
+                RoomMessageEventContent::text_plain("It's a secret to everybody"),
+            )
+            .await;
+            events.push(event);
+            room_keys.push(room_key);
+        }
+
+        (events, room_keys)
+    }
+
+    /// Assert that the next timeline update appends exactly `expected` events,
+    /// all of them UTDs. The events may span several appends, one per linked
+    /// chunk.
+    async fn assert_appended_as_utds(
+        subscriber: &mut Subscriber<RoomEventCacheUpdate>,
+        expected: usize,
+    ) {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
+        );
+
+        let mut appended = 0;
+        for diff in diffs {
+            assert_let!(VectorDiff::Append { values } = diff);
+            for value in &values {
+                assert_matches!(&value.kind, TimelineEventKind::UnableToDecrypt { .. });
+            }
+            appended += values.len();
+        }
+        assert_eq!(appended, expected);
+    }
+
+    /// Collect timeline updates until `expected` distinct events have been
+    /// decrypted. R2D2 may decrypt them one key at a time, or in a single
+    /// batch, depending on which of its streams it handles first.
+    async fn assert_all_decrypted(
+        subscriber: &mut Subscriber<RoomEventCacheUpdate>,
+        expected: usize,
+        update_timeout: Duration,
+    ) {
+        let mut decrypted = BTreeSet::new();
+        while decrypted.len() < expected {
+            assert_let_timeout!(
+                update_timeout,
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                    subscriber.recv()
+            );
+            for diff in diffs {
+                assert_let!(VectorDiff::Set { index, value } = diff);
+                assert_matches!(value.kind, TimelineEventKind::Decrypted { .. });
+                decrypted.insert(index);
+            }
+        }
     }
 
     /// Bundle `child` as the latest thread event of `root`.
