@@ -1319,8 +1319,10 @@ impl Client {
     /// Subscribe to future `beacon_info` updates for the current user across
     /// all rooms.
     ///
-    /// This stream is push-only: it emits only future updates observed during
-    /// sync processing and does not replay existing state.
+    /// This stream is push-only: it emits only updates observed during sync
+    /// processing. Only the room's current own `beacon_info` is emitted, older
+    /// ones replayed in a sync timeline are skipped. The current one may be
+    /// emitted again if sync sends it again, e.g. on a new connection.
     pub fn observe_own_beacon_info_updates(
         &self,
     ) -> Result<impl Stream<Item = BeaconInfoUpdate> + use<>> {
@@ -1332,6 +1334,15 @@ impl Client {
 
             while let Some((event, room)) = stream.next().await {
                 if event.state_key != own_user_id {
+                    continue;
+                }
+                // Sync stores the room state before calling event handlers, so
+                // anything that isn't the stored one is an older replay.
+                let is_current = room
+                    .get_user_beacon_info(&own_user_id)
+                    .await
+                    .is_ok_and(|current| current.event_id == event.event_id);
+                if !is_current {
                     continue;
                 }
                 yield BeaconInfoUpdate {

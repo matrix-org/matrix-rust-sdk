@@ -1308,6 +1308,56 @@ async fn test_observe_own_beacon_info_updates_delivers_updates_from_multiple_roo
 }
 
 #[async_test]
+async fn test_observe_own_beacon_info_updates_skips_replayed_older_events() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().expect("client is logged in");
+
+    let stream = client.observe_own_beacon_info_updates().unwrap();
+    let mut stream = pin!(stream);
+
+    let now = MilliSecondsSinceUnixEpoch::now();
+    let f = EventFactory::new();
+    let beacon_info = |event_id, live| {
+        f.beacon_info(None, Duration::from_millis(300_000), live, Some(now))
+            .event_id(event_id)
+            .sender(user_id)
+            .state_key(user_id)
+            .into_raw_sync_state()
+    };
+
+    // The current share is `$c`, but the timeline replays the older share `$a`
+    // and its stop `$b`.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .use_state_after()
+                .add_state_event(beacon_info(event_id!("$c"), true))
+                .add_timeline_state_bulk([
+                    beacon_info(event_id!("$a"), true),
+                    beacon_info(event_id!("$b"), false),
+                ]),
+        )
+        .await;
+
+    assert!(stream.next().now_or_never().is_none());
+
+    // A newer stop becomes the current state and is emitted.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .add_timeline_state_bulk([beacon_info(event_id!("$d"), false)]),
+        )
+        .await;
+
+    let update = stream.next().await.expect("expected a beacon_info update");
+    assert_eq!(update.event_id, "$d");
+    assert!(!update.content.live);
+}
+
+#[async_test]
 async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_updates() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
