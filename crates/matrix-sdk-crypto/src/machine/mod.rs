@@ -3372,7 +3372,7 @@ impl UncommittedCrossSigningReset {
     /// Commit the cross-signing reset.
     ///
     /// This will store the new cross-signing identity in the crypto store,
-    /// overwriting any previous identity. This method is idempotent.
+    /// overwriting any previous identity.
     ///
     /// Returns the request to upload the signatures for the new cross-signing
     /// keys. It should be sent out after any pending device keys have been
