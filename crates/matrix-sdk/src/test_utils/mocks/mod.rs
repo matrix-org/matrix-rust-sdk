@@ -30,7 +30,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, User, event_factory::EventFactory, test_json,
+    SyncResponseBuilder, TestDevice, User, event_factory::EventFactory, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
@@ -41,6 +41,7 @@ use ruma::{
             discovery::get_capabilities::v3::Capabilities,
             receipt::create_receipt::v3::ReceiptType,
             room::Visibility,
+            session::login::v3::{DiscoveryInfo, HomeserverInfo, IdentityServerInfo},
             sync::sync_events::msc4186,
             threads::get_thread_subscriptions_changes::msc4308::{
                 ThreadSubscription, ThreadUnsubscription,
@@ -4835,7 +4836,7 @@ pub struct LoginEndpoint;
 impl<'a> MockEndpoint<'a, LoginEndpoint> {
     /// Returns a successful response.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_json(&*test_json::LOGIN)
+        self.ok_with(LoginResponseTemplate200::with_default_fields())
     }
 
     /// Returns a given response on POST /login requests
@@ -4895,48 +4896,32 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
     /// }
     /// ```
     pub fn ok_with(self, response: LoginResponseTemplate200) -> MatrixMock<'a> {
-        self.ok_json(json!({
-            "access_token": response.access_token,
-            "device_id": response.device_id,
-            "user_id": response.user_id,
-            "expires_in": response.expires_in.map(|duration| { duration.as_millis() }),
-            "refresh_token": response.refresh_token,
-            "well_known": response.well_known.map(|vals| {
-                json!({
-                    "m.homeserver": {
-                        "base_url": vals.homeserver_url
-                    },
-                    "m.identity_server": vals.identity_url.map(|url| {
-                        json!({
-                            "base_url": url
-                        })
-                    })
-                })
+        self.ok_json(response)
+    }
+
+    /// Returns a `M_FORBIDDEN` error response.
+    pub fn error_forbidden(self) -> MatrixMock<'a> {
+        self.respond_with_code_and_json(
+            403,
+            json!({
+                "errcode": "M_FORBIDDEN",
+                "error": "Invalid password",
             }),
-        }))
+        )
     }
 }
 
-#[derive(Default)]
-struct LoginResponseWellKnown {
-    /// Required if well_known is used: The base URL for the homeserver for
-    /// client-server connections.
-    homeserver_url: String,
-
-    /// Required if well_known and m.identity_server are used: The base URL for
-    /// the identity server for client-server connections.
-    identity_url: Option<String>,
-}
-
 /// A response to a [`LoginEndpoint`] query with status code 200.
-#[derive(Default)]
+#[derive(Default, Serialize)]
 pub struct LoginResponseTemplate200 {
     /// Required: An access token for the account. This access token can then be
     /// used to authorize other requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
     access_token: Option<String>,
 
     /// Required: ID of the logged-in device. Will be the same as the
     /// corresponding parameter in the request, if one was specified.
+    #[serde(skip_serializing_if = "Option::is_none")]
     device_id: Option<OwnedDeviceId>,
 
     /// The lifetime of the access token, in milliseconds. Once the access token
@@ -4944,21 +4929,29 @@ pub struct LoginResponseTemplate200 {
     /// refresh token. If no refresh token is provided, the client will need to
     /// re-log in to obtain a new access token. If not given, the client can
     /// assume that the access token will not expire.
+    #[serde(
+        rename = "expires_in_ms",
+        with = "ruma::serde::duration::opt_ms",
+        skip_serializing_if = "Option::is_none"
+    )]
     expires_in: Option<Duration>,
 
     /// A refresh token for the account. This token can be used to obtain a new
     /// access token when it expires by calling the /refresh endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
     refresh_token: Option<String>,
 
     /// Required: The fully-qualified Matrix ID for the account.
+    #[serde(skip_serializing_if = "Option::is_none")]
     user_id: Option<OwnedUserId>,
 
     /// Optional client configuration provided by the server.
-    well_known: Option<LoginResponseWellKnown>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    well_known: Option<DiscoveryInfo>,
 }
 
 impl LoginResponseTemplate200 {
-    /// Constructor for empty response
+    /// Constructor for a response with the given minimal expected fields.
     pub fn new<T1: Into<OwnedDeviceId>, T2: Into<OwnedUserId>>(
         access_token: &str,
         device_id: T1,
@@ -4968,6 +4961,17 @@ impl LoginResponseTemplate200 {
             access_token: Some(access_token.to_owned()),
             device_id: Some(device_id.into()),
             user_id: Some(user_id.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Constructor for a response with default values for the minimal expected
+    /// fields.
+    pub fn with_default_fields() -> Self {
+        Self {
+            access_token: Some("1234".to_owned()),
+            device_id: Some(TestDevice::Default.into()),
+            user_id: Some(User::Default.into()),
             ..Default::default()
         }
     }
@@ -4987,7 +4991,9 @@ impl LoginResponseTemplate200 {
     /// sets well_known which takes a homeserver_url and an optional
     /// identity_url
     pub fn well_known(mut self, homeserver_url: String, identity_url: Option<String>) -> Self {
-        self.well_known = Some(LoginResponseWellKnown { homeserver_url, identity_url });
+        let mut well_known = DiscoveryInfo::new(HomeserverInfo::new(homeserver_url));
+        well_known.identity_server = identity_url.map(IdentityServerInfo::new);
+        self.well_known = Some(well_known);
         self
     }
 }
