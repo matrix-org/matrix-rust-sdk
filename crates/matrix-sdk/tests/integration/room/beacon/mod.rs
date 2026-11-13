@@ -383,6 +383,55 @@ async fn test_location_update_for_already_tracked_user() {
 }
 
 #[async_test]
+async fn test_replayed_older_beacon_info_keeps_current_share() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let now = MilliSecondsSinceUnixEpoch::now();
+    let f = EventFactory::new();
+    let sender = User::Alice;
+    let beacon_info = |event_id, live| {
+        f.beacon_info(None, Duration::from_millis(300_000), live, Some(now))
+            .event_id(event_id)
+            .sender(sender)
+            .state_key(sender)
+            .into_raw_sync_state()
+    };
+
+    // Alice's current share is `$c`.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_state_event(beacon_info(event_id!("$c"), true)),
+        )
+        .await;
+
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, stream) = live_locations_observer.subscribe();
+    let mut stream = pin!(stream);
+    assert_eq!(initial.len(), 1);
+    assert_eq!(initial[0].beacon_id, "$c");
+
+    // The timeline replays Alice's older share `$a` and its stop `$b`, while
+    // `$c` stays current.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .use_state_after()
+                .add_state_event(beacon_info(event_id!("$c"), true))
+                .add_timeline_state_bulk([
+                    beacon_info(event_id!("$a"), true),
+                    beacon_info(event_id!("$b"), false),
+                ]),
+        )
+        .await;
+
+    // Neither the replays nor the resent `$c` change Alice's share.
+    assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
 async fn test_beacon_info_stop_removes_user_from_stream() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
