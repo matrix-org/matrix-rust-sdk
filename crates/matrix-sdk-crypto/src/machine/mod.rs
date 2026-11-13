@@ -3377,7 +3377,7 @@ impl UncommittedCrossSigningReset {
     /// Returns the request to upload the signatures for the new cross-signing
     /// keys. It should be sent out after any pending device keys have been
     /// uploaded, since the signatures may reference keys yet to be uploaded.
-    pub async fn commit(&self) -> Result<UploadSignaturesRequest, CryptoStoreError> {
+    pub async fn commit(self) -> Result<UploadSignaturesRequest, CryptoStoreError> {
         let Self { olm_machine, identity, public, upload_signatures_req, .. } = self;
 
         *olm_machine.inner.user_identity.lock().await = identity.clone();

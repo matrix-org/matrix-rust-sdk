@@ -21,7 +21,7 @@ use std::{collections::BTreeSet, ops::Deref};
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
-    iter,
+    iter, mem,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -441,7 +441,7 @@ impl CrossSigningResetHandle {
         // Make sure that we don't continue with the reset if someone else has
         // already completed it.
         let mut guard = self.inner.lock().await;
-        let Some(handle) = guard.as_ref() else {
+        let Some(handle) = mem::take(&mut *guard) else {
             return Ok(());
         };
 
@@ -460,9 +460,8 @@ impl CrossSigningResetHandle {
         // Query our own device keys since we just updated them.
         self.client.encryption().query_own_keys(olm).await;
 
-        // Finally, drop the inner handle to mark the cross-signing reset as
-        // completed.
-        *guard = None;
+        // We've already replaced `guard` with `None` above, so we don't need to
+        // tidy that up now.
 
         Ok(())
     }
