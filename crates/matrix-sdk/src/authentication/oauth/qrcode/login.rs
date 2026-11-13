@@ -44,6 +44,7 @@ use crate::{
         qrcode::{
             CheckCodeSender, GeneratedQrProgress, LoginProtocolType, QrProgress,
             messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
+            use_msc_4388_for_generated_qr_code,
         },
     },
 };
@@ -461,7 +462,6 @@ pub struct LoginWithGeneratedQrCode {
     client: Client,
     registration_data: Option<ClientRegistrationData>,
     state: SharedObservable<LoginProgress<GeneratedQrProgress>>,
-    msc_4388_support: bool,
 }
 
 impl LoginWithGeneratedQrCode {
@@ -473,15 +473,6 @@ impl LoginWithGeneratedQrCode {
         &self,
     ) -> impl Stream<Item = LoginProgress<GeneratedQrProgress>> + use<> {
         self.state.subscribe()
-    }
-
-    /// Enable and generate a QR code which supports [MSC4388].
-    ///
-    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
-    #[cfg(feature = "unstable-msc4388")]
-    pub fn with_msc4388_support(&mut self) -> &mut Self {
-        self.msc_4388_support = true;
-        self
     }
 }
 
@@ -530,7 +521,6 @@ impl LoginWithGeneratedQrCode {
             client: client.clone(),
             registration_data: registration_data.cloned(),
             state: Default::default(),
-            msc_4388_support: false,
         }
     }
 
@@ -541,7 +531,8 @@ impl LoginWithGeneratedQrCode {
         // login with.
         //
         // -- MSC4108 Secure channel setup steps 1 & 2
-        let secure_channel = SecureChannel::login(&self.client, self.msc_4388_support).await?;
+        let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client).await?;
+        let secure_channel = SecureChannel::login(&self.client, msc_4388).await?;
 
         // Extract the QR code data and emit a progress update so that the
         // caller can present the QR code for scanning by the other device.
@@ -793,8 +784,7 @@ mod test {
     async fn test_qr_login(msc_4388: bool) {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
@@ -912,13 +902,8 @@ mod test {
     #[cfg(feature = "unstable-msc4388")]
     async fn test_qr_login_with_homeserver_swap_msc_4388() {
         let initial_server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(
-            initial_server.server(),
-            "abcdEFG12345",
-            Duration::MAX,
-            true,
-        )
-        .await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&initial_server, "abcdEFG12345", Duration::MAX, true).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let login_server = MatrixMockServer::new().await;
@@ -1157,8 +1142,7 @@ mod test {
     async fn test_generated_qr_login(msc_4388: bool) {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -1214,13 +1198,7 @@ mod test {
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
-        #[allow(unused_mut)]
-        let mut bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            bob_login.with_msc4388_support();
-        }
+        let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
 
         let mut bob_updates = bob_login.subscribe_to_progress();
 
@@ -1288,13 +1266,9 @@ mod test {
 
     async fn test_generated_qr_login_with_homeserver_swap(msc_4388: bool) {
         let initial_server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(
-            initial_server.server(),
-            "abcdEFG12345",
-            Duration::MAX,
-            msc_4388,
-        )
-        .await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&initial_server, "abcdEFG12345", Duration::MAX, msc_4388)
+                .await;
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
 
@@ -1369,13 +1343,7 @@ mod test {
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
-        #[allow(unused_mut)]
-        let mut bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            bob_login.with_msc4388_support();
-        }
+        let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
 
         let mut bob_updates = bob_login.subscribe_to_progress();
 
@@ -1456,8 +1424,7 @@ mod test {
             _ => Duration::MAX,
         };
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", expiration, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", expiration, msc_4388).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();
@@ -1605,8 +1572,7 @@ mod test {
             _ => Duration::MAX,
         };
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", expiration, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", expiration, msc_4388).await;
 
         let (qr_sender, qr_receiver) = tokio::sync::oneshot::channel();
         let (cctx_sender, cctx_receiver) = tokio::sync::oneshot::channel();
@@ -1684,13 +1650,7 @@ mod test {
 
         let registration_data = mock_client_metadata().into();
         let bob_oauth = bob.oauth();
-        #[allow(unused_mut)]
-        let mut bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            bob_login.with_msc4388_support();
-        }
+        let bob_login = bob_oauth.login_with_qr_code(Some(&registration_data)).generate();
 
         let mut bob_updates = bob_login.subscribe_to_progress();
 
@@ -2194,8 +2154,7 @@ mod test {
     async fn test_device_authorization_endpoint_missing() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
         let oauth_server = server.oauth();

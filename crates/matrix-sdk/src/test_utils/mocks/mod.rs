@@ -1941,6 +1941,16 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, GetRtcTransportsEndpoint)
     }
 
+    /// Creates a prebuilt mock for the endpoint used to discover whether the
+    /// homeserver supports creating rendezvous sessions with [MSC4388].
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    pub fn mock_rendezvous_discovery(&self) -> MockEndpoint<'_, RendezvousDiscoveryEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path("/_matrix/client/unstable/io.element.msc4388/rendezvous"));
+        self.mock_endpoint(mock, RendezvousDiscoveryEndpoint)
+    }
+
     /// Creates a prebuilt mock for getting global account data.
     pub fn mock_get_global_account_data(
         &self,
@@ -5822,6 +5832,18 @@ impl<'a> MockEndpoint<'a, GetRtcTransportsEndpoint> {
                 { "type": "m.livekit", "url": "wss://livekit.example.com" }
             ]
         })))
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /_matrix/client/unstable/io.element.msc4388/rendezvous`.
+pub struct RendezvousDiscoveryEndpoint;
+
+impl<'a> MockEndpoint<'a, RendezvousDiscoveryEndpoint> {
+    /// Returns a successful response with the given value for
+    /// `create_available`.
+    pub fn ok(self, create_available: bool) -> MatrixMock<'a> {
+        self.ok_json(json!({ "create_available": create_available }))
     }
 }
 

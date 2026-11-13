@@ -29,6 +29,7 @@ use matrix_sdk::{
     ToDeviceMessage as SdkToDeviceMessage,
     authentication::oauth::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
+        qrcode::QrCodeLoginSupport,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     event_cache::SearchBackfillStrategy,
@@ -2382,10 +2383,56 @@ impl Client {
         self.inner.tile_server().await
     }
 
-    /// Checks if the server supports login using a QR code.
-    pub async fn is_login_with_qr_code_supported(&self) -> Result<bool, ClientError> {
-        Ok(matches!(self.inner.auth_api(), Some(AuthApi::OAuth(_)))
-            && self.inner.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108))
+    /// Checks which modes of QR code login this client supports to log in.
+    ///
+    /// This is meant for a new client that isn't logged in yet. For an
+    /// existing client that wants to grant a login to a new client, use
+    /// [`Client::grant_login_with_qr_code_support()`] instead.
+    ///
+    /// Call this before offering to log in with a QR code, to only offer the
+    /// supported modes to the user.
+    ///
+    /// Scanning a QR code is always supported. Generating a QR code is
+    /// supported if the homeserver supports creating rendezvous sessions.
+    ///
+    /// Returns an error if the support can't be fetched from the homeserver,
+    /// so that it can be retried later.
+    pub async fn login_with_qr_code_support(&self) -> Result<QrCodeLoginSupport, ClientError> {
+        Ok(self.inner.oauth().login_with_qr_code_support().await?)
+    }
+
+    /// Checks which modes of QR code login this client supports to grant a
+    /// login to a new client.
+    ///
+    /// This is meant for an existing client that is logged in. For a new
+    /// client that wants to log in, use
+    /// [`Client::login_with_qr_code_support()`] instead.
+    ///
+    /// Call this before offering to grant a login with a QR code, to only offer
+    /// the supported modes to the user. For example, this avoids the
+    /// [`HumanQrGrantLoginError::UnsupportedProtocol`] error when the
+    /// authorization server doesn't support the device authorization grant.
+    ///
+    /// No mode is supported unless OAuth 2.0 was used to log in this client
+    /// and the authorization server supports the device authorization grant.
+    /// Otherwise, scanning a QR code is supported, and generating a QR code is
+    /// supported if the homeserver supports creating rendezvous sessions.
+    ///
+    /// Returns an error if the support can't be fetched from the servers, so
+    /// that it can be retried later.
+    ///
+    /// Granting a login also requires this device to have the private
+    /// cross-signing keys, which is usually the case once it is verified. This
+    /// isn't checked here, because it can change when this device is verified.
+    /// Otherwise, granting a login fails with
+    /// [`HumanQrGrantLoginError::MissingSecretsBackup`].
+    ///
+    /// [`HumanQrGrantLoginError::MissingSecretsBackup`]: crate::qr_code::HumanQrGrantLoginError::MissingSecretsBackup
+    /// [`HumanQrGrantLoginError::UnsupportedProtocol`]: crate::qr_code::HumanQrGrantLoginError::UnsupportedProtocol
+    pub async fn grant_login_with_qr_code_support(
+        &self,
+    ) -> Result<QrCodeLoginSupport, ClientError> {
+        Ok(self.inner.oauth().grant_login_with_qr_code_support().await?)
     }
 
     /// Get server vendor information from the federation API.
@@ -4054,6 +4101,30 @@ pub struct ExtendedProfileFields {
     pub enabled: bool,
     pub allowed: Vec<String>,
     pub disallowed: Vec<String>,
+}
+
+/// Deprecated methods of [`Client`], in their own module so that UniFFI can use
+/// them without allowing deprecated items in the whole `client` module.
+mod deprecated {
+    // Allow UniFFI to use methods marked as `#[deprecated]`.
+    #![allow(deprecated)]
+
+    use super::{Client, ClientError};
+
+    #[matrix_sdk_ffi_macros::export]
+    impl Client {
+        /// Checks if this client can grant a login to a new client by
+        /// generating a QR code.
+        ///
+        /// This is only meant for an existing client that is logged in,
+        /// despite its name. It is equivalent to the `generate` field returned
+        /// by [`Client::grant_login_with_qr_code_support()`].
+        #[deprecated = "Use `Client::grant_login_with_qr_code_support()` or \
+                        `Client::login_with_qr_code_support()` instead"]
+        pub async fn is_login_with_qr_code_supported(&self) -> Result<bool, ClientError> {
+            Ok(self.grant_login_with_qr_code_support().await?.generate)
+        }
+    }
 }
 
 #[cfg(test)]

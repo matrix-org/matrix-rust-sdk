@@ -494,6 +494,8 @@ impl ClientInner {
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
             rtc_transports: Cache::new(),
+            #[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4388"))]
+            msc_4388_rendezvous_server: Cache::new(),
         };
 
         let client = Self {
@@ -622,6 +624,12 @@ impl Client {
         room_load_settings: RoomLoadSettings,
         #[cfg(feature = "e2e-encryption")] custom_account: Option<olm::Account>,
     ) -> Result<()> {
+        // Don't use the MSC4388 support that was checked without a session,
+        // because the homeserver might only let authenticated users create
+        // rendezvous sessions.
+        #[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4388"))]
+        self.inner.caches.msc_4388_rendezvous_server.reset();
+
         // First off, activate the base client.
         self.inner
             .base_client
@@ -690,7 +698,9 @@ impl Client {
 
     /// Change the homeserver URL used by this client.
     ///
-    /// Note that this will reset [`Client::server`] to `None`.
+    /// Note that this will reset [`Client::server`] to `None`, and drop the
+    /// cached data about the previous homeserver that is only used for a short
+    /// time.
     ///
     /// # Arguments
     ///
@@ -701,6 +711,10 @@ impl Client {
 
         *homeserver = homeserver_url;
         *server = None;
+
+        // Don't use the MSC4388 support of the previous homeserver.
+        #[cfg(all(feature = "e2e-encryption", feature = "unstable-msc4388"))]
+        self.inner.caches.msc_4388_rendezvous_server.reset();
     }
 
     /// Change to a different homeserver and re-resolve well-known.
