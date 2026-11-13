@@ -1570,10 +1570,23 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, MediaConfigEndpoint)
     }
 
+    /// Create a prebuilt mock for the endpoint used to get the supported legacy
+    /// login types.
+    pub fn mock_get_login_types(&self) -> MockEndpoint<'_, GetLoginTypesEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/login"));
+        self.mock_endpoint(mock, GetLoginTypesEndpoint)
+    }
+
     /// Create a prebuilt mock for the endpoint used to log into a session.
     pub fn mock_login(&self) -> MockEndpoint<'_, LoginEndpoint> {
         let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/login"));
         self.mock_endpoint(mock, LoginEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to register a new account.
+    pub fn mock_register(&self) -> MockEndpoint<'_, RegisterEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/register"));
+        self.mock_endpoint(mock, RegisterEndpoint)
     }
 
     /// Create a prebuilt mock for the endpoint used to list the devices of a
@@ -4830,6 +4843,22 @@ impl<'a> MockEndpoint<'a, MediaConfigEndpoint> {
     }
 }
 
+/// A prebuilt mock for the `GET /_matrix/client/v3/login` endpoint.
+pub struct GetLoginTypesEndpoint;
+
+impl<'a> MockEndpoint<'a, GetLoginTypesEndpoint> {
+    /// Returns a successful response supporting password and SSO login.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "flows": [
+                { "type": "m.login.password" },
+                { "type": "m.login.sso" },
+                { "type": "m.login.token" },
+            ],
+        }))
+    }
+}
+
 /// A prebuilt mock for `POST /login` requests.
 pub struct LoginEndpoint;
 
@@ -4995,6 +5024,31 @@ impl LoginResponseTemplate200 {
         well_known.identity_server = identity_url.map(IdentityServerInfo::new);
         self.well_known = Some(well_known);
         self
+    }
+}
+
+/// A prebuilt mock for the `POST /_matrix/client/v3/register` endpoint.
+pub struct RegisterEndpoint;
+
+impl<'a> MockEndpoint<'a, RegisterEndpoint> {
+    /// Returns a successful default response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "access_token": "1234",
+            "device_id": TestDevice::Default,
+            "user_id": User::Default,
+        }))
+    }
+
+    /// Returns a `M_FORBIDDEN` error response.
+    pub fn error_forbidden(self) -> MatrixMock<'a> {
+        self.respond_with_code_and_json(
+            403,
+            json!({
+                "errcode": "M_FORBIDDEN",
+                "error": "Invalid password",
+            }),
+        )
     }
 }
 
