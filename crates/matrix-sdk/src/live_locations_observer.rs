@@ -243,6 +243,19 @@ impl LiveLocationsObserver {
         room: &Room,
         event: OriginalSyncBeaconInfoEvent,
     ) {
+        // The share is already tracked, e.g. sync sent the current event again.
+        if shares.lock().iter().any(|s| s.beacon_id == event.event_id) {
+            return;
+        }
+        // Sync stores the room state before calling event handlers, so anything
+        // that isn't the stored one is an older replay.
+        let is_current = room
+            .get_user_beacon_info(&event.state_key)
+            .await
+            .is_ok_and(|current| current.event_id == event.event_id);
+        if !is_current {
+            return;
+        }
         {
             let mut shares = shares.lock();
             if let Some(idx) = shares.iter().position(|s| s.user_id == *event.state_key) {
