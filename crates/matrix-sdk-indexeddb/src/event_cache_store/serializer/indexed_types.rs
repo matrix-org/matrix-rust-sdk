@@ -63,7 +63,20 @@ pub type IndexedLeaseContent = MaybeEncrypted;
 
 /// A (possibly) hashed representation of a [`LinkedChunkId`] which is suitable
 /// for use in an IndexedDB key
-pub type IndexedLinkedChunkId = Vec<u8>;
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct IndexedLinkedChunkId(Vec<u8>);
+
+impl IndexedLinkedChunkId {
+    /// Encodes a [`LinkedChunkId`] into an [`IndexedLinkedChunkId`] using
+    /// the provided [`SafeEncodeSerializer`].
+    pub fn encode_from(
+        linked_chunk_id: &LinkedChunkId<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        Self(serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key()))
+    }
+}
 
 /// A (possibly) hashed representation of an [`RoomId`] which is suitable for
 /// use in an IndexedDB key
@@ -231,8 +244,7 @@ impl IndexedKey<Chunk> for IndexedChunkIdKey {
         (linked_chunk_id, chunk_id): Self::KeyComponents<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let linked_chunk_id = IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
         let chunk_id = chunk_id.index();
         Self(linked_chunk_id, chunk_id)
     }
@@ -299,9 +311,9 @@ impl IndexedKey<Chunk> for IndexedNextChunkIdKey {
                 ))
             })
             .unwrap_or_else(|| {
-                let room_id =
-                    serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
-                Self::none(room_id)
+                let linked_chunk_id =
+                    IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
+                Self::none(linked_chunk_id)
             })
     }
 }
@@ -426,8 +438,14 @@ impl Indexed for Event {
 /// - The (possibly) hashed Event ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
+
+impl IndexedEventIdKey {
+    pub fn indexed_linked_chunk_id(&self) -> &IndexedLinkedChunkId {
+        &self.0
+    }
+}
 
 impl IndexedKey<Event> for IndexedEventIdKey {
     type KeyComponents<'a> = (LinkedChunkId<'a>, &'a EventId);
@@ -436,8 +454,7 @@ impl IndexedKey<Event> for IndexedEventIdKey {
         (linked_chunk_id, event_id): Self::KeyComponents<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let linked_chunk_id = IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
         let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
         Self(linked_chunk_id, event_id)
     }
@@ -448,8 +465,7 @@ impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
         linked_chunk_id: LinkedChunkId<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let linked_chunk_id = IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
         Self(linked_chunk_id, (*INDEXED_KEY_LOWER_STRING).clone())
     }
 
@@ -457,8 +473,7 @@ impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
         linked_chunk_id: LinkedChunkId<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let linked_chunk_id = IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
         Self(linked_chunk_id, (*INDEXED_KEY_UPPER_STRING).clone())
     }
 }
@@ -540,8 +555,7 @@ impl IndexedKey<Event> for IndexedEventPositionKey {
         (linked_chunk_id, position): Self::KeyComponents<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let linked_chunk_id = IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
         Self(linked_chunk_id, position.chunk_identifier, position.index)
     }
 }
@@ -601,8 +615,7 @@ impl IndexedKey<Event> for IndexedEventOutOfBandKey {
         (linked_chunk_id, event_id): Self::KeyComponents<'_>,
         serializer: &SafeEncodeSerializer,
     ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        let linked_chunk_id = IndexedLinkedChunkId::encode_from(&linked_chunk_id, serializer);
         let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
         Self(linked_chunk_id, event_id)
     }
