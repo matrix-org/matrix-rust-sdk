@@ -39,10 +39,17 @@ pub mod x509;
 #[cfg(any(test, feature = "testing"))]
 /// Testing facilities and helpers for crypto tests
 pub mod testing {
-    pub use crate::identities::{
-        device::testing::get_device,
-        user::testing::{
-            get_other_identity, get_own_identity, simulate_key_query_response_for_verification,
+    pub use crate::{
+        identities::{
+            device::testing::get_device,
+            user::testing::{
+                get_other_identity, get_own_identity, simulate_key_query_response_for_verification,
+            },
+        },
+        store::{
+            HISTORIC_ROOM_KEY_BUNDLES_BROADCASTER_CAPACITY, IDENTITIES_BROADCASTER_CAPACITY,
+            ROOM_KEYS_RECEIVED_CAPACITY, ROOM_KEYS_WITHHELD_RECEIVED_CAPACITY,
+            SECRETS_BROADCASTER_CAPACITY,
         },
     };
 }
