@@ -3324,8 +3324,9 @@ mod tests {
     /// in the crypto store (see `store_sliding_sync_state`).
     #[cfg(feature = "e2e-encryption")]
     mod pos_and_event_cache {
-        use std::time::Duration;
+        use std::{pin::pin, time::Duration};
 
+        use futures_util::StreamExt;
         use matrix_sdk_base::{
             event_cache::store::{ControlledMemoryStore, EventCacheStore},
             store::StoreConfig,
@@ -3334,7 +3335,7 @@ mod tests {
             cross_process_lock::CrossProcessLockConfig, executor::spawn, sleep::sleep,
         };
         use matrix_sdk_test::{async_test, event_factory::EventFactory};
-        use ruma::{event_id, room_id};
+        use ruma::{OwnedEventId, RoomId, event_id, room_id, user_id};
         use serde_json::json;
         use tokio::time::timeout;
         use wiremock::{Mock, ResponseTemplate};
@@ -3346,10 +3347,12 @@ mod tests {
         };
 
         /// Create a client using the given event cache store, and a sliding
-        /// sync whose next response carries a timeline event for a room.
+        /// sync whose next response carries a timeline event `$ev<i>` for
+        /// each of the given rooms.
         async fn set_up(
             server: &MatrixMockServer,
             store: &ControlledMemoryStore,
+            rooms: &[&RoomId],
         ) -> Result<(Client, SlidingSync)> {
             let store_config = StoreConfig::new(CrossProcessLockConfig::SingleProcess)
                 .event_cache_store(store.clone());
@@ -3359,21 +3362,29 @@ mod tests {
                 .build()
                 .await;
 
-            let room_id = room_id!("!r0:example.org");
-            let f = EventFactory::new().room(room_id).sender(ruma::user_id!("@alice:example.org"));
+            let rooms = rooms
+                .iter()
+                .enumerate()
+                .map(|(i, room_id)| {
+                    let f =
+                        EventFactory::new().room(*room_id).sender(user_id!("@alice:example.org"));
+                    let event_id = OwnedEventId::try_from(format!("$ev{i}")).unwrap();
+
+                    (
+                        room_id.to_string(),
+                        json!({
+                            "initial": true,
+                            "timeline": [f.text_msg("hello").event_id(&event_id).into_raw_sync()],
+                        }),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
 
             Mock::given(SlidingSyncMatcher)
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                     "pos": "0",
                     "lists": {},
-                    "rooms": {
-                        room_id: {
-                            "initial": true,
-                            "timeline": [
-                                f.text_msg("hello").event_id(event_id!("$ev0")).into_raw_sync(),
-                            ],
-                        },
-                    },
+                    "rooms": rooms,
                 })))
                 .mount(server.server())
                 .await;
@@ -3400,7 +3411,8 @@ mod tests {
             let store = ControlledMemoryStore::new();
             store.block_writes();
 
-            let (client, sliding_sync) = set_up(&server, &store).await?;
+            let room_id = room_id!("!r0:example.org");
+            let (client, sliding_sync) = set_up(&server, &store, &[room_id]).await?;
 
             let sync = spawn({
                 let sliding_sync = sliding_sync.clone();
@@ -3426,9 +3438,7 @@ mod tests {
                 .expect("the sync never finished after unblocking the store")
                 .unwrap()?;
 
-            assert!(
-                store.find_event(room_id!("!r0:example.org"), event_id!("$ev0")).await?.is_some()
-            );
+            assert!(store.find_event(room_id, event_id!("$ev0")).await?.is_some());
             assert_eq!(persisted_pos(&client, &sliding_sync).await.as_deref(), Some("0"));
 
             Ok(())
@@ -3443,7 +3453,8 @@ mod tests {
             let store = ControlledMemoryStore::new();
             store.fail_writes();
 
-            let (client, sliding_sync) = set_up(&server, &store).await?;
+            let (client, sliding_sync) =
+                set_up(&server, &store, &[room_id!("!r0:example.org")]).await?;
 
             // The event cache can't store the events of the response, so the
             // sync must fail…
@@ -3453,6 +3464,76 @@ mod tests {
             // the events again.
             assert_eq!(persisted_pos(&client, &sliding_sync).await, None);
             assert_eq!(sliding_sync.inner.position.lock().await.pos, None);
+
+            Ok(())
+        }
+
+        /// The app stops the sync service, then calls [`Client::pause`]. This
+        /// shutdown sequence must let the response in flight be handled in
+        /// full before the stores are closed: otherwise the handling fails
+        /// half-way, and the response has to be replayed after
+        /// [`Client::resume`].
+        ///
+        /// Whether `stop_sync` or `pause` does the waiting doesn't matter
+        /// here, as long as the stores aren't closed under the response
+        /// handling.
+        #[async_test]
+        #[ignore = "`stop_sync` doesn't wait for the response handling, see #7302"]
+        async fn test_pause_after_stop_sync_lets_the_response_handling_finish() -> Result<()> {
+            let room_a = room_id!("!a:example.org");
+            let room_b = room_id!("!b:example.org");
+
+            let server = MatrixMockServer::new().await;
+            let store = ControlledMemoryStore::new();
+            store.block_writes();
+
+            let (client, sliding_sync) = set_up(&server, &store, &[room_a, room_b]).await?;
+
+            // Run the sync loop, as the sync service does.
+            let sync_loop = spawn({
+                let sliding_sync = sliding_sync.clone();
+                async move {
+                    let mut stream = pin!(sliding_sync.sync());
+                    stream.next().await.map(|result| result.map(|_| ()))
+                }
+            });
+
+            // The event cache is writing the first room's events, and is stuck.
+            timeout(Duration::from_secs(5), store.wait_for_write_to_start())
+                .await
+                .expect("the event cache never wrote to its store");
+
+            // The app shuts down: it stops the sync loop, as
+            // `SyncService::stop` does, then pauses the client,
+            // which closes the stores.
+            let mut shutdown = spawn({
+                let client = client.clone();
+                let sliding_sync = sliding_sync.clone();
+                async move {
+                    sliding_sync.stop_sync()?;
+                    let exit = sync_loop.await.unwrap();
+                    assert!(exit.is_none(), "the sync loop should stop, not fail: {exit:?}");
+                    client.pause().await
+                }
+            });
+
+            // While the event cache is stuck, the shutdown must wait for it.
+            assert!(
+                timeout(Duration::from_millis(500), &mut shutdown).await.is_err(),
+                "the stores were closed while the response was still being handled"
+            );
+
+            // Let the event cache go on: the shutdown can now finish.
+            store.unblock_writes();
+            timeout(Duration::from_secs(5), shutdown)
+                .await
+                .expect("the shutdown never finished")
+                .unwrap()?;
+
+            // All the events of the response are stored, and so is `pos`.
+            assert!(store.find_event(room_a, event_id!("$ev0")).await?.is_some());
+            assert!(store.find_event(room_b, event_id!("$ev1")).await?.is_some());
+            assert_eq!(persisted_pos(&client, &sliding_sync).await.as_deref(), Some("0"));
 
             Ok(())
         }
