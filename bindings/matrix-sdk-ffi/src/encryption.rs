@@ -613,6 +613,47 @@ impl From<dehydrated_devices::DehydratedDeviceEvent> for DehydratedDeviceEvent {
     }
 }
 
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum RoomKeyImportExportError {
+    #[error("Wrong passphrase")]
+    WrongPassphrase,
+
+    #[error("Invalid key export file: {msg}")]
+    InvalidFile { msg: String },
+
+    #[error("I/O error: {msg}")]
+    Io { msg: String },
+
+    #[error("Unexpected error: {msg}")]
+    Other { msg: String },
+}
+
+impl From<matrix_sdk::Error> for RoomKeyImportExportError {
+    fn from(e: matrix_sdk::Error) -> Self {
+        Self::Other { msg: e.to_string() }
+    }
+}
+
+impl From<matrix_sdk::encryption::RoomKeyImportError> for RoomKeyImportExportError {
+    fn from(e: matrix_sdk::encryption::RoomKeyImportError) -> Self {
+        use matrix_sdk::encryption::RoomKeyImportError as E;
+        match e {
+            E::Io(io_err) => Self::Io { msg: io_err.to_string() },
+            E::Export(export_err) => {
+                use matrix_sdk::encryption::KeyExportError as KE;
+                match export_err {
+                    KE::InvalidMac => Self::WrongPassphrase,
+                    KE::InvalidHeaders | KE::UnsupportedVersion => {
+                        Self::InvalidFile { msg: export_err.to_string() }
+                    }
+                    other => Self::InvalidFile { msg: other.to_string() },
+                }
+            }
+            other => Self::Other { msg: other.to_string() },
+        }
+    }
+}
+
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait DehydratedDeviceEventListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_event(&self, event: DehydratedDeviceEvent);
@@ -668,6 +709,12 @@ fn decode_pickle_key(base64: &str) -> Result<DehydratedDeviceKey, DehydratedDevi
     DehydratedDeviceKey::from_slice(&bytes).map_err(|_| DehydratedDeviceError::InvalidPickleKey)
 }
 
+#[derive(uniffi::Record)]
+pub struct RoomKeyImportSummary {
+    pub imported_count: u64,
+    pub total_count: u64,
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl Encryption {
     /// Get the public ed25519 key of our own device. This is usually what is
@@ -697,6 +744,30 @@ impl Encryption {
 
     pub fn backup_state(&self) -> BackupState {
         self.inner.backups().state().into()
+    }
+
+    pub async fn export_room_keys(
+        &self,
+        path: String,
+        mut passphrase: String,
+    ) -> Result<(), RoomKeyImportExportError> {
+        let result = self.inner.export_room_keys(path.into(), &passphrase, |_| true).await;
+        passphrase.zeroize();
+        Ok(result?)
+    }
+
+    pub async fn import_room_keys(
+        &self,
+        path: String,
+        mut passphrase: String,
+    ) -> Result<RoomKeyImportSummary, RoomKeyImportExportError> {
+        let result = self.inner.import_room_keys(path.into(), &passphrase).await;
+        passphrase.zeroize();
+        let r = result?;
+        Ok(RoomKeyImportSummary {
+            imported_count: r.imported_count as u64,
+            total_count: r.total_count as u64,
+        })
     }
 
     /// Does a backup exist on the server?
@@ -1228,5 +1299,50 @@ impl OAuthCrossSigningResetInfo {
     /// Create UIAA [`AuthData`] to continue this reset session.
     pub fn as_auth_data(&self) -> AuthData {
         AuthData::OAuth { session: self.session.clone() }
+    }
+}
+
+#[cfg(test)]
+mod room_key_import_export_error_tests {
+    use matrix_sdk::encryption::{KeyExportError, RoomKeyImportError};
+
+    use super::RoomKeyImportExportError;
+
+    #[test]
+    fn invalid_mac_maps_to_wrong_passphrase() {
+        let err: RoomKeyImportExportError =
+            RoomKeyImportError::Export(KeyExportError::InvalidMac).into();
+        assert!(matches!(err, RoomKeyImportExportError::WrongPassphrase));
+    }
+
+    #[test]
+    fn invalid_headers_maps_to_invalid_file() {
+        let err: RoomKeyImportExportError =
+            RoomKeyImportError::Export(KeyExportError::InvalidHeaders).into();
+        assert!(matches!(err, RoomKeyImportExportError::InvalidFile { .. }));
+    }
+
+    #[test]
+    fn unsupported_version_maps_to_invalid_file() {
+        let err: RoomKeyImportExportError =
+            RoomKeyImportError::Export(KeyExportError::UnsupportedVersion).into();
+        assert!(matches!(err, RoomKeyImportExportError::InvalidFile { .. }));
+    }
+
+    #[test]
+    fn sdk_error_maps_to_other() {
+        let sdk_err = matrix_sdk::Error::UnknownError("boom".into());
+        let err: RoomKeyImportExportError = sdk_err.into();
+        match err {
+            RoomKeyImportExportError::Other { msg } => assert!(msg.contains("boom")),
+            _ => panic!("expected Other"),
+        }
+    }
+
+    #[test]
+    fn io_error_maps_to_io() {
+        let io = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        let err: RoomKeyImportExportError = RoomKeyImportError::Io(io).into();
+        assert!(matches!(err, RoomKeyImportExportError::Io { .. }));
     }
 }
