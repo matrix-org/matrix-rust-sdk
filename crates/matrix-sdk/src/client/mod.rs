@@ -101,13 +101,13 @@ use url::Url;
 
 use self::{
     caches::{Cache, CachedValue, ClientCaches},
-    futures::SendRequest,
+    futures::{RequestProgress, SendRequest},
 };
 #[cfg(feature = "unstable-msc4536")]
 use crate::client::global_profiles::GlobalProfileFetcher;
 use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
-    Room, SessionTokens, TransmissionProgress,
+    Room, SessionTokens,
     authentication::{
         AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
         oauth::OAuth,
@@ -752,7 +752,11 @@ impl Client {
         use ruma::api::federation::discovery::get_server_version;
 
         let res = self
-            .send_inner(get_server_version::v1::Request::new(), request_config, Default::default())
+            .send_inner(
+                get_server_version::v1::Request::new(),
+                request_config,
+                RequestProgress::default(),
+            )
             .await?;
 
         // Extract server info, using defaults if fields are missing.
@@ -2365,7 +2369,7 @@ impl Client {
             client: self.clone(),
             request,
             config: None,
-            send_progress: Default::default(),
+            progress: RequestProgress::default(),
         }
     }
 
@@ -2373,7 +2377,7 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-        send_progress: SharedObservable<TransmissionProgress>,
+        progress: RequestProgress,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
@@ -2398,7 +2402,7 @@ impl Client {
                 homeserver,
                 access_token.as_deref(),
                 path_builder_input,
-                send_progress,
+                progress,
             )
             .await;
 
@@ -4509,7 +4513,6 @@ pub(crate) mod tests {
     };
 
     use assert_matches::assert_matches;
-    use eyeball::SharedObservable;
     use futures_util::{FutureExt, StreamExt};
     use js_int::{UInt, uint};
     use matrix_sdk_base::{
@@ -4558,10 +4561,10 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        Error, Result, TransmissionProgress, assert_next_eq_with_timeout,
+        Error, Result, assert_next_eq_with_timeout,
         client::{caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
-        futures::SendRequest,
+        futures::{RequestProgress, SendRequest},
         media::MediaError,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
     };
@@ -5990,7 +5993,7 @@ pub(crate) mod tests {
             client: client.clone(),
             request: upload_request,
             config: None,
-            send_progress: SharedObservable::new(TransmissionProgress::default()),
+            progress: RequestProgress::default(),
         };
         let media_request = SendMediaUploadRequest::new(request);
 
