@@ -24,7 +24,7 @@ fn encrypted_rooms_count_response(count: u32) -> msc4186::Response {
 async fn new_server_and_client() -> (MatrixMockServer, matrix_sdk::Client) {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    client.set_sliding_sync_version(SlidingSyncVersion::Native);
+    client.set_sliding_sync_version(SlidingSyncVersion::Unstable);
 
     (server, client)
 }

@@ -146,7 +146,7 @@ impl TestClientBuilder {
         let mut client_builder = Client::builder()
             .user_agent("matrix-sdk-integration-tests")
             .homeserver_url(homeserver_url)
-            .sliding_sync_version_builder(VersionBuilder::Native)
+            .sliding_sync_version_builder(VersionBuilder::Unstable)
             .with_encryption_settings(self.encryption_settings)
             .with_room_key_recipient_strategy(self.room_key_recipient_strategy.clone())
             .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
