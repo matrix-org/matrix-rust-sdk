@@ -1901,7 +1901,16 @@ mod test {
         // Wait for all tasks to finish / fail.
         assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
         updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+
+        // Alice is cancelled as soon as she has forwarded the checkcode, which
+        // can happen before she sends the `LoginProtocols` message that
+        // Bob waits for. Bob would then wait forever because the
+        // rendezvous session never expires, so stop his task instead of
+        // waiting for it to finish, but still fail if it panicked.
+        bob_task.abort();
+        if let Err(error) = bob_task.await {
+            assert!(error.is_cancelled(), "Bob's task should not fail: {error}");
+        }
     }
 
     #[async_test]
