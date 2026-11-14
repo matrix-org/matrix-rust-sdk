@@ -572,6 +572,9 @@ impl SqliteStateStore {
             StateStoreDataKey::HomeserverCapabilities => {
                 Cow::Borrowed(StateStoreDataKey::HOMESERVER_CAPABILITIES)
             }
+            StateStoreDataKey::RetentionConfiguration => {
+                Cow::Borrowed(StateStoreDataKey::RETENTION_CONFIGURATION)
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -1265,6 +1268,9 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::HomeserverCapabilities => {
                         StateStoreDataValue::HomeserverCapabilities(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::RetentionConfiguration => {
+                        StateStoreDataValue::RetentionConfiguration(self.deserialize_value(&data)?)
+                    }
                 })
             })
             .transpose()
@@ -1319,6 +1325,11 @@ impl StateStore for SqliteStateStore {
                 &value
                     .into_homeserver_capabilities()
                     .expect("Session data is not the homeserver capabilities"),
+            )?,
+            StateStoreDataKey::RetentionConfiguration => self.serialize_value(
+                &value
+                    .into_retention_configuration()
+                    .expect("Session data is not the retention configuration"),
             )?,
         };
 

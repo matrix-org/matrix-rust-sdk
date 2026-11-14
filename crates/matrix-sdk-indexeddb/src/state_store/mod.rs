@@ -32,10 +32,10 @@ use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
-        QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        SerializableEventContent, StateChanges, StateStore, StoreError, StoredThreadSubscription,
-        SupportedVersionsResponse, ThreadSubscriptionStatus, WellKnownResponse,
-        compare_thread_subscription_bump_stamps,
+        QueuedRequest, QueuedRequestKind, RetentionConfigurationResponse, RoomLoadSettings,
+        SentRequestKey, SerializableEventContent, StateChanges, StateStore, StoreError,
+        StoredThreadSubscription, SupportedVersionsResponse, ThreadSubscriptionStatus,
+        WellKnownResponse, compare_thread_subscription_bump_stamps,
     },
     ttl::TtlValue,
 };
@@ -518,6 +518,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::HomeserverCapabilities => {
                 self.encode_key(keys::KV, StateStoreDataKey::HOMESERVER_CAPABILITIES)
             }
+            StateStoreDataKey::RetentionConfiguration => {
+                self.encode_key(keys::KV, StateStoreDataKey::RETENTION_CONFIGURATION)
+            }
         }
     }
 }
@@ -684,6 +687,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<TtlValue<Capabilities>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::HomeserverCapabilities),
+            StateStoreDataKey::RetentionConfiguration => value
+                .map(|f| self.deserialize_value::<TtlValue<RetentionConfigurationResponse>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::RetentionConfiguration),
         };
 
         Ok(value)
@@ -739,6 +746,11 @@ impl_state_store!({
                 &value
                     .into_homeserver_capabilities()
                     .expect("Session data is not a homeserver capabilities"),
+            ),
+            StateStoreDataKey::RetentionConfiguration => self.serialize_value(
+                &value
+                    .into_retention_configuration()
+                    .expect("Session data is not a retention configuration"),
             ),
         };
 

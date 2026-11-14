@@ -37,7 +37,8 @@ use matrix_sdk_base::crypto::x509::{RawX509Signer, RawX509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{
-    BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig, ttl::TtlValue,
+    BaseClient, DmRoomDefinition, StateStoreDataKey, StateStoreDataValue, ThreadingSupport,
+    store::StoreConfig, ttl::TtlValue,
 };
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
@@ -53,7 +54,7 @@ use thiserror::Error;
 #[cfg(feature = "experimental-search")]
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
-use tracing::{Span, debug, field::debug, instrument};
+use tracing::{Span, debug, field::debug, instrument, warn};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
@@ -755,6 +756,22 @@ impl ClientBuilder {
             None => NotSet,
         };
 
+        // Load the persisted retention configuration, so it's available even
+        // without connectivity.
+        let retention_configuration = match base_client
+            .state_store()
+            .get_kv_data(StateStoreDataKey::RetentionConfiguration)
+            .await
+        {
+            Ok(value) => value
+                .and_then(StateStoreDataValue::into_retention_configuration)
+                .map(|value| value.map(Into::into)),
+            Err(error) => {
+                warn!("error when loading the persisted retention configuration: {error}");
+                None
+            }
+        };
+
         let thread_subscriptions_catchup = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
@@ -771,6 +788,7 @@ impl ClientBuilder {
             base_client,
             supported_versions,
             well_known,
+            retention_configuration,
             self.respect_login_well_known,
             self.well_known_lookup_disabled,
             self.enable_automatic_back_pagination,

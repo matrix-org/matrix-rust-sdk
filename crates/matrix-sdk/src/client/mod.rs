@@ -156,6 +156,10 @@ pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
 use crate::search_index::SearchIndex;
 
+/// How long the cached homeserver message retention configuration is
+/// considered fresh: 6 hours.
+const RETENTION_CONFIGURATION_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 #[cfg(target_family = "wasm")]
@@ -476,6 +480,7 @@ impl ClientInner {
         base_client: BaseClient,
         supported_versions: CachedValue<TtlValue<SupportedVersions>>,
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
+        retention_configuration: Option<TtlValue<get_retention_configuration::msc1763::Response>>,
         respect_login_well_known: bool,
         well_known_lookup_disabled: bool,
         enable_automatic_back_pagination: bool,
@@ -494,6 +499,7 @@ impl ClientInner {
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
             rtc_transports: Cache::new(),
+            retention_configuration: SharedObservable::new(retention_configuration),
         };
 
         let client = Self {
@@ -3368,18 +3374,97 @@ impl Client {
         self.send(request).await
     }
 
-    /// Get the server's message retention policy configuration.
+    /// Fetch the server's message retention policy configuration.
     ///
     /// Returns the server-level retention policy limits and any per-room
     /// overrides defined by the server.
     ///
+    /// This always makes a request to the homeserver. On success, the
+    /// response is stored in the client's cache and persisted in the state
+    /// store, so it can be read with [`Self::retention_configuration`] and
+    /// observed with [`Self::subscribe_to_retention_configuration`], even
+    /// after a restart without connectivity.
+    ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
-    pub async fn get_retention_configuration(
+    pub async fn fetch_retention_configuration(
         &self,
     ) -> HttpResult<get_retention_configuration::msc1763::Response> {
-        self.send(get_retention_configuration::msc1763::Request::default()).await
+        let response = self.send(get_retention_configuration::msc1763::Request::default()).await?;
+        let value = TtlValue::new(response.clone());
+
+        if let Err(error) = self
+            .state_store()
+            .set_kv_data(
+                StateStoreDataKey::RetentionConfiguration,
+                StateStoreDataValue::RetentionConfiguration(value.clone().map(Into::into)),
+            )
+            .await
+        {
+            warn!("error when persisting the retention configuration: {error}");
+        }
+
+        self.inner.caches.retention_configuration.set(Some(value));
+
+        Ok(response)
+    }
+
+    /// Get the server's message retention policy configuration, from the cache
+    /// if possible.
+    ///
+    /// If the cached value is missing or older than 6 hours, it is re-fetched
+    /// from the homeserver with [`Self::fetch_retention_configuration`]. If
+    /// that request fails (e.g. because there is no connectivity) and a stale
+    /// value is cached, the stale value is returned instead. The only
+    /// exception is when the homeserver doesn't implement the endpoint, in
+    /// which case the error is always returned.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn retention_configuration(
+        &self,
+    ) -> HttpResult<get_retention_configuration::msc1763::Response> {
+        let cached = self.inner.caches.retention_configuration.get();
+
+        if let Some(cached) = &cached
+            && !cached.has_expired_after(RETENTION_CONFIGURATION_TTL)
+        {
+            return Ok(cached.data().clone());
+        }
+
+        match self.fetch_retention_configuration().await {
+            Ok(response) => Ok(response),
+            Err(error) if error.is_endpoint_not_implemented() => Err(error),
+            Err(error) => match cached {
+                Some(cached) => {
+                    warn!(
+                        "failed to refresh the retention configuration, using the stale cached \
+                         value: {error}"
+                    );
+                    Ok(cached.into_data())
+                }
+                None => Err(error),
+            },
+        }
+    }
+
+    /// Subscribe to changes of the cached server message retention policy
+    /// configuration.
+    ///
+    /// The initial value is the one persisted in the state store, if any. It is
+    /// `None` until it has been successfully fetched at least once with
+    /// [`Self::fetch_retention_configuration`] (or
+    /// [`Self::retention_configuration`]).
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub fn subscribe_to_retention_configuration(
+        &self,
+    ) -> Subscriber<Option<TtlValue<get_retention_configuration::msc1763::Response>>> {
+        self.inner.caches.retention_configuration.subscribe()
     }
 
     /// Delete the given devices from the server.
@@ -4013,6 +4098,7 @@ impl Client {
                     .await?,
                 self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.value(),
+                self.inner.caches.retention_configuration.get(),
                 self.inner.respect_login_well_known,
                 self.well_known_lookup_disabled(),
                 false,
@@ -4500,6 +4586,7 @@ struct PreJoinRoomInfo {
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use std::{
+        collections::BTreeMap,
         pin::pin,
         sync::{
             Arc,
@@ -4532,6 +4619,9 @@ pub(crate) mod tests {
         api::{
             FeatureFlag, MatrixVersion,
             client::{
+                retention::{
+                    RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits,
+                },
                 room::create_room::v3::Request as CreateRoomRequest,
                 rtc::{LiveKitRtcTransport, RtcTransport},
             },
@@ -4543,6 +4633,7 @@ pub(crate) mod tests {
                 InvitePermissionAction, InvitePermissionConfigEventContent,
             },
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
+            room::retention::RoomRetentionEventContent,
         },
         owned_device_id,
         presence::PresenceState,
@@ -6575,31 +6666,155 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_get_retention_configuration() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path},
-        };
-
+    async fn test_fetch_retention_configuration() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "policies": {},
-                "limits": {},
-            })))
-            .expect(1)
-            .mount(server.server())
-            .await;
+        server.mock_get_retention_configuration().ok_empty().mock_once().mount().await;
 
-        let response = client.get_retention_configuration().await;
+        let response = client.fetch_retention_configuration().await;
         assert!(response.is_ok());
         let response = response.unwrap();
         assert!(response.policies.is_empty());
         assert!(response.limits.max_lifetime.is_none());
         assert!(response.limits.min_lifetime.is_none());
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_is_cached_and_observable() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let mut subscriber = client.subscribe_to_retention_configuration();
+        assert!(subscriber.get().is_none());
+
+        server
+            .mock_get_retention_configuration()
+            .ok_empty()
+            // Only the first call hits the network, the second one uses the cache.
+            .mock_once()
+            .mount()
+            .await;
+
+        client.retention_configuration().await.unwrap();
+
+        assert_next_matches!(subscriber, Some(cached) => {
+            assert!(!cached.has_expired_after(super::RETENTION_CONFIGURATION_TTL));
+        });
+
+        client.retention_configuration().await.unwrap();
+        assert_pending!(subscriber);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_is_persisted() {
+        let server = MatrixMockServer::new().await;
+        let memory_store = Arc::new(MemoryStore::new());
+        let build_client = || {
+            server
+                .client_builder()
+                .on_builder(|builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                            .state_store(memory_store.clone()),
+                    )
+                })
+                .build()
+        };
+
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_secs(24 * 60 * 60))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let client = build_client().await;
+            assert!(client.subscribe_to_retention_configuration().get().is_none());
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // A new client using the same store gets the persisted value, without
+        // any request to the homeserver.
+        let client = build_client().await;
+
+        let cached = client
+            .subscribe_to_retention_configuration()
+            .get()
+            .expect("the retention configuration should have been loaded from the store");
+        assert_eq!(cached.data().policies.len(), 1);
+
+        let config = client.retention_configuration().await.unwrap();
+        assert_eq!(config.policies.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_falls_back_to_stale_value() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().disable_retry()))
+            .build()
+            .await;
+
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_secs(24 * 60 * 60))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // Expire the cached value.
+        let mut cached = client.inner.caches.retention_configuration.get().unwrap();
+        cached.expire();
+        client.inner.caches.retention_configuration.set(Some(cached));
+
+        // The homeserver is unreachable: the stale value is returned.
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error500()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let config = client.retention_configuration().await.unwrap();
+            assert_eq!(config.policies.len(), 1);
+        }
+
+        // The homeserver doesn't implement the endpoint: the error is returned.
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error_unrecognized()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let error = client.retention_configuration().await.unwrap_err();
+            assert!(error.is_endpoint_not_implemented());
+        }
     }
 
     #[async_test]
