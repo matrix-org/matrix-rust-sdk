@@ -1950,9 +1950,18 @@ impl MatrixMockServer {
     /// Create a prebuilt mock for the endpoint used to discover the MatrixRTC
     /// transports.
     pub fn mock_get_rtc_transports(&self) -> MockEndpoint<'_, GetRtcTransportsEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/rtc/transports"));
+        self.mock_endpoint(mock, GetRtcTransportsEndpoint)
+    }
+
+    /// Create a prebuilt mock for the unstable endpoint used to discover the
+    /// MatrixRTC transports.
+    pub fn mock_get_rtc_transports_unstable(
+        &self,
+    ) -> MockEndpoint<'_, GetRtcTransportsEndpointUnstable> {
         let mock = Mock::given(method("GET"))
             .and(path("/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"));
-        self.mock_endpoint(mock, GetRtcTransportsEndpoint)
+        self.mock_endpoint(mock, GetRtcTransportsEndpointUnstable)
     }
 
     /// Creates a prebuilt mock for getting global account data.
@@ -5870,11 +5879,25 @@ impl<'a> MockEndpoint<'a, UpdatePresenceEndpoint> {
     }
 }
 
-/// A prebuilt mock for `GET
-/// /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`.
+/// A prebuilt mock for `GET /_matrix/client/v1/rtc/transports`.
 pub struct GetRtcTransportsEndpoint;
 
 impl<'a> MockEndpoint<'a, GetRtcTransportsEndpoint> {
+    /// Returns a successful response with a single `m.livekit` transport.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "transports": [
+                { "type": "m.livekit", "url": "wss://livekit.example.com" }
+            ]
+        })))
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`.
+pub struct GetRtcTransportsEndpointUnstable;
+
+impl<'a> MockEndpoint<'a, GetRtcTransportsEndpointUnstable> {
     /// Returns a successful response with a single `m.livekit` transport.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
