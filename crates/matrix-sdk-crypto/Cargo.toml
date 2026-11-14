@@ -52,6 +52,10 @@ testing = ["matrix-sdk-test"]
 # https://github.com/matrix-org/matrix-spec-proposals/pull/4385
 experimental-push-secrets = []
 
+# Enable experimental support for MSC4350, which lets appservice ghost users have devices that a bridge bot's
+# device is allowed to impersonate; see https://github.com/matrix-org/matrix-spec-proposals/pull/4350
+experimental-msc4350 = []
+
 # Enable experimental support for verifying user identities via X.509 certificates
 experimental-x509-identity-verification = ["dep:cms", "dep:pkcs1", "dep:sha2_0_10"]
 
