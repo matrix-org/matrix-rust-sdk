@@ -712,6 +712,8 @@ impl SlidingSync {
             // Handling the response can queue new E2EE requests (e.g. SAS
             // verification replies). Send them now, as `Client::sync_once`
             // does: the next request may long-poll for a while.
+            //
+            // Fixes https://github.com/element-hq/element-x-ios/issues/2428
             #[cfg(feature = "e2e-encryption")]
             if this.is_e2ee_enabled()
                 && let Err(error) = this.inner.client.send_outgoing_requests().await
