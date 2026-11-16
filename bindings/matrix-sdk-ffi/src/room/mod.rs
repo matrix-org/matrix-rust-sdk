@@ -82,6 +82,7 @@ use crate::{
 };
 
 mod delayed_events;
+mod image_packs;
 mod message_like_events;
 mod power_levels;
 pub mod room_info;
