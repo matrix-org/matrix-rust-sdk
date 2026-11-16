@@ -686,6 +686,19 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
+    /// Delete the event with the given id in the given linked chunk.
+    ///
+    /// Note that the index of the other events in the same chunk are not
+    /// updated, so this must only be used for out-of-band events. Use
+    /// [`Self::delete_event_by_position`] for in-band events.
+    pub async fn delete_out_of_band_event_by_id(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+        event_id: &EventId,
+    ) -> Result<(), TransactionError> {
+        self.delete_item_by_key::<Event, IndexedEventIdKey>((linked_chunk_id, event_id)).await
+    }
+
     /// Delete all events matching the given linked chunk id
     pub async fn delete_events_by_linked_chunk_id(
         &self,

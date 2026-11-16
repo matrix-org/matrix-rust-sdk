@@ -1972,6 +1972,77 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, event_ids))]
+    async fn delete_out_of_band_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
+        // It's required to return early: `host_parameters` panics if there are
+        // no parameters.
+        if event_ids.is_empty() {
+            return Ok(());
+        }
+
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        // The event IDs are hashed with the same key in the `events` and
+        // `event_chunks` tables.
+        let hashed_event_ids = event_ids
+            .iter()
+            .map(|event_id| self.encryption.encode_event_id(keys::EVENTS, event_id))
+            .collect::<Vec<_>>();
+
+        self.write()
+            .await?
+            .with_immediate_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(
+                    hashed_event_ids,
+                    None,
+                    move |txn, hashed_event_ids| {
+                        // Only delete the events that aren't in any linked
+                        // chunk.
+                        let query = format!(
+                            "DELETE FROM events \
+                        WHERE room_id = ? AND event_id IN ({}) \
+                        AND NOT EXISTS ( \
+                            SELECT 1 FROM event_chunks \
+                            WHERE event_chunks.event_id = events.event_id \
+                        )",
+                            hashed_event_ids.host_parameters(),
+                        );
+
+                        let parameters = params_from_iter(
+                            // parameter for `room_id = ?`
+                            once(
+                                hashed_room_id
+                                    .to_sql()
+                                    // SAFETY: it cannot fail since `Key::to_sql` never fails
+                                    .unwrap(),
+                            )
+                            // parameters for `event_id IN (…)`
+                            .chain(hashed_event_ids.iter().map(
+                                |hashed_event_id| {
+                                    hashed_event_id
+                                        .to_sql()
+                                        // SAFETY: it cannot fail since `Key::to_sql` never fails
+                                        .unwrap()
+                                },
+                            )),
+                        );
+
+                        txn.execute(&query, parameters)?;
+
+                        Ok(Vec::<()>::new())
+                    },
+                )?;
+
+                Ok(())
+            })
+            .await
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         SqliteEventCacheStore::close(self).await
     }

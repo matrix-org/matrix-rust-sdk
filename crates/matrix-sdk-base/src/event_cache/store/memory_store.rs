@@ -434,6 +434,15 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
+    async fn delete_out_of_band_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().events.remove_out_of_band_items(room_id, &event_ids);
+        Ok(())
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(())
     }

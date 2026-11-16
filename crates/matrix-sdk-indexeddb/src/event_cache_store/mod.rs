@@ -786,6 +786,37 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip(self, event_ids))]
+    async fn delete_out_of_band_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
+
+        for event_id in &event_ids {
+            // An event has one record per linked chunk it's part of, and an
+            // out-of-band record, if it's out-of-band.
+            let events = transaction.get_events_by_room(room_id, event_id).await?;
+
+            // Keep the events that are still in a linked chunk.
+            if events.iter().any(|event| event.position().is_some()) {
+                continue;
+            }
+
+            for event in events {
+                transaction
+                    .delete_out_of_band_event_by_id(event.linked_chunk_id(), event_id)
+                    .await?;
+            }
+        }
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(())
     }
