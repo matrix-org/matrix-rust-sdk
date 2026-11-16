@@ -87,7 +87,9 @@ mod virtual_item;
 
 pub use self::{
     builder::TimelineBuilder,
-    controller::default_event_filter,
+    controller::{
+        DefaultEventFilterOptions, default_event_filter, default_event_filter_with_options,
+    },
     error::*,
     event_filter::{TimelineEventCondition, TimelineEventFilter},
     event_item::{
