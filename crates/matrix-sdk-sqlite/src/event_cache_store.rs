@@ -35,7 +35,7 @@ use matrix_sdk_base::{
     },
     linked_chunk::{
         ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
-        Position, RawChunk, Update,
+        OwnedLinkedChunkId, Position, RawChunk, Update,
     },
     timer,
 };
@@ -43,7 +43,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
-use rusqlite::{OptionalExtension, ToSql, Transaction, params, params_from_iter};
+use rusqlite::{OptionalExtension, ToSql, Transaction, limits::Limit, params, params_from_iter};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
@@ -1663,6 +1663,158 @@ impl EventCacheStore for SqliteEventCacheStore {
                 };
 
                 Ok(Some(encryption.decode_event(&event)?))
+            })
+            .await
+    }
+
+    #[instrument(skip(self, event_ids))]
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        // It's required to return early: `host_parameters` panics if there are
+        // no parameters.
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_event_ids = event_ids
+            .iter()
+            .map(|event_id| self.encryption.encode_event_id(keys::EVENTS, event_id))
+            .collect::<Vec<_>>();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(hashed_event_ids, None, move |txn, hashed_event_ids| {
+                    let query = format!(
+                        "SELECT content FROM events WHERE room_id = ? AND event_id IN ({})",
+                        hashed_event_ids.host_parameters(),
+                    );
+                    let parameters = params_from_iter(
+                        // SAFETY: it cannot fail since `Key::to_sql` never fails
+                        once(hashed_room_id.to_sql().unwrap()).chain(
+                            hashed_event_ids
+                                .iter()
+                                .map(|hashed_event_id| hashed_event_id.to_sql().unwrap()),
+                        ),
+                    );
+
+                    let mut events = Vec::new();
+
+                    for content in txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| row.get::<_, Vec<u8>>(0))?
+                    {
+                        events.push(encryption.decode_event(&content?)?);
+                    }
+
+                    Ok(events)
+                })
+            })
+            .await
+    }
+
+    #[instrument(skip(self, linked_chunk_ids, event_ids))]
+    async fn find_event_positions(
+        &self,
+        linked_chunk_ids: Vec<OwnedLinkedChunkId>,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedLinkedChunkId, OwnedEventId, Position)>, Self::Error> {
+        let _timer = timer!("method");
+
+        // It's required to return early: `host_parameters` panics if there are
+        // no parameters.
+        if linked_chunk_ids.is_empty() || event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // The IDs are hashed in the database, and can't be decoded. Keep the
+        // original IDs, to find them from the hashed IDs of the results.
+        let linked_chunk_ids_by_hash = linked_chunk_ids
+            .into_iter()
+            .map(|linked_chunk_id| {
+                let hashed = self
+                    .encryption
+                    .encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id.as_ref());
+                (hashed.to_vec(), linked_chunk_id)
+            })
+            .collect::<HashMap<_, _>>();
+        let event_ids_by_hash = event_ids
+            .into_iter()
+            .map(|event_id| {
+                // For the event ID, we need a stable hash between the `events`
+                // and `event_chunks` tables, so `keys::EVENTS` is used.
+                let hashed = self.encryption.encode_event_id(keys::EVENTS, &event_id);
+                (hashed.to_vec(), event_id)
+            })
+            .collect::<HashMap<_, _>>();
+
+        let hashed_linked_chunk_ids = linked_chunk_ids_by_hash.keys().cloned().collect::<Vec<_>>();
+        let hashed_event_ids = event_ids_by_hash.keys().cloned().collect::<Vec<_>>();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(hashed_event_ids, None, move |txn, hashed_event_ids| {
+                    // The event IDs use at most half of the host parameters,
+                    // the linked chunk IDs can use the
+                    // other half.
+                    let maximum_variable_number = txn.limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER)?;
+                    let maximum_linked_chunk_ids = usize::try_from(maximum_variable_number.max(2))
+                        .map_err(|_| Error::SqliteMaximumVariableNumber(maximum_variable_number))?
+                        .saturating_sub(hashed_event_ids.iter().len())
+                        .max(1);
+
+                    let mut positions = Vec::new();
+
+                    for hashed_linked_chunk_ids in
+                        hashed_linked_chunk_ids.chunks(maximum_linked_chunk_ids)
+                    {
+                        let query = format!(
+                            "SELECT linked_chunk_id, event_id, chunk_id, position \
+                            FROM event_chunks \
+                            WHERE linked_chunk_id IN ({}) AND event_id IN ({})",
+                            host_parameters(hashed_linked_chunk_ids.len()),
+                            hashed_event_ids.host_parameters(),
+                        );
+                        let parameters = params_from_iter(
+                            hashed_linked_chunk_ids.iter().chain(hashed_event_ids.iter()),
+                        );
+
+                        for row in txn.prepare(&query)?.query_map(parameters, |row| {
+                            Ok((
+                                row.get::<_, Vec<u8>>(0)?,
+                                row.get::<_, Vec<u8>>(1)?,
+                                row.get::<_, u64>(2)?,
+                                row.get::<_, usize>(3)?,
+                            ))
+                        })? {
+                            let (hashed_linked_chunk_id, hashed_event_id, chunk_id, index) = row?;
+
+                            let (Some(linked_chunk_id), Some(event_id)) = (
+                                linked_chunk_ids_by_hash.get(&hashed_linked_chunk_id),
+                                event_ids_by_hash.get(&hashed_event_id),
+                            ) else {
+                                error!("Unreachable: found an event that was not requested");
+                                continue;
+                            };
+
+                            positions.push((
+                                linked_chunk_id.clone(),
+                                event_id.clone(),
+                                Position::new(ChunkIdentifier::new(chunk_id), index),
+                            ));
+                        }
+                    }
+
+                    Ok(positions)
+                })
             })
             .await
     }

@@ -26,8 +26,8 @@ use async_trait::async_trait;
 use matrix_sdk_common::{
     cross_process_lock::CrossProcessLockGeneration,
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
-        RawChunk, Update,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+        OwnedLinkedChunkId, Position, RawChunk, Update,
     },
     sleep::sleep,
 };
@@ -233,6 +233,22 @@ impl EventCacheStore for ControlledMemoryStore {
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error> {
         self.inner.find_event(room_id, event_id).await
+    }
+
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.inner.find_events(room_id, event_ids).await
+    }
+
+    async fn find_event_positions(
+        &self,
+        linked_chunk_ids: Vec<OwnedLinkedChunkId>,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedLinkedChunkId, OwnedEventId, Position)>, Self::Error> {
+        self.inner.find_event_positions(linked_chunk_ids, event_ids).await
     }
 
     async fn find_event_relations(

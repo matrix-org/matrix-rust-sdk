@@ -19,8 +19,8 @@ use matrix_sdk_common::{
     AsyncTraitDeps,
     cross_process_lock::CrossProcessLockGeneration,
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
-        RawChunk, Update,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+        OwnedLinkedChunkId, Position, RawChunk, Update,
     },
 };
 use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
@@ -155,6 +155,62 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error>;
+
+    /// Find the events with the given IDs in a room.
+    ///
+    /// This is like [`Self::find_event`] for several events at once. Unknown
+    /// event IDs are ignored, and the events are returned in no particular
+    /// order.
+    ///
+    /// The default implementation calls [`Self::find_event`] for each event,
+    /// stores should override it if they can do better.
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let mut events = Vec::with_capacity(event_ids.len());
+
+        for event_id in &event_ids {
+            if let Some(event) = self.find_event(room_id, event_id).await? {
+                events.push(event);
+            }
+        }
+
+        Ok(events)
+    }
+
+    /// Find the positions of the events with the given IDs in the given
+    /// linked chunks.
+    ///
+    /// This is like [`Self::filter_duplicated_events`] for several linked
+    /// chunks at once: an event is returned once for each linked chunk it is
+    /// part of, with its position in it. Events which are not in a linked
+    /// chunk, like the ones saved out-of-band, are not returned. The results
+    /// are returned in no particular order.
+    ///
+    /// The default implementation calls [`Self::filter_duplicated_events`] for
+    /// each linked chunk, stores should override it if they can do better.
+    async fn find_event_positions(
+        &self,
+        linked_chunk_ids: Vec<OwnedLinkedChunkId>,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedLinkedChunkId, OwnedEventId, Position)>, Self::Error> {
+        let mut positions = Vec::new();
+
+        for linked_chunk_id in linked_chunk_ids {
+            let found =
+                self.filter_duplicated_events(linked_chunk_id.as_ref(), event_ids.clone()).await?;
+
+            positions.extend(
+                found
+                    .into_iter()
+                    .map(|(event_id, position)| (linked_chunk_id.clone(), event_id, position)),
+            );
+        }
+
+        Ok(positions)
+    }
 
     /// Find all the events (alongside their position in the room's linked
     /// chunk, if available) that relate to a given event.
@@ -371,6 +427,22 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error> {
         self.0.find_event(room_id, event_id).await.map_err(Into::into)
+    }
+
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.0.find_events(room_id, event_ids).await.map_err(Into::into)
+    }
+
+    async fn find_event_positions(
+        &self,
+        linked_chunk_ids: Vec<OwnedLinkedChunkId>,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedLinkedChunkId, OwnedEventId, Position)>, Self::Error> {
+        self.0.find_event_positions(linked_chunk_ids, event_ids).await.map_err(Into::into)
     }
 
     async fn find_event_relations(
