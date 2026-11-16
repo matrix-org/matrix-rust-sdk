@@ -420,6 +420,32 @@ impl SpaceService {
         roots
     }
 
+    /// Returns the room IDs of all the joined spaces that the given child
+    /// room/space descends from, by walking the space graph upwards.
+    ///
+    /// The closest ancestors come first: the direct parents, then their
+    /// parents, and so on.
+    ///
+    /// Note: Unlike [`Self::top_level_joined_spaces()`], this method does not
+    /// recompute the space graph nor notify subscribers about changes.
+    pub async fn joined_ancestors_of(&self, child_id: &RoomId) -> Vec<OwnedRoomId> {
+        let space_state = self.space_state.lock().await;
+        let graph = &space_state.graph;
+
+        let mut queue = VecDeque::from([child_id.to_owned()]);
+        let mut visited = HashSet::from([child_id.to_owned()]);
+        let mut ancestors = Vec::new();
+        while let Some(current) = queue.pop_front() {
+            for parent in graph.parents_of(&current) {
+                if visited.insert(parent.to_owned()) {
+                    ancestors.push(parent.to_owned());
+                    queue.push_back(parent.to_owned());
+                }
+            }
+        }
+        ancestors
+    }
+
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
     /// if it isn't known.
     pub async fn get_space_room(&self, room_id: &RoomId) -> Option<SpaceRoom> {
