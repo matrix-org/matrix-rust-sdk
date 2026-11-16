@@ -289,6 +289,39 @@ impl EventCacheStore for MemoryStore {
         Ok(event)
     }
 
+    async fn filter_events_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        let mut event_ids = event_ids.into_iter().collect::<HashSet<_>>();
+        let mut events_with_relations = Vec::new();
+
+        // Look at each event of the room once, instead of once per event ID.
+        for (_linked_chunk_id, (event, _position)) in inner.events.items(room_id) {
+            if event_ids.is_empty() {
+                break;
+            }
+
+            let Some((related_to, rel_type)) = extract_event_relation(event.raw()) else {
+                continue;
+            };
+
+            if filter.is_some_and(|filter| !filter.contains(&RelationType::from(rel_type.as_str())))
+            {
+                continue;
+            }
+
+            if event_ids.remove(&related_to) {
+                events_with_relations.push(related_to);
+            }
+        }
+
+        Ok(events_with_relations)
+    }
+
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
