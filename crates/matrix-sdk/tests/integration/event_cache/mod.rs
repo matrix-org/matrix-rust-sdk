@@ -11,7 +11,8 @@ use matrix_sdk::{
         BackPaginationOutcome, PaginationStatus, RoomEventCacheUpdate, TimelineVectorDiffs,
     },
     linked_chunk::{
-        ChunkIdentifier, LinkedChunkId, Position, Update, lazy_loader::from_all_chunks,
+        ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update,
+        lazy_loader::from_all_chunks,
     },
     store::StoreConfig,
     test_utils::{
@@ -26,7 +27,7 @@ use matrix_sdk_base::event_cache::{
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
-    EventId, event_id,
+    EventId, OwnedEventId, event_id,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, TimelineEventType,
         room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
@@ -2589,6 +2590,184 @@ async fn test_forget_room_keeps_other_rooms() {
     let (maybe_last_chunk, _) =
         event_cache_store.load_last_chunk(LinkedChunkId::Room(kept_room_id)).await.unwrap();
     assert!(maybe_last_chunk.is_some(), "the other room's events were cleared from the store");
+}
+
+/// Get the IDs of the events in a linked chunk, from the store.
+async fn event_ids_in_store(
+    store: &MemoryStore,
+    linked_chunk_id: LinkedChunkId<'_>,
+) -> Vec<OwnedEventId> {
+    store
+        .load_all_chunks(linked_chunk_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .flat_map(|chunk| match chunk.content {
+            ChunkContent::Items(events) => events,
+            ChunkContent::Gap(_) => Vec::new(),
+        })
+        .map(|event| event.event_id().unwrap().to_owned())
+        .collect()
+}
+
+#[async_test]
+async fn test_remove_events() {
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$ev0")))
+                .add_timeline_event(f.text_msg("world").event_id(event_id!("$ev1")))
+                .add_timeline_event(f.text_msg("!").event_id(event_id!("$ev2"))),
+        )
+        .await;
+
+    // An event saved out-of-band, like a pinned event.
+    event_cache_store
+        .save_event(room_id, f.text_msg("out-of-band").event_id(event_id!("$oob")).into_event())
+        .await
+        .unwrap();
+
+    let event_cache = client.event_cache().unwrap();
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(events.len(), 3);
+
+    let removed_event_ids = vec![
+        event_id!("$ev0").to_owned(),
+        event_id!("$ev2").to_owned(),
+        event_id!("$oob").to_owned(),
+        event_id!("$unknown").to_owned(),
+    ];
+    event_cache.remove_events(room_id, removed_event_ids.clone()).await.unwrap();
+
+    // The subscriber is notified of the removals.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
+    );
+    let mut events = Vector::from(events);
+    for diff in diffs {
+        diff.apply(&mut events);
+    }
+    assert_eq!(events.len(), 1);
+    assert_event_id!(events[0], "$ev1");
+    assert!(room_stream.is_empty());
+
+    // The events are removed in memory…
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_event_id!(events[0], "$ev1");
+
+    // … and in the store, including the out-of-band one.
+    assert_eq!(
+        event_ids_in_store(&event_cache_store, LinkedChunkId::Room(room_id)).await,
+        vec![event_id!("$ev1").to_owned()]
+    );
+    for event_id in &removed_event_ids {
+        assert!(event_cache_store.find_event(room_id, event_id).await.unwrap().is_none());
+    }
+}
+
+#[async_test]
+async fn test_remove_events_not_loaded_in_memory() {
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let thread_root_id = event_id!("$thread_root");
+    let first_reply_id = event_id!("$first_reply");
+    let second_reply_id = event_id!("$second_reply");
+
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+    let thread_root = f.text_msg("root").event_id(thread_root_id).server_ts(0).into_event();
+    let first_reply = f
+        .text_msg("first reply")
+        .in_thread(thread_root_id, thread_root_id)
+        .event_id(first_reply_id)
+        .server_ts(1)
+        .into_event();
+    let second_reply = f
+        .text_msg("second reply")
+        .in_thread(thread_root_id, first_reply_id)
+        .event_id(second_reply_id)
+        .server_ts(2)
+        .into_event();
+
+    // Feed the store with a room and a thread, which won't be loaded in memory.
+    let cid = ChunkIdentifier::new(0);
+    for (linked_chunk_id, events) in [
+        (
+            LinkedChunkId::Room(room_id),
+            vec![thread_root.clone(), first_reply.clone(), second_reply.clone()],
+        ),
+        (LinkedChunkId::Thread(room_id, thread_root_id), vec![first_reply, second_reply]),
+    ] {
+        event_cache_store
+            .handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![
+                    Update::NewItemsChunk { previous: None, new: cid, next: None },
+                    Update::PushItems { at: Position::new(cid, 0), items: events },
+                ],
+            )
+            .await
+            .unwrap();
+    }
+
+    let mut thread_info =
+        event_cache_store.load_thread_info(room_id, thread_root_id, true).await.unwrap().unwrap();
+    thread_info.number_of_replies = 2;
+    thread_info.latest_event = Some(second_reply_id.to_owned());
+    event_cache_store.update_thread_info(room_id, thread_root_id, &thread_info).await.unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    let event_cache = client.event_cache().unwrap();
+    event_cache.remove_events(room_id, vec![second_reply_id.to_owned()]).await.unwrap();
+
+    // The event is removed from the room and from the thread.
+    assert_eq!(
+        event_ids_in_store(&event_cache_store, LinkedChunkId::Room(room_id)).await,
+        vec![thread_root_id.to_owned(), first_reply_id.to_owned()]
+    );
+    assert_eq!(
+        event_ids_in_store(&event_cache_store, LinkedChunkId::Thread(room_id, thread_root_id))
+            .await,
+        vec![first_reply_id.to_owned()]
+    );
+    assert!(event_cache_store.find_event(room_id, second_reply_id).await.unwrap().is_none());
+
+    // The thread info is updated.
+    let thread_info = event_cache.thread_info(room_id, thread_root_id).await.unwrap().unwrap();
+    assert_eq!(thread_info.number_of_replies, 1);
+    assert_eq!(thread_info.latest_event.as_deref(), Some(first_reply_id));
 }
 
 #[async_test]
