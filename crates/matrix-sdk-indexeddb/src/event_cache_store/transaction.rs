@@ -29,8 +29,9 @@ use crate::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
             IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventOutOfBandKey,
             IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey,
-            IndexedEventTimestampKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
-            IndexedLinkedChunkId, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedEventStateKeyTimestampKey, IndexedEventTimestampKey, IndexedGapIdKey,
+            IndexedLease, IndexedLeaseIdKey, IndexedLinkedChunkId, IndexedNextChunkIdKey,
+            IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -439,6 +440,38 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         );
         let range = IndexedKeyRange::Bound(lower, upper);
         self.get_items_by_key::<Event, IndexedEventTimestampKey>(range).await
+    }
+
+    /// Query IndexedDB for events in the given room whose `state_key` is
+    /// `state_key` (or which have no `state_key` if it's `None`) and whose
+    /// timestamp is strictly lower than `cutoff_ms`, ordered by timestamp.
+    pub async fn get_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<&str>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, TransactionError> {
+        // `IndexedKeyRange::Bound` is inclusive on both ends, so the exclusive
+        // upper bound is `cutoff_ms - 1`, which doesn't exist if `cutoff_ms`
+        // is 0.
+        let Some(upper_ts) = cutoff_ms.checked_sub(1) else {
+            return Ok(Vec::new());
+        };
+
+        let lower = <IndexedEventStateKeyTimestampKey as IndexedKey<Event>>::encode(
+            (room_id, state_key, MilliSecondsSinceUnixEpoch(UInt::from(0u32))),
+            self.serializer().inner(),
+        );
+        let upper = <IndexedEventStateKeyTimestampKey as IndexedKey<Event>>::encode(
+            (
+                room_id,
+                state_key,
+                MilliSecondsSinceUnixEpoch(UInt::try_from(upper_ts).unwrap_or(UInt::MAX)),
+            ),
+            self.serializer().inner(),
+        );
+        let range = IndexedKeyRange::Bound(lower, upper);
+        self.get_items_by_key::<Event, IndexedEventStateKeyTimestampKey>(range).await
     }
 
     /// Query IndexedDB for events that are related to the given event in the

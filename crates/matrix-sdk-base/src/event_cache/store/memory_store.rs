@@ -372,6 +372,22 @@ impl EventCacheStore for MemoryStore {
         Ok(results)
     }
 
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let mut events = self.find_events_before_timestamp(room_id, cutoff_ms).await?;
+
+        // An empty `state_key` is still a `state_key`, so it's `Some("")`.
+        events.retain(|event| {
+            event.raw().get_field::<String>("state_key").ok().flatten() == state_key
+        });
+
+        Ok(events)
+    }
+
     async fn get_room_events(
         &self,
         room_id: &RoomId,
