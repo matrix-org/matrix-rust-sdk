@@ -76,24 +76,8 @@ pub async fn filter_duplicate_events(
 
     // Separate duplicated events in two collections: ones that are in-memory,
     // ones that are in the store.
-    let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
-        // Collect all in-memory chunk identifiers.
-        let in_memory_chunk_identifiers =
-            linked_chunk.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
-
-        let mut in_memory = vec![];
-        let mut in_store = vec![];
-
-        for (duplicated_event_id, position) in duplicated_event_ids {
-            if in_memory_chunk_identifiers.contains(&position.chunk_identifier()) {
-                in_memory.push((duplicated_event_id, position));
-            } else {
-                in_store.push((duplicated_event_id, position));
-            }
-        }
-
-        (in_memory, in_store)
-    };
+    let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) =
+        linked_chunk.split_positions_by_location(duplicated_event_ids);
 
     // See comment of `DeduplicationOutcome::non_empty_all_duplicates` for the
     // rationale behind the following booleans.
