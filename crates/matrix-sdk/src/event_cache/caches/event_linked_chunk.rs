@@ -26,10 +26,14 @@ use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
     Position,
 };
+use ruma::OwnedEventId;
 use tracing::{instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::MaybeResolvedEvent;
+
+/// A list of event IDs, along with their position in a linked chunk.
+pub(in crate::event_cache) type EventPositions = Vec<(OwnedEventId, Position)>;
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -154,6 +158,20 @@ impl EventLinkedChunk {
         }
 
         Ok(())
+    }
+
+    /// Split the given positions of events in this linked chunk in two: the
+    /// ones in a chunk loaded in memory, and the ones only in the store.
+    pub fn split_positions_by_location(
+        &self,
+        positions: EventPositions,
+    ) -> (EventPositions, EventPositions) {
+        let in_memory_chunk_identifiers =
+            self.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
+
+        positions.into_iter().partition(|(_, position)| {
+            in_memory_chunk_identifiers.contains(&position.chunk_identifier())
+        })
     }
 
     /// Replace event at a specified position.
