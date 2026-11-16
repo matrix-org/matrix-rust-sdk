@@ -1736,6 +1736,7 @@ mod test {
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
+        let (bob_done_tx, bob_done_rx) = oneshot::channel();
 
         // Spawn the updates task.
         let mut updates = grant.subscribe_to_progress();
@@ -1780,6 +1781,10 @@ mod test {
                             .send(checkcode)
                             .await
                             .expect("Alice should be able to forward the checkcode");
+
+                        // Only cancel once Bob is done. Bob doesn't send
+                        // anything, so Alice can't finish in any other way.
+                        bob_done_rx.await.expect("Bob should signal when done");
                         cancel.cancel();
                         break;
                     }
@@ -1795,7 +1800,7 @@ mod test {
         let rendezvous_server_clone = rendezvous_server.clone();
         let bob_task = spawn(async move {
             request_login_with_scanned_qr_code(
-                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx),
                 qr_code_rx,
                 checkcode_tx,
                 None,
