@@ -854,3 +854,28 @@ fn test_oauth_session_serialization() {
     assert_eq!(deserialized.user.meta, session.user.meta);
     assert_eq!(deserialized.user.tokens, session.user.tokens);
 }
+
+#[test]
+#[cfg(feature = "e2e-encryption")]
+fn test_supports_device_authorization_grant() {
+    use ruma::api::client::discovery::get_authorization_server_metadata::v1::GrantType;
+
+    use super::supports_device_authorization_grant;
+    use crate::test_utils::mocks::oauth::MockServerMetadataBuilder;
+
+    let metadata = MockServerMetadataBuilder::new("https://auth.local/")
+        .build()
+        .deserialize()
+        .expect("The server metadata should deserialize");
+    assert!(supports_device_authorization_grant(&metadata));
+
+    // The grant type isn't advertised.
+    let mut without_grant_type = metadata.clone();
+    without_grant_type.grant_types_supported.remove(&GrantType::DeviceCode);
+    assert!(!supports_device_authorization_grant(&without_grant_type));
+
+    // The device authorization endpoint is missing.
+    let mut without_endpoint = metadata;
+    without_endpoint.device_authorization_endpoint = None;
+    assert!(!supports_device_authorization_grant(&without_endpoint));
+}

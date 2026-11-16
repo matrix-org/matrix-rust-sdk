@@ -15,6 +15,8 @@
 //! Types to implement TTL caches which can be used to persist data for a fixed
 //! duration.
 
+use std::time::Duration;
+
 use ruma::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +74,16 @@ impl<T> TtlValue<T> {
         self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= Self::STALE_THRESHOLD)
     }
 
+    /// Whether this value is older than the given maximum age.
+    ///
+    /// This is useful for data that should be considered stale sooner than
+    /// [`TtlValue::STALE_THRESHOLD`]. A value constructed with
+    /// [`TtlValue::without_expiry()`] is never older than any maximum age.
+    pub fn is_older_than(&self, max_age: Duration) -> bool {
+        self.last_fetch_ts
+            .is_some_and(|ts| now_timestamp_ms() - ts >= max_age.as_secs_f64() * 1000.0)
+    }
+
     /// Mark this value has expired.
     pub fn expire(&mut self) {
         // We assume that the system time is always correct and we are far from
@@ -109,6 +121,8 @@ fn default_timestamp() -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
@@ -130,6 +144,24 @@ mod tests {
         // Cannot be stale.
         let ttl_value = TtlValue::without_expiry(());
         assert!(!ttl_value.has_expired());
+    }
+
+    #[test]
+    fn test_ttl_value_is_older_than() {
+        let max_age = Duration::from_secs(60);
+
+        // Definitely older.
+        let ttl_value = TtlValue { data: (), last_fetch_ts: Some(now_timestamp_ms() - 60_001.0) };
+        assert!(ttl_value.is_older_than(max_age));
+        assert!(!ttl_value.has_expired());
+
+        // Definitely not older.
+        let ttl_value = TtlValue::new(());
+        assert!(!ttl_value.is_older_than(max_age));
+
+        // Cannot be older.
+        let ttl_value = TtlValue::without_expiry(());
+        assert!(!ttl_value.is_older_than(Duration::ZERO));
     }
 
     #[test]

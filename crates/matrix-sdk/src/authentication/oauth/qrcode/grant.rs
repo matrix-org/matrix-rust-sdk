@@ -24,12 +24,7 @@ use matrix_sdk_base::{
     },
 };
 use oauth2::VerificationUriComplete;
-use ruma::{
-    api::client::discovery::get_authorization_server_metadata::v1::{
-        AuthorizationServerMetadata, GrantType,
-    },
-    time::Instant,
-};
+use ruma::time::Instant;
 use tracing::warn;
 use url::Url;
 #[cfg(doc)]
@@ -41,10 +36,14 @@ use super::{
 };
 use crate::{
     Client,
-    authentication::oauth::qrcode::{
-        CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
-        GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
-        SecureChannelError, messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
+    authentication::oauth::{
+        qrcode::{
+            CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
+            GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
+            SecureChannelError, messages::LoginProtocolsMessage, secure_channel::ChannelVariant,
+            use_msc_4388_for_generated_qr_code,
+        },
+        supports_device_authorization_grant,
     },
 };
 
@@ -58,15 +57,6 @@ async fn export_secrets_bundle(client: &Client) -> Result<SecretsBundle, QRCodeG
         .export_secrets_bundle()
         .await?;
     Ok(secrets_bundle)
-}
-
-/// Whether the authorization server supports the device authorization grant.
-///
-/// It needs to advertise the grant type, and the endpoint that the new device
-/// uses to start the grant.
-fn supports_device_authorization_grant(metadata: &AuthorizationServerMetadata) -> bool {
-    metadata.grant_types_supported.contains(&GrantType::DeviceCode)
-        && metadata.device_authorization_endpoint.is_some()
 }
 
 /// Get the login protocols we can offer to the new device in the
@@ -470,7 +460,6 @@ pub struct GrantLoginWithGeneratedQrCode {
     client: Client,
     device_creation_timeout: Duration,
     state: SharedObservable<GrantLoginProgress<GeneratedQrProgress>>,
-    msc_4388_support: bool,
 }
 
 impl GrantLoginWithGeneratedQrCode {
@@ -482,7 +471,6 @@ impl GrantLoginWithGeneratedQrCode {
             client: client.clone(),
             device_creation_timeout,
             state: Default::default(),
-            msc_4388_support: false,
         }
     }
 }
@@ -499,15 +487,6 @@ impl GrantLoginWithGeneratedQrCode {
     ) -> impl Stream<Item = GrantLoginProgress<GeneratedQrProgress>> + use<> {
         self.state.subscribe()
     }
-
-    /// Enable and generate a QR code which supports [MSC4388].
-    ///
-    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
-    #[cfg(feature = "unstable-msc4388")]
-    pub fn with_msc4388_support(&mut self) -> &mut Self {
-        self.msc_4388_support = true;
-        self
-    }
 }
 
 impl IntoFuture for GrantLoginWithGeneratedQrCode {
@@ -516,18 +495,21 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            // Determine which login protocols we can offer, so that we can
-            // abort before generating a QR code if there are none.
+            // Determine which variant of the rendezvous server to use, and
+            // which login protocols we can offer, so that we can abort before
+            // generating a QR code if there are none.
+            let msc_4388 = use_msc_4388_for_generated_qr_code(&self.client)
+                .await
+                .map_err(SecureChannelError::from)?;
             #[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
-            let available_protocols =
-                available_login_protocols(&self.client, self.msc_4388_support).await?;
+            let available_protocols = available_login_protocols(&self.client, msc_4388).await?;
 
             // Create a new ephemeral key pair and a rendezvous session to grant
             // a login with.
             //
             // -- MSC4108 Secure channel setup steps 1 & 2
             let secrets_bundle = export_secrets_bundle(&self.client).await?;
-            let channel = SecureChannel::reciprocate(&self.client, self.msc_4388_support).await?;
+            let channel = SecureChannel::reciprocate(&self.client, msc_4388).await?;
 
             // Extract the QR code data and emit an update so that the caller
             // can present the QR code for scanning by the new device.
@@ -624,27 +606,8 @@ mod test {
             messages::AuthorizationGrant,
             secure_channel::{EstablishedSecureChannel, test::MockedRendezvousServer},
         },
-        test_utils::mocks::{MatrixMockServer, oauth::MockServerMetadataBuilder},
+        test_utils::mocks::MatrixMockServer,
     };
-
-    #[test]
-    fn test_supports_device_authorization_grant() {
-        let metadata = MockServerMetadataBuilder::new("https://auth.local/")
-            .build()
-            .deserialize()
-            .expect("The server metadata should deserialize");
-        assert!(supports_device_authorization_grant(&metadata));
-
-        // The grant type isn't advertised.
-        let mut without_grant_type = metadata.clone();
-        without_grant_type.grant_types_supported.remove(&GrantType::DeviceCode);
-        assert!(!supports_device_authorization_grant(&without_grant_type));
-
-        // The device authorization endpoint is missing.
-        let mut without_endpoint = metadata;
-        without_endpoint.device_authorization_endpoint = None;
-        assert!(!supports_device_authorization_grant(&without_endpoint));
-    }
 
     enum BobBehaviour {
         HappyPath,
@@ -1224,8 +1187,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code(msc_4388: bool) {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         // The authorization server supports the device authorization grant.
@@ -1273,16 +1235,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        #[allow(unused_mut)]
-        let mut grant = oauth
+        let grant = oauth
             .grant_login_with_qr_code()
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            grant.with_msc4388_support();
-        }
 
         let secrets_bundle = export_secrets_bundle(&alice)
             .await
@@ -1393,8 +1349,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code(msc_4388: bool) {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         // The authorization server supports the device authorization grant.
@@ -1540,8 +1495,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_with_homeserver_swap() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -1675,8 +1629,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_grant_cancelled() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -1799,8 +1752,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_grant_cancelled() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -1909,8 +1861,7 @@ mod test {
     {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -2040,8 +1991,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_unexpected_message_instead_of_login_protocol() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -2163,8 +2113,7 @@ mod test {
         // Shared with Bob's task, so the rendezvous session outlives it and
         // Alice can still read Bob's last message.
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, msc_4388).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -2210,16 +2159,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        #[allow(unused_mut)]
-        let mut grant = oauth
+        let grant = oauth
             .grant_login_with_qr_code()
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
-
-        #[cfg(feature = "unstable-msc4388")]
-        if msc_4388 {
-            grant.with_msc4388_support();
-        }
 
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -2317,6 +2260,8 @@ mod test {
     #[cfg(feature = "unstable-msc4388")]
     async fn test_grant_login_with_generated_qr_code_no_supported_protocols_msc_4388() {
         let server = MatrixMockServer::new().await;
+        let _rendezvous_server =
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, true).await;
 
         server
             .oauth()
@@ -2337,11 +2282,10 @@ mod test {
 
         // Prepare the login granting future.
         let oauth = alice.oauth();
-        let mut grant = oauth
+        let grant = oauth
             .grant_login_with_qr_code()
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
-        grant.with_msc4388_support();
         let state = grant.state.clone();
 
         assert_matches!(grant.await, Err(QRCodeGrantLoginError::NoSupportedProtocols));
@@ -2458,8 +2402,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_device_already_exists() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -2589,8 +2532,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_device_already_exists() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -2706,8 +2648,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_device_not_found() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -2851,8 +2792,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_device_not_found() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -2979,13 +2919,9 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_generated_qr_code_session_expired() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(
-            server.server(),
-            "abcdEFG12345",
-            Duration::from_secs(2),
-            false,
-        )
-        .await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::from_secs(2), false)
+                .await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
@@ -3058,13 +2994,9 @@ mod test {
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code_session_expired() {
         let server = MatrixMockServer::new().await;
-        let rendezvous_server = MockedRendezvousServer::new(
-            server.server(),
-            "abcdEFG12345",
-            Duration::from_secs(2),
-            false,
-        )
-        .await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::from_secs(2), false)
+                .await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
@@ -3144,8 +3076,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_login_failure_instead_of_login_protocol() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -3268,8 +3199,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_login_failure_instead_of_login_protocol() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -3381,7 +3311,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_no_supported_protocols_msc_4388() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, true).await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, true).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         server
@@ -3429,8 +3359,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_login_failure_instead_of_login_success() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -3579,8 +3508,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_login_failure_instead_of_login_success() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -3713,8 +3641,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_unexpected_message_instead_of_login_success() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -3868,8 +3795,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_unexpected_message_instead_of_login_success() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -4007,8 +3933,7 @@ mod test {
     async fn test_grant_login_with_generated_qr_code_secure_channel_error() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -4133,8 +4058,7 @@ mod test {
     async fn test_grant_login_with_scanned_qr_code_secure_channel_error() {
         let server = MatrixMockServer::new().await;
         let rendezvous_server = Arc::new(
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await,
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await,
         );
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
@@ -4246,8 +4170,7 @@ mod test {
         let (protocol_accepted_tx, protocol_accepted_rx) = oneshot::channel();
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
@@ -4399,8 +4322,7 @@ mod test {
         let (protocol_accepted_tx, protocol_accepted_rx) = oneshot::channel();
         let server = MatrixMockServer::new().await;
         let rendezvous_server =
-            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, false)
-                .await;
+            MockedRendezvousServer::new(&server, "abcdEFG12345", Duration::MAX, false).await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
         let device_authorization_grant = AuthorizationGrant {
