@@ -3474,19 +3474,20 @@ impl Client {
 
     /// Find the IDs of the non-state events in the event cache store that have
     /// expired according to the effective message retention policy of their
-    /// room, as of `now`.
+    /// room, as of `now`, grouped by room.
     ///
     /// This fetches the up-to-date retention configuration from the
     /// homeserver with [`Self::fetch_retention_configuration`]. If the
     /// homeserver doesn't implement MSC1763, nothing is expired and an empty
-    /// list is returned.
+    /// map is returned.
     ///
     /// Then, for each known room, its effective retention policy is computed
     /// with [`Room::effective_retention_with_server_config`]. If it has a
     /// `max_lifetime`, every non-state event stored in the event cache whose
     /// `origin_server_ts` is strictly older than `now - max_lifetime` is
     /// considered expired. State events are never returned, since they're
-    /// needed to compute the room state.
+    /// needed to compute the room state. Rooms without expired events are not
+    /// part of the returned map.
     ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
@@ -3494,14 +3495,14 @@ impl Client {
     pub async fn find_expired_events(
         &self,
         now: MilliSecondsSinceUnixEpoch,
-    ) -> Result<Vec<OwnedEventId>> {
+    ) -> Result<BTreeMap<OwnedRoomId, Vec<OwnedEventId>>> {
         let config = match self.fetch_retention_configuration().await {
             Ok(config) => config,
             Err(error) if error.is_endpoint_not_implemented() => {
                 debug!(
                     "The homeserver doesn't support MSC1763 retention policies, no events expire"
                 );
-                return Ok(Vec::new());
+                return Ok(BTreeMap::new());
             }
             Err(error) => return Err(error.into()),
         };
@@ -3512,7 +3513,7 @@ impl Client {
         };
 
         let now_ms = u64::from(now.get());
-        let mut expired_event_ids = Vec::new();
+        let mut expired_event_ids = BTreeMap::new();
 
         for room in self.rooms() {
             let Some(max_lifetime) = room
@@ -3531,8 +3532,14 @@ impl Client {
                 .find_events_with_state_key_before_timestamp(room.room_id(), None, cutoff_ms)
                 .await?;
 
-            expired_event_ids
-                .extend(events.iter().filter_map(|event| event.event_id().map(ToOwned::to_owned)));
+            let event_ids = events
+                .iter()
+                .filter_map(|event| event.event_id().map(ToOwned::to_owned))
+                .collect::<Vec<_>>();
+
+            if !event_ids.is_empty() {
+                expired_event_ids.insert(room.room_id().to_owned(), event_ids);
+            }
         }
 
         Ok(expired_event_ids)
@@ -6987,7 +6994,13 @@ pub(crate) mod tests {
                 .await;
 
             let expired = client.find_expired_events(now).await.unwrap();
-            assert_eq!(expired, vec![event_id!("$old").to_owned()]);
+            assert_eq!(
+                expired,
+                BTreeMap::from([(
+                    room_with_retention.to_owned(),
+                    vec![event_id!("$old").to_owned()]
+                )])
+            );
         }
 
         // A server default policy applies to the room without a policy too.
@@ -7007,11 +7020,16 @@ pub(crate) mod tests {
                 .mount_as_scoped()
                 .await;
 
-            let mut expired = client.find_expired_events(now).await.unwrap();
-            expired.sort();
+            let expired = client.find_expired_events(now).await.unwrap();
             assert_eq!(
                 expired,
-                vec![event_id!("$old").to_owned(), event_id!("$old_no_retention").to_owned()]
+                BTreeMap::from([
+                    (room_with_retention.to_owned(), vec![event_id!("$old").to_owned()]),
+                    (
+                        room_without_retention.to_owned(),
+                        vec![event_id!("$old_no_retention").to_owned()]
+                    ),
+                ])
             );
         }
 
