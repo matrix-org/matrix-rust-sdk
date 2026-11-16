@@ -299,6 +299,13 @@ pub trait EventCacheStoreIntegrationTests {
     /// their `state_key` (or lack thereof), works as expected.
     async fn test_find_events_with_state_key_before_timestamp(&self);
 
+    /// Test that deleting out-of-band events works as expected.
+    async fn test_delete_out_of_band_events(&self);
+
+    /// Test that finding several events, and their positions in several
+    /// linked chunks, works as expected.
+    async fn test_find_events_and_positions(&self);
+
     /// Test that getting all events in a room works as expected.
     async fn test_get_room_events(&self);
 
@@ -2619,6 +2626,213 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(find(None, 0).await, ids(&[]));
     }
 
+    async fn test_find_events_and_positions(&self) {
+        let room_id = room_id!("!r0");
+        let another_room_id = room_id!("!r1");
+        let thread_id = event_id!("$thread_root");
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+        let in_room = f.text_msg("in room").event_id(event_id!("$in_room")).into_event();
+        let in_thread = f.text_msg("in thread").event_id(event_id!("$in_thread")).into_event();
+        let out_of_band = f.text_msg("out-of-band").event_id(event_id!("$oob")).into_event();
+        let other_room = EventFactory::new()
+            .room(another_room_id)
+            .sender(User::Alice)
+            .text_msg("other room")
+            .event_id(event_id!("$other_room"))
+            .into_event();
+
+        // `$in_thread` is in the room and in the thread, at different
+        // positions.
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![in_room.clone(), in_thread.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Thread(room_id, thread_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(3), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(3), 0),
+                    items: vec![in_thread.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(another_room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![other_room.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+        self.save_event(room_id, out_of_band.clone()).await.unwrap();
+
+        let event_ids = [&in_room, &in_thread, &out_of_band, &other_room]
+            .iter()
+            .map(|event| event.event_id().unwrap().to_owned())
+            .chain([event_id!("$unknown").to_owned()])
+            .collect::<Vec<_>>();
+
+        // Nothing to find.
+        assert!(self.find_events(room_id, Vec::new()).await.unwrap().is_empty());
+        assert!(
+            self.find_event_positions(vec![LinkedChunkId::Room(room_id).to_owned()], Vec::new())
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(self.find_event_positions(Vec::new(), event_ids.clone()).await.unwrap().is_empty());
+
+        // The events of the room are found, including the out-of-band one.
+        let mut found = self
+            .find_events(room_id, event_ids.clone())
+            .await
+            .unwrap()
+            .iter()
+            .map(|event| event.event_id().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        found.sort();
+        let mut expected = [&in_room, &in_thread, &out_of_band]
+            .iter()
+            .map(|event| event.event_id().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(found, expected);
+
+        // The positions of the events in the requested linked chunks are found,
+        // except for the out-of-band event and the other room's linked chunk,
+        // which hasn't been requested.
+        let mut positions = self
+            .find_event_positions(
+                vec![
+                    LinkedChunkId::Room(room_id).to_owned(),
+                    LinkedChunkId::Thread(room_id, thread_id).to_owned(),
+                    LinkedChunkId::PinnedEvents(room_id).to_owned(),
+                ],
+                event_ids,
+            )
+            .await
+            .unwrap();
+        positions.sort_by(|a, b| (a.0.to_string(), &a.1).cmp(&(b.0.to_string(), &b.1)));
+
+        let mut expected = vec![
+            (
+                LinkedChunkId::Room(room_id).to_owned(),
+                in_room.event_id().unwrap().to_owned(),
+                Position::new(CId::new(0), 0),
+            ),
+            (
+                LinkedChunkId::Room(room_id).to_owned(),
+                in_thread.event_id().unwrap().to_owned(),
+                Position::new(CId::new(0), 1),
+            ),
+            (
+                LinkedChunkId::Thread(room_id, thread_id).to_owned(),
+                in_thread.event_id().unwrap().to_owned(),
+                Position::new(CId::new(3), 0),
+            ),
+        ];
+        expected.sort_by(|a, b| (a.0.to_string(), &a.1).cmp(&(b.0.to_string(), &b.1)));
+        assert_eq!(positions, expected);
+    }
+
+    async fn test_delete_out_of_band_events(&self) {
+        let room_id = room_id!("!r0");
+        let another_room_id = room_id!("!r1");
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+        // Only saved out-of-band.
+        let out_of_band = f.text_msg("out-of-band").event_id(event_id!("$oob")).into_event();
+        // Only in a linked chunk.
+        let in_room = f.text_msg("in room").event_id(event_id!("$in_room")).into_event();
+        // In a linked chunk, then removed from it.
+        let removed = f.text_msg("removed").event_id(event_id!("$removed")).into_event();
+        // In a thread linked chunk, and saved out-of-band too.
+        let in_thread = f.text_msg("in thread").event_id(event_id!("$in_thread")).into_event();
+        // Saved out-of-band, in another room.
+        let other_room = EventFactory::new()
+            .room(another_room_id)
+            .sender(User::Alice)
+            .text_msg("other room")
+            .event_id(event_id!("$other_room"))
+            .into_event();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![removed.clone(), in_room.clone()],
+                },
+                Update::RemoveItem { at: Position::new(CId::new(0), 0) },
+            ],
+        )
+        .await
+        .unwrap();
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Thread(room_id, event_id!("$thread_root")),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![in_thread.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+        self.save_event(room_id, out_of_band.clone()).await.unwrap();
+        self.save_event(room_id, in_thread.clone()).await.unwrap();
+        self.save_event(another_room_id, other_room.clone()).await.unwrap();
+
+        // Deleting nothing is fine.
+        self.delete_out_of_band_events(room_id, Vec::new()).await.unwrap();
+
+        let all_event_ids = [&out_of_band, &in_room, &removed, &in_thread, &other_room]
+            .iter()
+            .map(|event| event.event_id().unwrap().to_owned())
+            .chain([event_id!("$unknown").to_owned()])
+            .collect::<Vec<_>>();
+        self.delete_out_of_band_events(room_id, all_event_ids).await.unwrap();
+
+        let exists = async |room_id, event: &TimelineEvent| {
+            self.find_event(room_id, event.event_id().unwrap()).await.unwrap().is_some()
+        };
+
+        // The out-of-band events are deleted.
+        assert!(!exists(room_id, &out_of_band).await);
+        assert!(!exists(room_id, &removed).await);
+
+        // The events in a linked chunk are kept.
+        assert!(exists(room_id, &in_room).await);
+        assert!(exists(room_id, &in_thread).await);
+        let chunks = self.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_matches!(&chunks[0].content, ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id(), in_room.event_id());
+        });
+
+        // The events of another room are kept.
+        assert!(exists(another_room_id, &other_room).await);
+    }
+
     async fn test_get_room_events(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -3306,6 +3520,20 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_events_with_state_key_before_timestamp().await;
+            }
+
+            #[async_test]
+            async fn test_find_events_and_positions() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_events_and_positions().await;
+            }
+
+            #[async_test]
+            async fn test_delete_out_of_band_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_delete_out_of_band_events().await;
             }
 
             #[async_test]
