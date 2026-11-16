@@ -292,6 +292,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// expected.
     async fn test_find_events_before_timestamp(&self);
 
+    /// Test that querying events older than a timestamp cutoff, filtered by
+    /// their `state_key` (or lack thereof), works as expected.
+    async fn test_find_events_with_state_key_before_timestamp(&self);
+
     /// Test that getting all events in a room works as expected.
     async fn test_get_room_events(&self);
 
@@ -2429,6 +2433,128 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
     }
 
+    async fn test_find_events_with_state_key_before_timestamp(&self) {
+        let room_id = room_id!("!r0");
+        let another_room_id = room_id!("!r1");
+        let cutoff_ms: u64 = 2000;
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+        // Non-state events.
+        let thread_root_id = event_id!("$thread_root");
+        let thread_root =
+            f.text_msg("thread root").event_id(thread_root_id).server_ts(500).into_event();
+        let message_old =
+            f.text_msg("old").event_id(event_id!("$old")).server_ts(1000).into_event();
+        let message_at_cutoff =
+            f.text_msg("at cutoff").event_id(event_id!("$at_cutoff")).server_ts(2000).into_event();
+        let message_out_of_band =
+            f.text_msg("out-of-band").event_id(event_id!("$oob")).server_ts(100).into_event();
+
+        // State events with an empty `state_key`.
+        let topic_old = f
+            .room_topic("old topic")
+            .state_key("")
+            .event_id(event_id!("$topic_old"))
+            .server_ts(1500)
+            .into_event();
+        let topic_new = f
+            .room_topic("new topic")
+            .state_key("")
+            .event_id(event_id!("$topic_new"))
+            .server_ts(3000)
+            .into_event();
+
+        // State events with non-empty `state_key`s.
+        let bob_member =
+            f.member(User::Bob).event_id(event_id!("$bob_member")).server_ts(700).into_event();
+        let carol_member =
+            f.member(User::Carol).event_id(event_id!("$carol_member")).server_ts(800).into_event();
+
+        // An old event in another room.
+        let other_room_message = EventFactory::new()
+            .room(another_room_id)
+            .sender(User::Alice)
+            .text_msg("other room")
+            .event_id(event_id!("$other_room"))
+            .server_ts(100)
+            .into_event();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![
+                        thread_root.clone(),
+                        bob_member.clone(),
+                        carol_member.clone(),
+                        message_old.clone(),
+                        topic_old.clone(),
+                        message_at_cutoff.clone(),
+                        topic_new.clone(),
+                    ],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // The thread root is in two linked chunks, but must be returned once.
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Thread(room_id, thread_root_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![thread_root.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.save_event(room_id, message_out_of_band.clone()).await.unwrap();
+        self.save_event(another_room_id, other_room_message).await.unwrap();
+
+        let find = async |state_key: Option<&str>, cutoff_ms: u64| {
+            self.find_events_with_state_key_before_timestamp(
+                room_id,
+                state_key.map(ToOwned::to_owned),
+                cutoff_ms,
+            )
+            .await
+            .expect("failed to query events with state key before timestamp")
+            .iter()
+            .map(|event| event.event_id().unwrap().to_owned())
+            .collect::<Vec<_>>()
+        };
+        let ids = |events: &[&TimelineEvent]| {
+            events.iter().map(|event| event.event_id().unwrap().to_owned()).collect::<Vec<_>>()
+        };
+
+        // Non-state events, ordered by timestamp, excluding the one at the
+        // cutoff and the one in the other room.
+        assert_eq!(
+            find(None, cutoff_ms).await,
+            ids(&[&message_out_of_band, &thread_root, &message_old])
+        );
+
+        // An empty `state_key` is not the same as a missing one.
+        assert_eq!(find(Some(""), cutoff_ms).await, ids(&[&topic_old]));
+        assert_eq!(find(Some(""), 10_000).await, ids(&[&topic_old, &topic_new]));
+
+        // A non-empty `state_key` only matches the events with this exact
+        // `state_key`.
+        assert_eq!(find(Some(User::Bob.as_str()), cutoff_ms).await, ids(&[&bob_member]));
+        assert_eq!(find(Some(User::Carol.as_str()), cutoff_ms).await, ids(&[&carol_member]));
+        assert_eq!(find(Some(User::Carol.as_str()), 800).await, ids(&[]));
+        assert_eq!(find(Some("@unknown:localhost"), cutoff_ms).await, ids(&[]));
+
+        // Nothing is older than the epoch.
+        assert_eq!(find(None, 0).await, ids(&[]));
+    }
+
     async fn test_get_room_events(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -3102,6 +3228,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_events_before_timestamp().await;
+            }
+
+            #[async_test]
+            async fn test_find_events_with_state_key_before_timestamp() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_events_with_state_key_before_timestamp().await;
             }
 
             #[async_test]
