@@ -236,6 +236,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test remove an item from a linked chunk.
     async fn test_linked_chunk_remove_item(&self);
 
+    /// Test that removing several items at once from linked chunks works.
+    async fn test_linked_chunk_remove_items(&self);
+
     /// Test detaching last items from a linked chunk.
     async fn test_linked_chunk_detach_last_items(&self);
 
@@ -1361,6 +1364,67 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 check_test_event(&events[0], "event");
             });
         }
+    }
+
+    async fn test_linked_chunk_remove_items(&self) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let event = |content: &str| make_test_event(room_id, content);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: (0..10).map(|i| event(&format!("a{i}"))).collect(),
+                },
+                Update::NewItemsChunk { previous: Some(CId::new(0)), new: CId::new(1), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: (0..5).map(|i| event(&format!("b{i}"))).collect(),
+                },
+                // Decreasing positions in the same chunk: `a7`, `a4`, `a3`, `a0`.
+                Update::RemoveItem { at: Position::new(CId::new(0), 7) },
+                Update::RemoveItem { at: Position::new(CId::new(0), 4) },
+                Update::RemoveItem { at: Position::new(CId::new(0), 3) },
+                Update::RemoveItem { at: Position::new(CId::new(0), 0) },
+                // The same position twice: `b1`, then `b2` which has been
+                // shifted to position 1.
+                Update::RemoveItem { at: Position::new(CId::new(1), 1) },
+                Update::RemoveItem { at: Position::new(CId::new(1), 1) },
+                // Different chunks: `a9`, then `b0`.
+                Update::RemoveItem { at: Position::new(CId::new(0), 5) },
+                Update::RemoveItem { at: Position::new(CId::new(1), 0) },
+                // The positions must have been shifted: these are the first
+                // unoccupied positions of each chunk.
+                Update::PushItems { at: Position::new(CId::new(0), 5), items: vec![event("a10")] },
+                Update::PushItems { at: Position::new(CId::new(1), 2), items: vec![event("b5")] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+        assert_eq!(chunks.len(), 2);
+
+        assert_eq!(chunks[0].identifier, CId::new(0));
+        assert_matches!(&chunks[0].content, ChunkContent::Items(events) => {
+            let expected = ["a1", "a2", "a5", "a6", "a8", "a10"];
+            assert_eq!(events.len(), expected.len());
+            for (event, expected) in events.iter().zip(expected) {
+                check_test_event(event, expected);
+            }
+        });
+
+        assert_eq!(chunks[1].identifier, CId::new(1));
+        assert_matches!(&chunks[1].content, ChunkContent::Items(events) => {
+            let expected = ["b3", "b4", "b5"];
+            assert_eq!(events.len(), expected.len());
+            for (event, expected) in events.iter().zip(expected) {
+                check_test_event(event, expected);
+            }
+        });
     }
 
     async fn test_linked_chunk_remove_item(&self) {
@@ -3102,6 +3166,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_linked_chunk_filter_incomplete_events().await;
+            }
+
+            #[async_test]
+            async fn test_linked_chunk_remove_items() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_linked_chunk_remove_items().await;
             }
 
             #[async_test]
