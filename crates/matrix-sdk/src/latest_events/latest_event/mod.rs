@@ -178,17 +178,12 @@ impl LatestEvent {
                     //
                     // Long: An invite room is only constituted of
                     // stripped-state events. These events do not have an
-                    // `origin_server_ts` field. It means we cannot compute the
-                    // timestamp of the `LatestEventValue`. To workaround this,
-                    // we set the timestamp to `now()`. See
-                    // `Builder::new_remote_for_invite` to learn more. If an
-                    // invite room receives a new event, its
-                    // `LatestEventValue`'s timestamp will be updated to
-                    // `now()`, which will make the room bumps to the top of the
-                    // room list for example. This is not an acceptable
-                    // behaviour because it can be an “attack vector”, i.e. a
-                    // way to annoy people with spammy invites. That's why, once
-                    // a `RemoteInvite` has been computed, we do not refresh it.
+                    // `origin_server_ts` field, so the `LatestEventValue` has
+                    // no timestamp and room-list ordering falls back to the
+                    // room's recency (bump) stamp. See
+                    // `Builder::new_remote_for_invite` to learn more. Nothing
+                    // new can be learnt by recomputing it, so once a
+                    // `RemoteInvite` has been computed, we do not refresh it.
                     if matches!(
                         self.current_value.read().await.deref(),
                         LatestEventValue::RemoteInvite { .. }
@@ -591,7 +586,7 @@ mod tests_latest_event {
         latest_event
             .update(LatestEventValue::RemoteInvite {
                 event_id: None,
-                timestamp: MilliSecondsSinceUnixEpoch::now(),
+                timestamp: None,
                 inviter: Some(owned_user_id!("@mnt_io:matrix.org")),
             })
             .await;
