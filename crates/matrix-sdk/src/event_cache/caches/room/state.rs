@@ -520,6 +520,25 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         Ok(self.state.room_linked_chunk.updates_as_vector_diffs())
     }
 
+    /// Replace the events loaded in memory which have the same IDs as the
+    /// given events, by the given events.
+    ///
+    /// The events must have been saved in the store already, with
+    /// [`EventCacheStore::save_event`].
+    ///
+    /// [`EventCacheStore::save_event`]: matrix_sdk_base::event_cache::store::EventCacheStore::save_event
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn replace_events_in_memory(
+        &mut self,
+        events: &[Event],
+    ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        if self.state.room_linked_chunk.replace_events_by_id(events) {
+            self.propagate_changes().await?;
+        }
+
+        Ok(self.state.room_linked_chunk.updates_as_vector_diffs())
+    }
+
     /// Remove events by their position, in `EventLinkedChunk` and in
     /// `EventCacheStore`.
     ///

@@ -2686,6 +2686,103 @@ async fn test_remove_events() {
     }
 }
 
+/// Assert that an event has been redacted locally, by
+/// `EventCache::remove_events`.
+fn assert_locally_redacted(event: &TimelineEvent) {
+    assert!(event.raw().deserialize().unwrap().is_redacted());
+    assert_eq!(
+        event.raw().get_field::<serde_json::Value>("content").unwrap().unwrap(),
+        serde_json::json!({})
+    );
+
+    let unsigned = event.raw().get_field::<serde_json::Value>("unsigned").unwrap().unwrap();
+    assert_eq!(
+        unsigned["redacted_because"]["content"]["reason"],
+        "Expired by the room's message retention policy"
+    );
+}
+
+#[async_test]
+async fn test_remove_events_redacts_thread_roots() {
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let thread_root_id = event_id!("$thread_root");
+    let f = EventFactory::new().room(room_id).sender(User::Bob);
+
+    // The thread root is known to be one thanks to its bundled thread summary,
+    // whose latest reply is saved in the store.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("thread root").event_id(thread_root_id).with_bundled_thread_summary(
+                        f.text_msg("reply")
+                            .in_thread(thread_root_id, thread_root_id)
+                            .event_id(event_id!("$reply"))
+                            .into_raw(),
+                        1,
+                        false,
+                    ),
+                )
+                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$ev"))),
+        )
+        .await;
+
+    let event_cache = client.event_cache().unwrap();
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(events.len(), 2);
+
+    event_cache
+        .remove_events(room_id, vec![thread_root_id.to_owned(), event_id!("$ev").to_owned()])
+        .await
+        .unwrap();
+
+    // The subscriber is notified that the event is removed, and that the thread
+    // root is redacted.
+    let mut events = Vector::from(events);
+    while let Ok(update) = room_stream.try_recv() {
+        if let RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. }) =
+            update
+        {
+            for diff in diffs {
+                diff.apply(&mut events);
+            }
+        }
+    }
+    assert_eq!(events.len(), 1);
+    assert_event_id!(events[0], "$thread_root");
+    assert_locally_redacted(&events[0]);
+
+    // In memory too…
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_locally_redacted(&events[0]);
+
+    // … and in the store.
+    assert_eq!(
+        event_ids_in_store(&event_cache_store, LinkedChunkId::Room(room_id)).await,
+        vec![thread_root_id.to_owned()]
+    );
+    let thread_root = event_cache_store.find_event(room_id, thread_root_id).await.unwrap().unwrap();
+    assert_locally_redacted(&thread_root);
+    assert!(event_cache_store.find_event(room_id, event_id!("$ev")).await.unwrap().is_none());
+}
+
 #[async_test]
 async fn test_remove_events_not_loaded_in_memory() {
     let room_id = room_id!("!galette:saucisse.bzh");
@@ -2750,9 +2847,16 @@ async fn test_remove_events_not_loaded_in_memory() {
         .await;
 
     let event_cache = client.event_cache().unwrap();
-    event_cache.remove_events(room_id, vec![second_reply_id.to_owned()]).await.unwrap();
+    event_cache
+        .remove_events(room_id, vec![thread_root_id.to_owned(), second_reply_id.to_owned()])
+        .await
+        .unwrap();
 
-    // The event is removed from the room and from the thread.
+    // The thread root has a thread info: it's kept, but redacted.
+    let thread_root = event_cache_store.find_event(room_id, thread_root_id).await.unwrap().unwrap();
+    assert_locally_redacted(&thread_root);
+
+    // The reply is removed from the room and from the thread.
     assert_eq!(
         event_ids_in_store(&event_cache_store, LinkedChunkId::Room(room_id)).await,
         vec![thread_root_id.to_owned(), first_reply_id.to_owned()]

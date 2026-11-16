@@ -24,15 +24,25 @@ use std::{
 use itertools::Either;
 use matrix_sdk_base::{
     deserialized_responses::ThreadSummary,
-    event_cache::store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
+    event_cache::{
+        Event,
+        store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
+    },
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
     serde_helpers::extract_thread_root,
     timer,
     tracing_timer::TracingTimer,
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
+use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+    canonical_json::{CanonicalJsonObject, RedactedBecause, redact_in_place},
+    events::relation::RelationType,
+    room_version_rules::RedactionRules,
+    serde::Raw,
+};
+use serde_json::json;
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
-use tracing::{instrument, trace};
+use tracing::{instrument, trace, warn};
 
 use super::{
     CachesByRoom, EventCacheError, EventsOrigin, Result,
@@ -296,13 +306,22 @@ impl StateLock {
     /// event-focused caches. Then, they are deleted from the store, including
     /// those saved out-of-band.
     ///
+    /// Thread roots are not removed though, since they are the entry point of
+    /// their thread, which may still be in use: they are redacted locally
+    /// instead, with `redaction_rules`, see [`redact_locally`]. An event is
+    /// considered a thread root if it has a [`ThreadInfo`] in the store, or if
+    /// some events in the store are in its thread.
+    ///
     /// The subscribers of the loaded caches are notified, and the summaries of
     /// the threads the events were part of are updated.
-    #[instrument(skip(self, event_ids))]
+    ///
+    /// [`ThreadInfo`]: matrix_sdk_base::event_cache::thread::ThreadInfo
+    #[instrument(skip(self, event_ids, redaction_rules))]
     pub(super) async fn remove_events(
         &self,
         room_id: &RoomId,
         event_ids: Vec<OwnedEventId>,
+        redaction_rules: &RedactionRules,
     ) -> Result<()> {
         if event_ids.is_empty() {
             return Ok(());
@@ -312,11 +331,43 @@ impl StateLock {
         let store = guard.store.clone();
         let generic_update = || room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() };
 
-        // Find the threads the events are part of, while they are still in the
-        // store.
-        let threads_of_events = store
-            .find_events(room_id, event_ids.clone())
+        // Find the thread roots among the events, while they are still in the
+        // store: they are redacted instead of being removed. Note that the
+        // bundled thread summaries can't be used for that, since the bundled
+        // relations are stripped from the events before saving them.
+        let events = store.find_events(room_id, event_ids.clone()).await?;
+        let thread_ids = store
+            .load_thread_infos(room_id, event_ids.clone())
             .await?
+            .into_iter()
+            .map(|(thread_id, _thread_info)| thread_id)
+            .chain(
+                store
+                    .filter_events_with_relations(
+                        room_id,
+                        event_ids.clone(),
+                        Some(&[RelationType::Thread]),
+                    )
+                    .await?,
+            )
+            .collect::<BTreeSet<_>>();
+
+        let (thread_roots, other_events): (Vec<_>, Vec<_>) =
+            events.into_iter().partition(|event| {
+                event.event_id().is_some_and(|event_id| thread_ids.contains(event_id))
+            });
+
+        let thread_root_ids = thread_roots
+            .iter()
+            .filter_map(|event| event.event_id().map(ToOwned::to_owned))
+            .collect::<BTreeSet<_>>();
+        let event_ids = event_ids
+            .into_iter()
+            .filter(|event_id| !thread_root_ids.contains(event_id))
+            .collect::<Vec<_>>();
+
+        // Find the threads the removed events are part of.
+        let threads_of_events = other_events
             .iter()
             .filter_map(|event| extract_thread_root(event.raw()))
             .collect::<BTreeSet<_>>();
@@ -500,6 +551,93 @@ impl StateLock {
             }
         }
 
+        // Redact the thread roots, instead of removing them.
+        let redacted_thread_roots = thread_roots
+            .iter()
+            .filter_map(|event| redact_locally(event, redaction_rules))
+            .collect::<Vec<_>>();
+
+        if redacted_thread_roots.is_empty() {
+            return Ok(());
+        }
+
+        // Saving an event updates all its copies in the store, in all the
+        // linked chunks, so the loaded caches only need to be updated
+        // in memory.
+        for event in &redacted_thread_roots {
+            store.save_event(room_id, event.clone()).await?;
+        }
+
+        if let Some(room_state) = room {
+            let mut room_state = StateLockWriteGuard {
+                state: StateLockWriteGuardKind::Reference(room_state),
+                store: store.clone(),
+                _tracing_timer: None,
+            };
+
+            let diffs = room_state.replace_events_in_memory(&redacted_thread_roots).await?;
+
+            if !diffs.is_empty() {
+                room_state.update_sender.send(
+                    room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(generic_update()),
+                );
+            }
+        }
+
+        // A thread root is part of its own thread.
+        for thread_root_id in &thread_root_ids {
+            if let Some(thread_state) = threads.get_mut(thread_root_id) {
+                let mut thread_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(thread_state),
+                    store: store.clone(),
+                    _tracing_timer: None,
+                };
+
+                let diffs = thread_state.replace_events_in_memory(&redacted_thread_roots).await?;
+
+                if !diffs.is_empty() {
+                    thread_state.update_sender.send(
+                        thread::ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                            diffs,
+                            origin: EventsOrigin::Cache,
+                        }),
+                        Some(generic_update()),
+                    );
+                }
+            }
+        }
+
+        if let Some(pinned_events_state) = pinned_events {
+            let mut pinned_events_state = StateLockWriteGuard {
+                state: StateLockWriteGuardKind::Reference(pinned_events_state),
+                store: store.clone(),
+                _tracing_timer: None,
+            };
+
+            let diffs =
+                pinned_events_state.replace_events_in_memory(&redacted_thread_roots).await?;
+
+            if !diffs.is_empty() {
+                pinned_events_state
+                    .update_sender
+                    .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            }
+        }
+
+        for event_focused_state in event_focused.values_mut() {
+            let diffs = event_focused_state.replace_events_in_memory(&redacted_thread_roots);
+
+            if !diffs.is_empty() {
+                let _ = event_focused_state
+                    .update_sender
+                    .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            }
+        }
+
         Ok(())
     }
 
@@ -526,6 +664,68 @@ impl StateLock {
             .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
             .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
     }
+}
+
+/// The reason of the local redaction of the expired thread roots, see
+/// [`redact_locally`].
+const LOCAL_REDACTION_REASON: &str = "Expired by the room's message retention policy";
+
+/// Redact an event locally, i.e. without a redaction event from the server.
+///
+/// The content of the event is stripped according to `redaction_rules`, and a
+/// local `m.room.redaction` event is set in its `unsigned.redacted_because`
+/// field, so that it's recognized as a redacted event. This local redaction
+/// event has a local event ID, the sender of the redacted event, the current
+/// time as timestamp, and [`LOCAL_REDACTION_REASON`] as reason.
+///
+/// Returns `None` if the event is already redacted, or if it can't be
+/// redacted.
+fn redact_locally(event: &Event, redaction_rules: &RedactionRules) -> Option<Event> {
+    let raw = event.raw();
+
+    if raw.deserialize().is_ok_and(|event| event.is_redacted()) {
+        return None;
+    }
+
+    let event_id = event.event_id()?;
+    let sender = raw.get_field::<OwnedUserId>("sender").ok().flatten()?;
+
+    let redacted_because = serde_json::from_value::<CanonicalJsonObject>(json!({
+        "type": "m.room.redaction",
+        // The event ID must be unique, but the local redaction isn't a real
+        // event: derive a clearly local event ID from the redacted event's ID.
+        "event_id": format!("$local_redaction_{}", &event_id.as_str()[1..]),
+        "sender": sender,
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "redacts": event_id,
+        "content": {
+            "redacts": event_id,
+            "reason": LOCAL_REDACTION_REASON,
+        },
+    }))
+    .ok()?;
+
+    let mut json = match raw.deserialize_as::<CanonicalJsonObject>() {
+        Ok(json) => json,
+        Err(error) => {
+            warn!(%event_id, "Failed to deserialize the event to redact it: {error}");
+            return None;
+        }
+    };
+
+    if let Err(error) = redact_in_place(
+        &mut json,
+        redaction_rules,
+        Some(RedactedBecause::from_json(redacted_because)),
+    ) {
+        warn!(%event_id, "Failed to redact the event: {error}");
+        return None;
+    }
+
+    let mut redacted_event = event.clone();
+    redacted_event.replace_raw(Raw::new(&json).ok()?.cast_unchecked());
+
+    Some(redacted_event)
 }
 
 /// Remove the events at the given positions from a linked chunk which isn't

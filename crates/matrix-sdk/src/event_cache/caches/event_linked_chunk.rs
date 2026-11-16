@@ -183,6 +183,31 @@ impl EventLinkedChunk {
         self.chunks.replace_item_at(position, event)
     }
 
+    /// Replace the events loaded in memory which have the same IDs as the
+    /// given events, by the given events.
+    ///
+    /// Returns whether at least one event has been replaced.
+    pub fn replace_events_by_id(&mut self, events: &[Event]) -> bool {
+        let replacements = self
+            .events()
+            .filter_map(|(position, event)| {
+                let event_id = event.event_id()?;
+                let replacement =
+                    events.iter().find(|replacement| replacement.event_id() == Some(event_id))?;
+                Some((position, replacement.clone()))
+            })
+            .collect::<Vec<_>>();
+
+        let replaced = !replacements.is_empty();
+
+        for (position, event) in replacements {
+            self.replace_event_at(position, event)
+                .expect("the position comes from the linked chunk itself");
+        }
+
+        replaced
+    }
+
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where

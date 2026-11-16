@@ -334,6 +334,19 @@ impl EventFocusedCacheState {
         self.chunk.updates_as_vector_diffs()
     }
 
+    /// Replace the events which have the same IDs as the given events, by the
+    /// given events.
+    ///
+    /// This cache only lives in memory, so nothing is saved in the store.
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub fn replace_events_in_memory(&mut self, events: &[Event]) -> Vec<VectorDiff<Event>> {
+        if self.chunk.replace_events_by_id(events) {
+            self.propagate_changes();
+        }
+
+        self.chunk.updates_as_vector_diffs()
+    }
+
     /// Propagate changes to the linked chunk update sender.
     fn propagate_changes(&mut self) {
         let updates = self.chunk.store_updates().take();
