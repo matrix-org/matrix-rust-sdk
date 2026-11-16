@@ -158,7 +158,7 @@ use crate::search_index::SearchIndex;
 
 /// How long the cached homeserver message retention configuration is
 /// considered fresh: 6 hours.
-const RETENTION_CONFIGURATION_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const RETENTION_CONFIGURATION_TTL: Duration = Duration::from_hours(6);
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
