@@ -103,6 +103,8 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     // Required for `Room::retention`/`Room::effective_retention` (MSC1763) to
     // see room-level retention overrides.
     (StateEventType::RoomRetention, ""),
+    // Required for the image packs of the current room and of its spaces.
+    (StateEventType::RoomImagePack, "*"),
 ];
 
 /// The default `required_state` constant value for sliding sync room
