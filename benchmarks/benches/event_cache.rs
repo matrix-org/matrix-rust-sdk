@@ -1,4 +1,9 @@
-use std::{pin::Pin, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use assert_matches::assert_matches;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -9,14 +14,23 @@ use matrix_sdk::{
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     store::StoreConfig,
     sync::{JoinedRoomUpdate, RoomUpdates},
-    test_utils::client::MockClientBuilder,
+    test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
 };
 use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
 use matrix_sdk_test::{User, base64_sha256_hash, event_factory::EventFactory};
 use ruma::{
-    OwnedRoomId, RoomId, event_id,
-    events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
-    room_id, user_id,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
+    api::client::retention::{
+        RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits,
+    },
+    event_id,
+    events::{
+        relation::RelationType,
+        room::{
+            message::RoomMessageEventContentWithoutRelation, retention::RoomRetentionEventContent,
+        },
+    },
+    room_id, uint, user_id,
 };
 use tempfile::tempdir;
 use tokio::runtime::Builder;
@@ -486,10 +500,184 @@ fn find_latest_event(c: &mut Criterion) {
     group.finish()
 }
 
+fn remove_expired_events(c: &mut Criterion) {
+    const NUM_ROOMS: usize = 100;
+    const NUM_EVENTS_PER_ROOM: usize = 100;
+    // Half of the events of each room are older than the retention policy.
+    const NUM_EXPIRED_EVENTS_PER_ROOM: usize = NUM_EVENTS_PER_ROOM / 2;
+
+    const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+    let now = MilliSecondsSinceUnixEpoch(uint!(864_000_000)); // 10 days.
+    let now_ms = u64::from(now.get());
+
+    // Create a new asynchronous runtime.
+    let runtime = Builder::new_multi_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .expect("Failed to create an asynchronous runtime");
+
+    let mut group = c.benchmark_group("Expired events");
+    group.sample_size(10);
+
+    // Each room receives its events from a sync, the oldest half of them being
+    // expired.
+    let mut room_updates = RoomUpdates::default();
+    let mut changes = matrix_sdk::StateChanges::default();
+
+    for i in 0..NUM_ROOMS {
+        let room_id =
+            OwnedRoomId::try_from(format!("!expiredeventsroom{i:04}:example.com")).unwrap();
+        let event_factory = EventFactory::new().room(&room_id).sender(User::Alice);
+
+        let mut joined_room_update = JoinedRoomUpdate::default();
+        for j in 0..NUM_EVENTS_PER_ROOM {
+            let age_ms = if j < NUM_EXPIRED_EVENTS_PER_ROOM {
+                // Older than the 1 day `max_lifetime`.
+                2 * ONE_DAY_MS
+            } else {
+                // More recent than the 1 day `max_lifetime`.
+                ONE_DAY_MS / 2
+            };
+            // The event ID is a hash of the event, which doesn't contain the
+            // room ID in a sync response: make the content unique per room so
+            // that all the event IDs are unique, like for real events.
+            let event = event_factory
+                .text_msg(format!("Message {j} in room {i}"))
+                .server_ts(now_ms - age_ms + j as u64)
+                .into();
+            joined_room_update.timeline.events.push(event);
+        }
+        room_updates.joined.insert(room_id.clone(), joined_room_update);
+
+        changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
+    }
+
+    let state_store = runtime.block_on(async {
+        let state_store = matrix_sdk::MemoryStore::new();
+        state_store.save_changes(&changes).await.unwrap();
+        Arc::new(state_store)
+    });
+
+    // The homeserver defines a 1 day `max_lifetime` for all the rooms.
+    let server = runtime.block_on(async {
+        let server = MatrixMockServer::new().await;
+        server
+            .mock_get_retention_configuration()
+            .ok(
+                BTreeMap::from([(
+                    RoomIdOrAllRooms::AllRooms,
+                    RoomRetentionEventContent::new()
+                        .at_most(Duration::from_millis(ONE_DAY_MS))
+                        .unwrap(),
+                )]),
+                RetentionLimits::default(),
+            )
+            .mount()
+            .await;
+        server
+    });
+
+    // Declare new stores.
+    let temp_dir = Arc::new(tempdir().unwrap());
+
+    let stores = vec![
+        ("memory", MemoryStore::default().into_event_cache_store()),
+        (
+            "SQLite",
+            runtime.block_on(async {
+                SqliteEventCacheStore::open(temp_dir.path().join("bench"), None)
+                    .await
+                    .unwrap()
+                    .into_event_cache_store()
+            }),
+        ),
+    ];
+
+    group.throughput(Throughput::Elements((NUM_ROOMS * NUM_EXPIRED_EVENTS_PER_ROOM) as u64));
+
+    for (store_name, event_cache_store) in stores {
+        let client = runtime.block_on(async {
+            server
+                .client_builder()
+                .on_builder(|builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process(
+                            "cross-process-store-locks-holder-name",
+                        ))
+                        .state_store(state_store.clone())
+                        .event_cache_store(event_cache_store),
+                    )
+                })
+                .build()
+                .await
+        });
+
+        group.bench_function(
+            BenchmarkId::new(
+                format!("Remove expired events[{store_name}]"),
+                format!(
+                    "{NUM_ROOMS} rooms, {NUM_EVENTS_PER_ROOM} events per room, \
+                     {NUM_EXPIRED_EVENTS_PER_ROOM} expired"
+                ),
+            ),
+            |bencher| {
+                // The removal is destructive, so the event cache must be filled
+                // again before each iteration, without measuring it. Note that
+                // CodSpeed doesn't support `iter_custom`, it skips this
+                // benchmark.
+                bencher.to_async(&runtime).iter_custom(|iterations| {
+                    let client = client.clone();
+                    let room_updates = room_updates.clone();
+
+                    async move {
+                        let event_cache = client.event_cache().unwrap();
+                        let mut total = Duration::ZERO;
+
+                        for _ in 0..iterations {
+                            // The setup: all the rooms are synced with all
+                            // their events.
+                            event_cache.clear_all_rooms().await.unwrap();
+                            event_cache.handle_room_updates(room_updates.clone()).await.unwrap();
+
+                            // The routine itself.
+                            let start = Instant::now();
+                            let removed = client.remove_expired_events(now).await.unwrap();
+                            total += start.elapsed();
+
+                            assert_eq!(removed.len(), NUM_ROOMS);
+                            assert!(
+                                removed
+                                    .values()
+                                    .all(|event_ids| event_ids.len() == NUM_EXPIRED_EVENTS_PER_ROOM)
+                            );
+                        }
+
+                        total
+                    }
+                })
+            },
+        );
+
+        {
+            let _guard = runtime.enter();
+            drop(client);
+        }
+    }
+
+    {
+        let _guard = runtime.enter();
+        drop(server);
+        drop(state_store);
+    }
+
+    group.finish()
+}
+
 criterion_group! {
     name = event_cache;
     config = Criterion::default();
-    targets = handle_room_updates, find_event_relations, find_latest_event,
+    targets = handle_room_updates, find_event_relations, find_latest_event, remove_expired_events,
 }
 
 criterion_main!(event_cache);
