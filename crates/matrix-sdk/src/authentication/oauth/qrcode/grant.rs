@@ -604,17 +604,17 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 mod test {
     use std::{assert_matches, sync::Arc};
 
-    use futures_util::StreamExt;
+    use futures_util::{StreamExt, future::join3};
     use matrix_sdk_base::{
         CancellableIntoFutureExt,
         crypto::types::{SecretsBundle, qr_login::QrCodeIntentData},
     };
-    use matrix_sdk_common::executor::spawn;
+    use matrix_sdk_common::executor::{JoinHandle, spawn};
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
     use ruma::{owned_device_id, owned_user_id};
     use strass::assert_let;
-    use tokio::sync::oneshot;
+    use tokio::{sync::oneshot, time::timeout};
     use tracing::debug;
 
     use super::*;
@@ -644,6 +644,40 @@ mod test {
         let mut without_endpoint = metadata;
         without_endpoint.device_authorization_endpoint = None;
         assert!(!supports_device_authorization_grant(&without_endpoint));
+    }
+
+    /// How long Alice and Bob may take in the tests where Alice is cancelled
+    /// on a signal from Bob. They only take this long if one of them is stuck
+    /// waiting for the other, so this is generous to not fail a slow but
+    /// otherwise passing run.
+    const CANCELLED_GRANT_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Wait for Alice, Bob's task and the updates task to finish, in the
+    /// tests where Alice is cancelled on a signal from Bob.
+    ///
+    /// The three are waited for together rather than one after the other, so
+    /// that whichever fails is reported right away, even while the others are
+    /// left waiting for it forever. That includes Alice's result, which is
+    /// passed to `check_result` as soon as Alice finishes. If several failed,
+    /// Alice is reported before Bob and Bob before the updates task, as that
+    /// is the order in which one failure most likely caused the other.
+    ///
+    /// Nothing fails while Alice and Bob are stuck waiting for each other, so
+    /// this also gives up after [`CANCELLED_GRANT_TIMEOUT`].
+    async fn finish_in_time<T>(
+        grant: impl IntoFuture<Output = T>,
+        bob_task: JoinHandle<()>,
+        updates_task: JoinHandle<()>,
+        check_result: impl FnOnce(T),
+    ) {
+        let alice = async { check_result(grant.await) };
+        let bob = async { bob_task.await.expect("Bob's task should finish") };
+        let updates =
+            async { updates_task.await.expect("Alice should run through all progress states") };
+
+        timeout(CANCELLED_GRANT_TIMEOUT, join3(alice, bob, updates))
+            .await
+            .expect("Alice and Bob should finish in time");
     }
 
     enum BobBehaviour {
@@ -1812,9 +1846,10 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(result, None, "Alice should abort the login by cancelling it");
+        })
+        .await;
     }
 
     #[async_test]
@@ -1930,9 +1965,10 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(result, None, "Alice should abort the login by cancelling it");
+        })
+        .await;
     }
 
     #[async_test]
@@ -4416,13 +4452,16 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
-            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
-            "Alice should abort the login with expected error"
-        );
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(
+                result,
+                Err(QRCodeGrantLoginError::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled
+                }),
+                "Alice should abort the login with expected error"
+            );
+        })
+        .await;
     }
 
     #[async_test]
@@ -4553,12 +4592,15 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
-            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
-            "Alice should abort the login with expected error"
-        );
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(
+                result,
+                Err(QRCodeGrantLoginError::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled
+                }),
+                "Alice should abort the login with expected error"
+            );
+        })
+        .await;
     }
 }
