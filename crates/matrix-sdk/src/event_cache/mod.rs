@@ -552,14 +552,31 @@ impl EventCache {
     /// notified. The events saved out-of-band are deleted too, and the
     /// summaries of the threads the events were part of are updated.
     ///
+    /// Thread roots are not removed though, since they are the entry point of
+    /// their thread, which may still be in use: their content is redacted
+    /// locally instead, as if a redaction event had been received, with a
+    /// local redaction event in `unsigned.redacted_because`. An event is
+    /// considered a thread root if it has a [`ThreadInfo`], or if some cached
+    /// events are in its thread.
+    ///
     /// Unknown event IDs are ignored. This doesn't prevent the events from
     /// being added to the cache again later, e.g. by a back-pagination.
+    ///
+    /// [`ThreadInfo`]: matrix_sdk_base::event_cache::thread::ThreadInfo
     pub async fn remove_events(
         &self,
         room_id: &RoomId,
         event_ids: Vec<OwnedEventId>,
     ) -> Result<()> {
-        self.inner.state.remove_events(room_id, event_ids).await
+        // The redaction rules are needed to redact the thread roots.
+        let room_version_rules = self
+            .inner
+            .client()?
+            .get_room(room_id)
+            .map(|room| room.clone_info().room_version_rules_or_default())
+            .unwrap_or(matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK);
+
+        self.inner.state.remove_events(room_id, event_ids, &room_version_rules.redaction).await
     }
 
     /// Cleanly clear all the rooms' event caches.
