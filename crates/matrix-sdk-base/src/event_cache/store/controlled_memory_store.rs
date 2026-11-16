@@ -206,6 +206,14 @@ impl EventCacheStore for ControlledMemoryStore {
         self.inner.load_thread_info(room_id, thread_id, insert_default_if_missing).await
     }
 
+    async fn load_thread_infos(
+        &self,
+        room_id: &RoomId,
+        thread_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedEventId, ThreadInfo)>, Self::Error> {
+        self.inner.load_thread_infos(room_id, thread_ids).await
+    }
+
     async fn update_thread_info(
         &self,
         room_id: &RoomId,

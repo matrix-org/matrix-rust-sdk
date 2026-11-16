@@ -1362,6 +1362,76 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, thread_ids))]
+    async fn load_thread_infos(
+        &self,
+        room_id: &RoomId,
+        thread_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedEventId, ThreadInfo)>, Self::Error> {
+        let _timer = timer!("method");
+
+        // It's required to return early: `host_parameters` panics if there are
+        // no parameters.
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let encryption = self.encryption.clone();
+
+        // The thread infos are identified by the hashed ID of the thread's
+        // linked chunk, which can't be decoded. Keep the original thread IDs,
+        // to find them from the hashed IDs of the results.
+        let thread_ids_by_hash = thread_ids
+            .into_iter()
+            .map(|thread_id| {
+                let hashed = self.encryption.encode_linked_chunk(
+                    keys::LINKED_CHUNKS,
+                    &LinkedChunkId::Thread(room_id, &thread_id),
+                );
+                (hashed.to_vec(), thread_id)
+            })
+            .collect::<HashMap<_, _>>();
+        let hashed_linked_chunk_ids = thread_ids_by_hash.keys().cloned().collect::<Vec<_>>();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(
+                    hashed_linked_chunk_ids,
+                    None,
+                    move |txn, hashed_linked_chunk_ids| {
+                        let query = format!(
+                            "SELECT linked_chunk_id, info FROM threads WHERE linked_chunk_id IN ({})",
+                            hashed_linked_chunk_ids.host_parameters(),
+                        );
+
+                        let mut thread_infos = Vec::new();
+
+                        for row in txn.prepare(&query)?.query_map(
+                            params_from_iter(hashed_linked_chunk_ids.iter()),
+                            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+                        )? {
+                            let (hashed_linked_chunk_id, encoded_thread_info) = row?;
+
+                            let Some(thread_id) = thread_ids_by_hash.get(&hashed_linked_chunk_id)
+                            else {
+                                error!("Unreachable: found a thread that was not requested");
+                                continue;
+                            };
+
+                            thread_infos.push((
+                                thread_id.clone(),
+                                encryption.decode_thread_info(&encoded_thread_info)?,
+                            ));
+                        }
+
+                        Ok(thread_infos)
+                    },
+                )
+            })
+            .await
+    }
+
     async fn load_thread_info(
         &self,
         room_id: &RoomId,
