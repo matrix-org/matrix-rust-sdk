@@ -51,7 +51,7 @@ use super::{
             states::{ReloadPreprocessing, StateLockReadGuard, StateLockWriteGuard},
         },
         EventLocation,
-        event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+        event_linked_chunk::{EventLinkedChunk, EventPositions, sort_positions_descending},
         read_receipts::{
             MaybeReceiptEventContent, ThreadReadReceiptEventFilter, compute_unread_counts,
         },
@@ -546,7 +546,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Update the [`ThreadSummary`] for this thread, and return a copy of it.
-    pub(super) async fn update_thread_summary(&mut self) -> Result<ThreadSummary> {
+    pub(in crate::event_cache) async fn update_thread_summary(&mut self) -> Result<ThreadSummary> {
         // Read the latest number of thread replies from the store.
         //
         // Implementation note: since this is based on the `m.relates_to`
@@ -767,6 +767,28 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         .expect("joining failed")?;
 
         Ok(())
+    }
+
+    /// Remove the events at the given positions from the thread linked chunk,
+    /// in memory and in the store.
+    ///
+    /// The positions must be the ones of the events in the store, see
+    /// [`EventCacheStore::find_event_positions`]. The events are not deleted
+    /// from the store if they are part of other linked chunks, or if they were
+    /// saved out-of-band. The thread summary isn't updated.
+    ///
+    /// [`EventCacheStore::find_event_positions`]: matrix_sdk_base::event_cache::store::EventCacheStore::find_event_positions
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn remove_events_at(
+        &mut self,
+        positions: EventPositions,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        let (in_memory, in_store) =
+            self.state.thread_linked_chunk.split_positions_by_location(positions);
+
+        self.remove_events(in_memory, in_store).await?;
+
+        Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())
     }
 
     /// Remove events by their position, in `EventLinkedChunk`.

@@ -15,7 +15,7 @@
 //! This module handles the state of the [`EventCache`].
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     fmt,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -23,11 +23,14 @@ use std::{
 
 use itertools::Either;
 use matrix_sdk_base::{
+    deserialized_responses::ThreadSummary,
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
+    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Update},
+    serde_helpers::extract_thread_root,
     timer,
     tracing_timer::TracingTimer,
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
 use tracing::{instrument, trace};
 
@@ -36,6 +39,7 @@ use super::{
     caches::{
         TimelineVectorDiffs,
         event_focused::{EventFocusedCacheKey, EventFocusedCacheState},
+        event_linked_chunk::{EventPositions, sort_positions_descending},
         pinned_events::PinnedEventsCacheState,
         room::{self, RoomEventCacheState},
         thread::{self, ThreadEventCacheState},
@@ -284,6 +288,221 @@ impl StateLock {
         Ok(())
     }
 
+    /// Remove the events with the given IDs of a room from all the caches, in
+    /// memory and in the store.
+    ///
+    /// The events are removed from the room, thread and pinned events linked
+    /// chunks, whether they are loaded in memory or not, and from the
+    /// event-focused caches. Then, they are deleted from the store, including
+    /// those saved out-of-band.
+    ///
+    /// The subscribers of the loaded caches are notified, and the summaries of
+    /// the threads the events were part of are updated.
+    #[instrument(skip(self, event_ids))]
+    pub(super) async fn remove_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<()> {
+        if event_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut guard = self.write().await?;
+        let store = guard.store.clone();
+        let generic_update = || room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() };
+
+        // Find the threads the events are part of, while they are still in the
+        // store.
+        let threads_of_events = store
+            .find_events(room_id, event_ids.clone())
+            .await?
+            .iter()
+            .filter_map(|event| extract_thread_root(event.raw()))
+            .collect::<BTreeSet<_>>();
+
+        // Find the positions of the events in all the linked chunks they may be
+        // part of: the room, the pinned events, the threads of the events, and
+        // the threads of the events which are thread roots, since a thread root
+        // is part of its own thread.
+        let linked_chunk_ids = [
+            OwnedLinkedChunkId::Room(room_id.to_owned()),
+            OwnedLinkedChunkId::PinnedEvents(room_id.to_owned()),
+        ]
+        .into_iter()
+        .chain(
+            threads_of_events
+                .iter()
+                .chain(&event_ids)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(|thread_id| OwnedLinkedChunkId::Thread(room_id.to_owned(), thread_id.clone())),
+        )
+        .collect();
+
+        let mut positions_by_linked_chunk = HashMap::<_, EventPositions>::new();
+
+        for (linked_chunk_id, event_id, position) in
+            store.find_event_positions(linked_chunk_ids, event_ids.clone()).await?
+        {
+            positions_by_linked_chunk
+                .entry(linked_chunk_id)
+                .or_default()
+                .push((event_id, position));
+        }
+
+        let mut no_state_for_room = StateForRoom::default();
+        let StateForRoom { room, threads, pinned_events, event_focused } =
+            guard.state.by_room.get_mut(room_id).unwrap_or(&mut no_state_for_room);
+
+        // The threads which some events have been removed from, or which some
+        // events were part of: their summary must be updated.
+        let mut affected_thread_ids = threads_of_events;
+
+        for (linked_chunk_id, positions) in positions_by_linked_chunk {
+            match linked_chunk_id {
+                OwnedLinkedChunkId::Room(_) => {
+                    if let Some(room_state) = room {
+                        let mut room_state = StateLockWriteGuard {
+                            state: StateLockWriteGuardKind::Reference(room_state),
+                            store: store.clone(),
+                            _tracing_timer: None,
+                        };
+
+                        let diffs = room_state.remove_events_at(positions).await?;
+
+                        if !diffs.is_empty() {
+                            room_state.update_sender.send(
+                                room::RoomEventCacheUpdate::UpdateTimelineEvents(
+                                    TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
+                                ),
+                                Some(generic_update()),
+                            );
+                        }
+                    } else {
+                        remove_events_from_linked_chunk_in_store(
+                            &store,
+                            linked_chunk_id.as_ref(),
+                            positions,
+                        )
+                        .await?;
+                    }
+                }
+
+                OwnedLinkedChunkId::Thread(_, ref thread_id) => {
+                    affected_thread_ids.insert(thread_id.clone());
+
+                    if let Some(thread_state) = threads.get_mut(thread_id) {
+                        let mut thread_state = StateLockWriteGuard {
+                            state: StateLockWriteGuardKind::Reference(thread_state),
+                            store: store.clone(),
+                            _tracing_timer: None,
+                        };
+
+                        let diffs = thread_state.remove_events_at(positions).await?;
+
+                        if !diffs.is_empty() {
+                            thread_state.update_sender.send(
+                                thread::ThreadEventCacheUpdate::UpdateTimelineEvents(
+                                    TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
+                                ),
+                                Some(generic_update()),
+                            );
+                        }
+                    } else {
+                        remove_events_from_linked_chunk_in_store(
+                            &store,
+                            linked_chunk_id.as_ref(),
+                            positions,
+                        )
+                        .await?;
+                    }
+                }
+
+                OwnedLinkedChunkId::PinnedEvents(_) => {
+                    if let Some(pinned_events_state) = pinned_events {
+                        let mut pinned_events_state = StateLockWriteGuard {
+                            state: StateLockWriteGuardKind::Reference(pinned_events_state),
+                            store: store.clone(),
+                            _tracing_timer: None,
+                        };
+
+                        let diffs = pinned_events_state.remove_events_at(positions).await?;
+
+                        if !diffs.is_empty() {
+                            pinned_events_state
+                                .update_sender
+                                .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+                        }
+                    } else {
+                        remove_events_from_linked_chunk_in_store(
+                            &store,
+                            linked_chunk_id.as_ref(),
+                            positions,
+                        )
+                        .await?;
+                    }
+                }
+
+                // Event-focused caches aren't persisted, they are handled below.
+                OwnedLinkedChunkId::EventFocused(..) => {}
+            }
+        }
+
+        // Event-focused, which only live in memory.
+        for event_focused_state in event_focused.values_mut() {
+            let diffs = event_focused_state.remove_events_by_id(&event_ids);
+
+            if !diffs.is_empty() {
+                let _ = event_focused_state
+                    .update_sender
+                    .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            }
+        }
+
+        // The events aren't part of any linked chunk anymore: delete them.
+        store.delete_out_of_band_events(room_id, event_ids.clone()).await?;
+
+        // Update the summaries of the threads, now that the events are gone.
+        let removed_event_ids = event_ids.into_iter().collect::<BTreeSet<_>>();
+
+        for thread_id in &affected_thread_ids {
+            let thread_summary = if let Some(thread_state) = threads.get_mut(thread_id) {
+                let mut thread_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(thread_state),
+                    store: store.clone(),
+                    _tracing_timer: None,
+                };
+
+                let thread_summary = thread_state.update_thread_summary().await?;
+                thread_state.update_sender.send(
+                    thread::ThreadEventCacheUpdate::UpdateSummary(thread_summary.clone()),
+                    None,
+                );
+
+                thread_summary
+            } else if let Some(thread_summary) =
+                update_thread_info_in_store(&store, room_id, thread_id, &removed_event_ids).await?
+            {
+                thread_summary
+            } else {
+                continue;
+            };
+
+            if let Some(room_state) = room {
+                room_state.update_sender.send(
+                    room::RoomEventCacheUpdate::UpdateThreadSummary {
+                        thread_root: thread_id.clone(),
+                        thread_summary,
+                    },
+                    Some(generic_update()),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Insert a new cache state at location `cache_state_selector` if none
     /// exists.
     ///
@@ -307,6 +526,82 @@ impl StateLock {
             .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
             .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
     }
+}
+
+/// Remove the events at the given positions from a linked chunk which isn't
+/// loaded in memory, i.e. only from the store.
+async fn remove_events_from_linked_chunk_in_store(
+    store: &EventCacheStoreLockGuard,
+    linked_chunk_id: LinkedChunkId<'_>,
+    positions: EventPositions,
+) -> Result<()> {
+    let mut positions =
+        positions.into_iter().map(|(_event_id, position)| position).collect::<Vec<_>>();
+
+    if positions.is_empty() {
+        return Ok(());
+    }
+
+    // Remove the events from the last one, so the positions of the next ones
+    // to remove don't change.
+    sort_positions_descending(&mut positions);
+
+    store
+        .handle_linked_chunk_updates(
+            linked_chunk_id,
+            positions.into_iter().map(|at| Update::RemoveItem { at }).collect(),
+        )
+        .await?;
+
+    Ok(())
+}
+
+/// Update the [`ThreadInfo`] in the store of a thread which isn't loaded in
+/// memory, after some events have been removed, and return the new
+/// [`ThreadSummary`] if it has changed.
+///
+/// Returns `None` if the thread doesn't exist, or if its summary is unchanged.
+async fn update_thread_info_in_store(
+    store: &EventCacheStoreLockGuard,
+    room_id: &RoomId,
+    thread_id: &EventId,
+    removed_event_ids: &BTreeSet<OwnedEventId>,
+) -> Result<Option<ThreadSummary>> {
+    let Some(mut thread_info) = store.load_thread_info(room_id, thread_id, false).await? else {
+        return Ok(None);
+    };
+
+    let replies =
+        store.find_event_relations(room_id, thread_id, Some(&[RelationType::Thread])).await?;
+
+    let number_of_replies = u32::try_from(replies.len()).unwrap_or(u32::MAX);
+    let latest_event = if thread_info
+        .latest_event
+        .as_ref()
+        .is_some_and(|latest_event| removed_event_ids.contains(latest_event))
+    {
+        // The latest event has been removed, use the most recent remaining
+        // reply instead.
+        replies
+            .iter()
+            .map(|(event, _position)| event)
+            .max_by_key(|event| event.timestamp())
+            .and_then(|event| event.event_id().map(ToOwned::to_owned))
+    } else {
+        thread_info.latest_event.clone()
+    };
+
+    if number_of_replies == thread_info.number_of_replies
+        && latest_event == thread_info.latest_event
+    {
+        return Ok(None);
+    }
+
+    thread_info.number_of_replies = number_of_replies;
+    thread_info.latest_event = latest_event;
+    store.update_thread_info(room_id, thread_id, &thread_info).await?;
+
+    Ok(Some(ThreadSummary::new(thread_info.latest_event, thread_info.number_of_replies)))
 }
 
 impl fmt::Debug for StateLock {

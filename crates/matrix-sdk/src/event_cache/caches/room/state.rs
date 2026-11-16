@@ -52,7 +52,7 @@ use super::{
             states::{ReloadPreprocessing, StateLockReadGuard, StateLockWriteGuard},
         },
         EventLocation,
-        event_linked_chunk::EventLinkedChunk,
+        event_linked_chunk::{EventLinkedChunk, EventPositions},
         pagination::SharedPaginationStatus,
         read_receipts::{
             MaybeReceiptEventContent, RoomReadReceiptEventFilter, compute_unread_counts,
@@ -496,6 +496,28 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         } else {
             Ok(None)
         }
+    }
+
+    /// Remove the events at the given positions from the room linked chunk,
+    /// in memory and in the store.
+    ///
+    /// The positions must be the ones of the events in the store, see
+    /// [`EventCacheStore::find_event_positions`]. The events are not deleted
+    /// from the store if they are part of other linked chunks, or if they were
+    /// saved out-of-band.
+    ///
+    /// [`EventCacheStore::find_event_positions`]: matrix_sdk_base::event_cache::store::EventCacheStore::find_event_positions
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn remove_events_at(
+        &mut self,
+        positions: EventPositions,
+    ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        let (in_memory, in_store) =
+            self.state.room_linked_chunk.split_positions_by_location(positions);
+
+        self.remove_events(in_memory, in_store).await?;
+
+        Ok(self.state.room_linked_chunk.updates_as_vector_diffs())
     }
 
     /// Remove events by their position, in `EventLinkedChunk` and in

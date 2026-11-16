@@ -312,6 +312,28 @@ impl EventFocusedCacheState {
         }
     }
 
+    /// Remove the events with the given IDs from this cache.
+    ///
+    /// This cache only lives in memory, so nothing is removed from the store.
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub fn remove_events_by_id(&mut self, event_ids: &[OwnedEventId]) -> Vec<VectorDiff<Event>> {
+        let positions = self
+            .chunk
+            .events()
+            .filter(|(_position, event)| {
+                event.event_id().is_some_and(|event_id| event_ids.iter().any(|id| id == event_id))
+            })
+            .map(|(position, _event)| position)
+            .collect::<Vec<_>>();
+
+        if !positions.is_empty() {
+            self.chunk.remove_events_by_position(positions).expect("failed to remove an event");
+            self.propagate_changes();
+        }
+
+        self.chunk.updates_as_vector_diffs()
+    }
+
     /// Propagate changes to the linked chunk update sender.
     fn propagate_changes(&mut self) {
         let updates = self.chunk.store_updates().take();
