@@ -1950,7 +1950,7 @@ mod tests {
         let sync = client
             .sliding_sync("test-slidingsync")?
             .add_list(SlidingSyncList::builder("new_list"))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .build()
             .await?;
 
@@ -2562,8 +2562,10 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: true }),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .build()
             .await?;
 
@@ -2637,8 +2639,10 @@ mod tests {
         let sliding_sync = client
             .sliding_sync("test")?
             .add_list(SlidingSyncList::builder("thelist"))
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: true }),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .build()
             .await?;
 
@@ -2693,8 +2697,10 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: true }),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .build()
             .await?;
 
@@ -2964,8 +2970,10 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: true }),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .build()
             .await?;
 
@@ -2992,8 +3000,10 @@ mod tests {
 
         let sliding_sync = client
             .sliding_sync("test")?
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: true }),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .build()
             .await?;
 
@@ -3140,7 +3150,7 @@ mod tests {
                 let sliding_sync = $client
                     .sliding_sync("test")?
                     .with_e2ee_extension(
-                        assign!(http::request::E2EE::default(), { enabled: true}),
+                        assign!(http::request::E2EE::default(), { enabled: true }),
                     )
                     .build()
                     .await?;
