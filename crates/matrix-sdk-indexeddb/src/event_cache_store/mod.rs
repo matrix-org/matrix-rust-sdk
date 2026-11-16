@@ -20,6 +20,7 @@ use std::{
     time::Duration,
 };
 
+use futures_util::future::try_join_all;
 use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
 use matrix_sdk_base::{
@@ -29,8 +30,8 @@ use matrix_sdk_base::{
 use matrix_sdk_base::{
     event_cache::{Event, Gap, store::EventCacheStore},
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
-        RawChunk, Update,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+        OwnedLinkedChunkId, Position, RawChunk, Update,
     },
     timer,
 };
@@ -472,6 +473,31 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(Some(thread.info))
     }
 
+    #[instrument(skip(self, thread_ids))]
+    async fn load_thread_infos(
+        &self,
+        room_id: &RoomId,
+        thread_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedEventId, ThreadInfo)>, Self::Error> {
+        let _timer = timer!("method");
+
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readonly)?;
+
+        // Send all the requests at once, so they are processed back-to-back by
+        // IndexedDB instead of waiting for each response before sending the
+        // next one.
+        let threads = try_join_all(
+            thread_ids.iter().map(|thread_id| transaction.load_thread_info(room_id, thread_id)),
+        )
+        .await?;
+
+        Ok(threads.into_iter().flatten().map(|thread| (thread.thread_id, thread.info)).collect())
+    }
+
     #[instrument(skip(self))]
     async fn update_thread_info(
         &self,
@@ -574,6 +600,47 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(duplicated)
     }
 
+    #[instrument(skip(self, linked_chunk_ids, event_ids))]
+    async fn find_event_positions(
+        &self,
+        linked_chunk_ids: Vec<OwnedLinkedChunkId>,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedLinkedChunkId, OwnedEventId, Position)>, IndexeddbEventCacheStoreError>
+    {
+        let _timer = timer!("method");
+
+        if linked_chunk_ids.is_empty() || event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let linked_chunk_ids = HashSet::<OwnedLinkedChunkId>::from_iter(linked_chunk_ids);
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+
+        // Look each event up in all the linked chunks at once, instead of once
+        // per linked chunk, and send all the requests at once.
+        let events = try_join_all(
+            event_ids.iter().map(|event_id| transaction.get_events_by_event_id(event_id)),
+        )
+        .await?;
+
+        let mut positions = Vec::new();
+        for (event_id, events) in event_ids.into_iter().zip(events) {
+            for event in events {
+                if let types::Event::InBand(event) = event
+                    && linked_chunk_ids.contains(&event.linked_chunk_id)
+                {
+                    positions.push((
+                        event.linked_chunk_id,
+                        event_id.clone(),
+                        event.position.into(),
+                    ));
+                }
+            }
+        }
+        Ok(positions)
+    }
+
     #[instrument(skip(self, event_id))]
     async fn find_event(
         &self,
@@ -588,6 +655,31 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             .await
             .map(|mut events| events.pop().map(Into::into))
             .map_err(Into::into)
+    }
+
+    #[instrument(skip(self, event_ids))]
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+
+        // Send all the requests at once, so they are processed back-to-back by
+        // IndexedDB instead of waiting for each response before sending the
+        // next one.
+        let events = try_join_all(
+            event_ids.iter().map(|event_id| transaction.get_events_by_room(room_id, event_id)),
+        )
+        .await?;
+
+        Ok(events.into_iter().filter_map(|mut events| events.pop().map(Into::into)).collect())
     }
 
     #[instrument(skip(self, event_id, filters))]
@@ -656,6 +748,56 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 let position = event.position().map(Into::into);
                 (event.into(), position)
             })
+            .collect())
+    }
+
+    #[instrument(skip(self, event_ids, filter))]
+    async fn filter_events_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<OwnedEventId>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Like in `find_event_relations`, an empty filter means no filter.
+        let relation_types = filter.filter(|relation_types| !relation_types.is_empty());
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+
+        // Only count the related events instead of loading them, and send all
+        // the requests at once.
+        let counts = try_join_all(event_ids.iter().map(|event_id| {
+            let transaction = &transaction;
+            async move {
+                match relation_types {
+                    None => {
+                        transaction.count_events_by_related_event(room_id, event_id, None).await
+                    }
+                    Some(relation_types) => {
+                        let counts = try_join_all(relation_types.iter().map(|relation_type| {
+                            transaction.count_events_by_related_event(
+                                room_id,
+                                event_id,
+                                Some(relation_type),
+                            )
+                        }))
+                        .await?;
+                        Ok(counts.into_iter().sum())
+                    }
+                }
+            }
+        }))
+        .await?;
+
+        Ok(event_ids
+            .into_iter()
+            .zip(counts)
+            .filter_map(|(event_id, count)| (count > 0).then_some(event_id))
             .collect())
     }
 

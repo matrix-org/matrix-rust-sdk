@@ -488,6 +488,29 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
     }
 
+    /// Count the events in the given room which relate to the given event,
+    /// optionally only with the given relation type.
+    ///
+    /// Note that an event which is in several linked chunks is counted once
+    /// per linked chunk.
+    pub async fn count_events_by_related_event(
+        &self,
+        room_id: &RoomId,
+        related_event_id: &EventId,
+        relation_type: Option<&RelationType>,
+    ) -> Result<usize, TransactionError> {
+        let range = match relation_type {
+            Some(relation_type) => IndexedKeyRange::from((related_event_id, relation_type))
+                .map(|(event_id, relation_type)| (room_id, event_id, relation_type))
+                .encoded(self.serializer().inner()),
+            None => IndexedKeyRange::all_with_prefix(
+                (room_id, related_event_id),
+                self.serializer().inner(),
+            ),
+        };
+        self.get_items_count_by_key::<Event, IndexedEventRelationKey>(range).await
+    }
+
     pub async fn contains_out_of_band_event(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
