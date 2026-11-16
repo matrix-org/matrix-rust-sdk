@@ -138,6 +138,63 @@ async fn test_thread_contains_its_root_event() {
 }
 
 #[async_test]
+async fn test_remove_events_from_thread() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let event_cache = client.event_cache().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+    let thread_root = event_id!("$thread_root");
+    let first_reply_event_id = event_id!("$first_reply");
+    let second_reply_event_id = event_id!("$second_reply");
+
+    // Given a room with a thread, that has two replies.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                f.text_msg("hey there")
+                    .in_thread(thread_root, thread_root)
+                    .event_id(first_reply_event_id)
+                    .into_raw_sync(),
+                f.text_msg("hoy!")
+                    .in_thread(thread_root, first_reply_event_id)
+                    .event_id(second_reply_event_id)
+                    .into_raw_sync(),
+            ]),
+        )
+        .await;
+
+    // And we subscribe to the thread,
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root).await.unwrap();
+    let (events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+    let events = wait_for_initial_events(events, &mut thread_stream).await;
+    assert_eq!(events.len(), 2);
+
+    // When the second reply is removed,
+    event_cache.remove_events(room_id, vec![second_reply_event_id.to_owned()]).await.unwrap();
+
+    // Then it's removed from the thread,
+    assert_let_timeout!(
+        Ok(ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            thread_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
+
+    // And the thread summary is updated.
+    assert_let_timeout!(Ok(ThreadEventCacheUpdate::UpdateSummary(summary)) = thread_stream.recv());
+    assert_eq!(summary.num_replies, 1);
+    assert_eq!(summary.latest_reply.as_deref(), Some(first_reply_event_id));
+
+    assert!(thread_stream.is_empty());
+}
+
+#[async_test]
 async fn test_ignored_user_empties_threads() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
