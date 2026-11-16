@@ -1831,6 +1831,49 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        // Encoded the same way as when saving the events, see `encode_event`.
+        let hashed_state_key =
+            state_key.map(|state_key| self.encryption.encode_key(keys::EVENTS, state_key));
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                // `state_key IS ?` behaves like `state_key = ?` when the
+                // parameter is non-`NULL`, and like `state_key IS NULL` (i.e.
+                // non-state events) when it's `NULL`. Either way, the query
+                // uses the `events_state_key_timestamp_idx` index.
+                let mut statement = txn.prepare(
+                    "SELECT content \
+                    FROM events \
+                    WHERE room_id = ? AND state_key IS ? AND timestamp < ? \
+                    ORDER BY timestamp ASC",
+                )?;
+                let rows = statement
+                    .query_map((&hashed_room_id, &hashed_state_key, cutoff_ms), |row| {
+                        row.get::<_, Vec<u8>>(0)
+                    })?;
+
+                let mut results = Vec::new();
+                for row in rows {
+                    results.push(encryption.decode_event(&row?)?);
+                }
+
+                Ok(results)
+            })
+            .await
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,

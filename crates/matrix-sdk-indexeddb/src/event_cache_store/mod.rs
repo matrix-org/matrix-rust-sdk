@@ -686,6 +686,36 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let events = transaction
+            .get_events_with_state_key_before_timestamp(room_id, state_key.as_deref(), cutoff_ms)
+            .await?;
+
+        // The same event can be in several linked chunks.
+        let mut seen_event_ids = HashSet::new();
+        let mut results = Vec::new();
+        for event in events {
+            let Some(event_id) = event.event_id().map(ToOwned::to_owned) else {
+                continue;
+            };
+
+            if seen_event_ids.insert(event_id) {
+                results.push(Event::from(event));
+            }
+        }
+
+        Ok(results)
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
