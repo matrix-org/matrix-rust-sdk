@@ -52,6 +52,7 @@
 //! machine's state, which can be pretty helpful for the client app.
 
 pub mod filters;
+mod ordering;
 mod room_list;
 pub mod sorters;
 mod state;
