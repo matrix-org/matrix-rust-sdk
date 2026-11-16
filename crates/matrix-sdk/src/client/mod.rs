@@ -3545,6 +3545,37 @@ impl Client {
         Ok(expired_event_ids)
     }
 
+    /// Remove the events that have expired according to the effective message
+    /// retention policy of their room, as of `now`, from the event cache.
+    ///
+    /// The expired events are found with [`Self::find_expired_events`], then
+    /// they are removed from all the caches of their room, in memory and in
+    /// the store, with [`EventCache::remove_events`].
+    ///
+    /// Returns the IDs of the removed events, grouped by room. If the event
+    /// cache is disabled, nothing is cached, so nothing is removed and no
+    /// request is made.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn remove_expired_events(
+        &self,
+        now: MilliSecondsSinceUnixEpoch,
+    ) -> Result<BTreeMap<OwnedRoomId, Vec<OwnedEventId>>> {
+        let Some(event_cache) = self.event_cache() else {
+            return Ok(BTreeMap::new());
+        };
+
+        let expired_event_ids = self.find_expired_events(now).await?;
+
+        for (room_id, event_ids) in &expired_event_ids {
+            event_cache.remove_events(room_id, event_ids.clone()).await?;
+        }
+
+        Ok(expired_event_ids)
+    }
+
     /// Delete the given devices from the server.
     ///
     /// # Arguments
@@ -7040,6 +7071,74 @@ pub(crate) mod tests {
 
             client.find_expired_events(now).await.unwrap_err();
         }
+    }
+
+    #[async_test]
+    async fn test_remove_expired_events() {
+        const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+        let now = MilliSecondsSinceUnixEpoch(uint!(864_000_000)); // 10 days.
+        let now_ms = u64::from(now.get());
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // A room with a 1 day `max_lifetime`, with an old and a recent message.
+        let room_id = room_id!("!with_retention:b.c");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@alice:b.c"));
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(
+                        f.event(
+                            RoomRetentionEventContent::new()
+                                .at_most(Duration::from_millis(ONE_DAY_MS))
+                                .unwrap(),
+                        )
+                        .state_key(""),
+                    )
+                    .add_timeline_event(
+                        f.text_msg("old")
+                            .event_id(event_id!("$old"))
+                            .server_ts(now_ms - 2 * ONE_DAY_MS),
+                    )
+                    .add_timeline_event(
+                        f.text_msg("recent")
+                            .event_id(event_id!("$recent"))
+                            .server_ts(now_ms - ONE_DAY_MS / 2),
+                    ),
+            )
+            .await;
+
+        let event_cache = client.event_cache().unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        assert_eq!(room_event_cache.events().await.unwrap().len(), 2);
+
+        let _guard = server
+            .mock_get_retention_configuration()
+            .ok_empty()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        let removed = client.remove_expired_events(now).await.unwrap();
+        assert_eq!(
+            removed,
+            BTreeMap::from([(room_id.to_owned(), vec![event_id!("$old").to_owned()])])
+        );
+
+        // The expired event is removed from memory and from the store.
+        let events = room_event_cache.events().await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id(), Some(event_id!("$recent")));
+
+        let store = match client.event_cache_store().lock().await.unwrap() {
+            MappedCrossProcessLockState::Clean(store)
+            | MappedCrossProcessLockState::Dirty(store) => store,
+        };
+        assert!(store.find_event(room_id, event_id!("$old")).await.unwrap().is_none());
+        assert!(store.find_event(room_id, event_id!("$recent")).await.unwrap().is_some());
     }
 
     #[async_test]
