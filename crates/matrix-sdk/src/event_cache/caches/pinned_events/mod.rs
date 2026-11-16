@@ -49,7 +49,7 @@ use super::{
         },
     },
     EventLocation, TimelineVectorDiffs,
-    event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+    event_linked_chunk::{EventLinkedChunk, EventPositions, sort_positions_descending},
 };
 use crate::{
     Room,
@@ -166,6 +166,27 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         }
 
         Ok(())
+    }
+
+    /// Remove the events at the given positions from the pinned events linked
+    /// chunk, in memory and in the store.
+    ///
+    /// The positions must be the ones of the events in the store, see
+    /// [`EventCacheStore::find_event_positions`]. The events are not deleted
+    /// from the store if they are part of other linked chunks, or if they were
+    /// saved out-of-band.
+    ///
+    /// [`EventCacheStore::find_event_positions`]: matrix_sdk_base::event_cache::store::EventCacheStore::find_event_positions
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn remove_events_at(
+        &mut self,
+        positions: EventPositions,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        let (in_memory, in_store) = self.state.chunk.split_positions_by_location(positions);
+
+        self.remove_events(in_memory, in_store).await?;
+
+        Ok(self.state.chunk.updates_as_vector_diffs())
     }
 
     /// Remove events by their position, in `EventLinkedChunk`.

@@ -544,6 +544,24 @@ impl EventCache {
         self.inner.forget_room(room_id).await
     }
 
+    /// Remove the events with the given IDs of a room from the event cache.
+    ///
+    /// The events are removed from all the caches of the room —its timeline,
+    /// its threads, its pinned events and its event-focused timelines—, in
+    /// memory and in the store, and the live observers of these caches are
+    /// notified. The events saved out-of-band are deleted too, and the
+    /// summaries of the threads the events were part of are updated.
+    ///
+    /// Unknown event IDs are ignored. This doesn't prevent the events from
+    /// being added to the cache again later, e.g. by a back-pagination.
+    pub async fn remove_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<()> {
+        self.inner.state.remove_events(room_id, event_ids).await
+    }
+
     /// Cleanly clear all the rooms' event caches.
     ///
     /// This will notify any live observers that the room has been cleared.
