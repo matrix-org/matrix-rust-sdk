@@ -547,6 +547,38 @@ where
             }
         }
     }
+
+    /// Remove the items with the given IDs from a room, if they are
+    /// out-of-band, i.e. if they don't have a position in any linked chunk of
+    /// the room.
+    ///
+    /// Items that still have a position in a linked chunk are kept, since
+    /// removing them would corrupt the linked chunk.
+    pub fn remove_out_of_band_items(&mut self, room_id: &RoomId, item_ids: &[ItemId]) {
+        let room_items = || {
+            self.items.iter().filter(|(linked_chunk_id, _)| linked_chunk_id.room_id() == room_id)
+        };
+
+        let out_of_band_item_ids = item_ids
+            .iter()
+            .filter(|item_id| {
+                room_items().all(|(_, items)| {
+                    items.get(*item_id).is_none_or(|(_item, position)| position.is_none())
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for (linked_chunk_id, items) in self.items.iter_mut() {
+            if linked_chunk_id.room_id() != room_id {
+                continue;
+            }
+
+            for item_id in &out_of_band_item_ids {
+                items.remove(item_id);
+            }
+        }
+    }
 }
 
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
