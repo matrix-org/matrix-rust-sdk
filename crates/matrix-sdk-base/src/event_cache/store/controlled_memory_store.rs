@@ -257,6 +257,14 @@ impl EventCacheStore for ControlledMemoryStore {
         self.inner.save_event(room_id, event).await
     }
 
+    async fn delete_out_of_band_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error> {
+        self.inner.delete_out_of_band_events(room_id, event_ids).await
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         self.inner.optimize().await
     }

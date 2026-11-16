@@ -229,6 +229,22 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
+    /// Delete the given events of a room, if they are out-of-band, i.e. if
+    /// they aren't part of any linked chunk.
+    ///
+    /// This includes events saved with [`Self::save_event`], and events which
+    /// have been removed from all the linked chunks they were part of, with
+    /// [`Update::RemoveItem`] for example.
+    ///
+    /// Events that are still in a linked chunk are kept, since deleting them
+    /// would corrupt the linked chunk: they must be removed from the linked
+    /// chunks first. Unknown event IDs are ignored.
+    async fn delete_out_of_band_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -397,6 +413,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
+    }
+
+    async fn delete_out_of_band_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(), Self::Error> {
+        self.0.delete_out_of_band_events(room_id, event_ids).await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
