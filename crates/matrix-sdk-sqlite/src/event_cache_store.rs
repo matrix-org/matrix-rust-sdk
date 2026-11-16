@@ -1889,6 +1889,88 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, event_ids, filter))]
+    async fn filter_events_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        let _timer = timer!("method");
+
+        // It's required to return early: `host_parameters` panics if there are
+        // no parameters.
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        // The related event IDs are hashed in the `relates_to` column like the
+        // event IDs, and can't be decoded. Keep the original event IDs, to find
+        // them from the hashed IDs of the results.
+        let event_ids_by_hash = event_ids
+            .into_iter()
+            .map(|event_id| {
+                let hashed = self.encryption.encode_event_id(keys::EVENTS, &event_id);
+                (hashed.to_vec(), event_id)
+            })
+            .collect::<HashMap<_, _>>();
+        let hashed_event_ids = event_ids_by_hash.keys().cloned().collect::<Vec<_>>();
+        let filter = filter
+            .filter(|filter| !filter.is_empty())
+            .map(|filter| filter.iter().map(ToString::to_string).collect::<Vec<_>>());
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.chunk_large_query_over(hashed_event_ids, None, move |txn, hashed_event_ids| {
+                    let mut query = format!(
+                        "SELECT DISTINCT relates_to FROM events \
+                        WHERE room_id = ? AND relates_to IN ({})",
+                        hashed_event_ids.host_parameters(),
+                    );
+                    if let Some(filter) = &filter {
+                        query.push_str(&format!(
+                            " AND rel_type IN ({})",
+                            host_parameters(filter.len())
+                        ));
+                    }
+
+                    let parameters = params_from_iter(
+                        // SAFETY: it cannot fail since `Key::to_sql` never fails
+                        once(hashed_room_id.to_sql().unwrap())
+                            .chain(
+                                hashed_event_ids
+                                    .iter()
+                                    .map(|hashed_event_id| hashed_event_id.to_sql().unwrap()),
+                            )
+                            .chain(
+                                filter.iter().flatten().map(|rel_type| rel_type.to_sql().unwrap()),
+                            ),
+                    );
+
+                    let mut events_with_relations = Vec::new();
+
+                    for hashed_event_id in txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| row.get::<_, Vec<u8>>(0))?
+                    {
+                        let hashed_event_id = hashed_event_id?;
+
+                        let Some(event_id) = event_ids_by_hash.get(&hashed_event_id) else {
+                            error!("Unreachable: found an event that was not requested");
+                            continue;
+                        };
+
+                        events_with_relations.push(event_id.clone());
+                    }
+
+                    Ok(events_with_relations)
+                })
+            })
+            .await
+    }
+
     #[instrument(skip(self, event_id, filters))]
     async fn find_event_relations(
         &self,

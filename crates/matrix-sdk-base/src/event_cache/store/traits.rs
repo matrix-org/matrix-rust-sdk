@@ -259,6 +259,32 @@ pub trait EventCacheStore: AsyncTraitDeps {
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error>;
 
+    /// Find which of the given events of a room have related events,
+    /// optionally only with the given relation types.
+    ///
+    /// This is like checking whether [`Self::find_event_relations`] returns
+    /// something, for several events at once. Unknown event IDs are ignored,
+    /// and the events are returned in no particular order.
+    ///
+    /// The default implementation calls [`Self::find_event_relations`] for
+    /// each event, stores should override it if they can do better.
+    async fn filter_events_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        let mut events_with_relations = Vec::new();
+
+        for event_id in event_ids {
+            if !self.find_event_relations(room_id, &event_id, filter).await?.is_empty() {
+                events_with_relations.push(event_id);
+            }
+        }
+
+        Ok(events_with_relations)
+    }
+
     /// Find all events in a room whose timestamp is strictly older than
     /// `cutoff_ms` milliseconds since the Unix epoch.
     ///
@@ -484,6 +510,15 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
+    }
+
+    async fn filter_events_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        self.0.filter_events_with_relations(room_id, event_ids, filter).await.map_err(Into::into)
     }
 
     async fn find_events_before_timestamp(

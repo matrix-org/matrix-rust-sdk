@@ -268,6 +268,15 @@ impl EventCacheStore for ControlledMemoryStore {
         self.inner.find_event_relations(room_id, event_id, filters).await
     }
 
+    async fn filter_events_with_relations(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+        filter: Option<&[RelationType]>,
+    ) -> Result<Vec<OwnedEventId>, Self::Error> {
+        self.inner.filter_events_with_relations(room_id, event_ids, filter).await
+    }
+
     async fn get_room_events(
         &self,
         room_id: &RoomId,
