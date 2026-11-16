@@ -114,6 +114,30 @@ pub trait EventCacheStore: AsyncTraitDeps {
         insert_default_if_missing: bool,
     ) -> Result<Option<ThreadInfo>, Self::Error>;
 
+    /// Load the [`ThreadInfo`]s of several threads of a room, if they exist.
+    ///
+    /// This is like [`Self::load_thread_info`] for several threads at once,
+    /// without inserting the missing ones. Unknown threads are ignored, and
+    /// the results are returned in no particular order.
+    ///
+    /// The default implementation calls [`Self::load_thread_info`] for each
+    /// thread, stores should override it if they can do better.
+    async fn load_thread_infos(
+        &self,
+        room_id: &RoomId,
+        thread_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedEventId, ThreadInfo)>, Self::Error> {
+        let mut thread_infos = Vec::new();
+
+        for thread_id in thread_ids {
+            if let Some(thread_info) = self.load_thread_info(room_id, &thread_id, false).await? {
+                thread_infos.push((thread_id, thread_info));
+            }
+        }
+
+        Ok(thread_infos)
+    }
+
     /// Update the [`ThreadInfo`] associated to `room_id` and `thread_id`.
     ///
     /// If it does not exist, this method **must fail**! Normally, the
@@ -398,6 +422,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
             .load_thread_info(room_id, thread_id, insert_default_if_missing)
             .await
             .map_err(Into::into)
+    }
+
+    async fn load_thread_infos(
+        &self,
+        room_id: &RoomId,
+        thread_ids: Vec<OwnedEventId>,
+    ) -> Result<Vec<(OwnedEventId, ThreadInfo)>, Self::Error> {
+        self.0.load_thread_infos(room_id, thread_ids).await.map_err(Into::into)
     }
 
     async fn update_thread_info(
