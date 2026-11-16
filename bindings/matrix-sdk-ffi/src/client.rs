@@ -24,6 +24,7 @@ use std::{
 use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
+pub use matrix_sdk::sliding_sync::Version as SlidingSyncVersion;
 use matrix_sdk::{
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     ToDeviceMessage as SdkToDeviceMessage,
@@ -56,7 +57,6 @@ use matrix_sdk::{
         },
         serde::Raw,
     },
-    sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
@@ -832,7 +832,7 @@ impl Client {
                     .map_err(|error| ClientError::from_str(error, None))?,
             )
             .await?;
-        self.inner.set_sliding_sync_version(sliding_sync_version.try_into()?);
+        self.inner.set_sliding_sync_version(sliding_sync_version);
 
         Ok(())
     }
@@ -1242,7 +1242,7 @@ impl Client {
 
     /// The sliding sync version.
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
-        self.inner.sliding_sync_version().into()
+        self.inner.sliding_sync_version()
     }
 
     /// Find all sliding sync versions that are available.
@@ -1253,7 +1253,7 @@ impl Client {
     /// If `.well-known` or `/versions` is unreachable, it will simply move
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<SlidingSyncVersion> {
-        self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
+        self.inner.available_sliding_sync_versions().await
     }
 
     /// Set the presence state for the current user.
@@ -3217,7 +3217,7 @@ impl Client {
         let homeserver_url = client.homeserver().into();
         let sliding_sync_version = client.sliding_sync_version();
 
-        Session::new(auth_api, homeserver_url, sliding_sync_version.into())
+        Session::new(auth_api, homeserver_url, sliding_sync_version)
     }
 
     fn save_session(
@@ -3700,35 +3700,6 @@ impl MediaFileHandle {
         Err(ClientError::Generic {
             msg: "MediaFileHandle.persist() is not supported on WASM targets".to_string(),
             details: None,
-        })
-    }
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum SlidingSyncVersion {
-    None,
-    Unstable,
-    Stable,
-}
-
-impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
-    fn from(value: SdkSlidingSyncVersion) -> Self {
-        match value {
-            SdkSlidingSyncVersion::None => Self::None,
-            SdkSlidingSyncVersion::Unstable => Self::Unstable,
-            SdkSlidingSyncVersion::Stable => Self::Stable,
-        }
-    }
-}
-
-impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
-    type Error = ClientError;
-
-    fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
-        Ok(match value {
-            SlidingSyncVersion::None => Self::None,
-            SlidingSyncVersion::Unstable => Self::Unstable,
-            SlidingSyncVersion::Stable => Self::Stable,
         })
     }
 }

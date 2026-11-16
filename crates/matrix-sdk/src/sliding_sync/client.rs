@@ -35,7 +35,11 @@ const HAS_ENCRYPTED_ROOMS_CONNECTION_ID: &str = "encrypted-rooms";
 const HAS_ENCRYPTED_ROOMS_LIST_NAME: &str = "encrypted_rooms";
 
 /// A sliding sync version.
+///
+/// See [#7465](https://github.com/matrix-org/matrix-rust-sdk/issues/7465) for
+/// the move to the stable version.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum), uniffi(name = "SlidingSyncVersion"))]
 pub enum Version {
     /// No version. Useful to represent that sliding sync is disabled for
     /// example, and that the version is unknown.
@@ -78,6 +82,16 @@ pub enum VersionBuilderError {
          `unstable_features`, or it's not set to true."
     )]
     StableVersionIsUnset,
+
+    /// `/versions` contains neither `org.matrix.simplified_msc3575` nor
+    /// `org.matrix.simplified_msc3575.stable` in its `unstable_features`, or
+    /// they are not set to true.
+    #[error(
+        "`/versions` contains neither `org.matrix.simplified_msc3575` nor \
+         `org.matrix.simplified_msc3575.stable` in its `unstable_features`, or they are not set \
+         to true."
+    )]
+    NoVersionIsSet,
 }
 
 /// A builder for [`Version`].
@@ -153,9 +167,19 @@ impl VersionBuilder {
                 }
             }
 
-            Self::Discover => Self::DiscoverStable
-                .build(supported)
-                .or_else(|_| Self::DiscoverUnstable.build(supported))?,
+            Self::Discover => {
+                let Some(supported) = supported else {
+                    return Err(VersionBuilderError::MissingVersionsResponse);
+                };
+
+                if supported.features.contains(&FeatureFlag::Msc4186Stable) {
+                    Version::Stable
+                } else if supported.features.contains(&FeatureFlag::Msc4186) {
+                    Version::Unstable
+                } else {
+                    return Err(VersionBuilderError::NoVersionIsSet);
+                }
+            }
         })
     }
 }
@@ -516,7 +540,9 @@ mod tests {
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        api::client::discovery::get_supported_versions, assign, event_id, room_id, serde::Raw,
+        api::{FeatureFlag, client::discovery::get_supported_versions},
+        assign, event_id, room_id,
+        serde::Raw,
         user_id,
     };
     use serde_json::json;
@@ -549,7 +575,7 @@ mod tests {
     fn test_version_builder_discover_stable() {
         let mut response = get_supported_versions::Response::new(vec![]);
         response.unstable_features =
-            [("org.matrix.simplified_msc3575.stable".to_owned(), true)].into();
+            [(FeatureFlag::Msc4186Stable.as_str().to_owned(), true)].into();
 
         assert_matches!(
             VersionBuilder::DiscoverStable.build(Some(&response.as_supported_versions())),
@@ -568,7 +594,7 @@ mod tests {
     #[test]
     fn test_version_builder_discover_stable_with_the_unstable_feature_only() {
         let mut response = get_supported_versions::Response::new(vec![]);
-        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+        response.unstable_features = [(FeatureFlag::Msc4186.as_str().to_owned(), true)].into();
 
         assert_matches!(
             VersionBuilder::DiscoverStable.build(Some(&response.as_supported_versions())),
@@ -580,8 +606,8 @@ mod tests {
     fn test_version_builder_discover() {
         let mut response = get_supported_versions::Response::new(vec![]);
         response.unstable_features = [
-            ("org.matrix.simplified_msc3575".to_owned(), true),
-            ("org.matrix.simplified_msc3575.stable".to_owned(), true),
+            (FeatureFlag::Msc4186.as_str().to_owned(), true),
+            (FeatureFlag::Msc4186Stable.as_str().to_owned(), true),
         ]
         .into();
 
@@ -594,7 +620,7 @@ mod tests {
     #[test]
     fn test_version_builder_discover_with_the_unstable_feature_only() {
         let mut response = get_supported_versions::Response::new(vec![]);
-        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+        response.unstable_features = [(FeatureFlag::Msc4186.as_str().to_owned(), true)].into();
 
         assert_matches!(
             VersionBuilder::Discover.build(Some(&response.as_supported_versions())),
@@ -616,14 +642,14 @@ mod tests {
 
         assert_matches!(
             VersionBuilder::Discover.build(Some(&response.as_supported_versions())),
-            Err(VersionBuilderError::UnstableVersionIsUnset)
+            Err(VersionBuilderError::NoVersionIsSet)
         );
     }
 
     #[test]
     fn test_version_builder_discover_unstable() {
         let mut response = get_supported_versions::Response::new(vec![]);
-        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
+        response.unstable_features = [(FeatureFlag::Msc4186.as_str().to_owned(), true)].into();
 
         assert_matches!(
             VersionBuilder::DiscoverUnstable.build(Some(&response.as_supported_versions())),
@@ -642,7 +668,7 @@ mod tests {
     #[test]
     fn test_version_builder_discover_unstable_unstable_features_is_disabled() {
         let mut response = get_supported_versions::Response::new(vec![]);
-        response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), false)].into();
+        response.unstable_features = [(FeatureFlag::Msc4186.as_str().to_owned(), false)].into();
 
         assert_matches!(
             VersionBuilder::DiscoverUnstable.build(Some(&response.as_supported_versions())),
@@ -682,7 +708,7 @@ mod tests {
         server
             .mock_versions()
             .with_simplified_sliding_sync()
-            .with_feature("org.matrix.simplified_msc3575.stable", true)
+            .with_feature(FeatureFlag::Msc4186Stable.as_str(), true)
             .ok()
             .mock_once()
             .mount()

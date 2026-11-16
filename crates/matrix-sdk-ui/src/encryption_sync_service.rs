@@ -86,8 +86,10 @@ impl EncryptionSyncService {
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
             //.share_pos() // TODO: This is racy, needs cross-process lock :')
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: true}))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}));
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: true }),
+            )
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }));
 
         if let Some((poll_timeout, network_timeout)) = poll_and_network_timeouts {
             builder = builder.poll_timeout(poll_timeout).network_timeout(network_timeout);
