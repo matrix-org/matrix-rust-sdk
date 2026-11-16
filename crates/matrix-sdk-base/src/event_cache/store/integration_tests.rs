@@ -306,6 +306,12 @@ pub trait EventCacheStoreIntegrationTests {
     /// linked chunks, works as expected.
     async fn test_find_events_and_positions(&self);
 
+    /// Test that loading several thread infos at once works as expected.
+    async fn test_load_thread_infos(&self);
+
+    /// Test that finding which events have related events works as expected.
+    async fn test_filter_events_with_relations(&self);
+
     /// Test that getting all events in a room works as expected.
     async fn test_get_room_events(&self);
 
@@ -2751,6 +2757,116 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(positions, expected);
     }
 
+    async fn test_filter_events_with_relations(&self) {
+        let room_id = room_id!("!r0");
+        let another_room_id = room_id!("!r1");
+        let thread_root_id = event_id!("$thread_root");
+        let reacted_id = event_id!("$reacted");
+        let lonely_id = event_id!("$lonely");
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+        for event in [
+            f.text_msg("thread root").event_id(thread_root_id).into_event(),
+            f.text_msg("reacted").event_id(reacted_id).into_event(),
+            f.text_msg("lonely").event_id(lonely_id).into_event(),
+            f.text_msg("reply")
+                .in_thread(thread_root_id, thread_root_id)
+                .event_id(event_id!("$reply"))
+                .into_event(),
+            f.reaction(reacted_id, "👍").event_id(event_id!("$reaction")).into_event(),
+        ] {
+            self.save_event(room_id, event).await.unwrap();
+        }
+
+        // A relation in another room doesn't count.
+        self.save_event(
+            another_room_id,
+            EventFactory::new()
+                .room(another_room_id)
+                .sender(User::Alice)
+                .reaction(lonely_id, "👍")
+                .event_id(event_id!("$other_room_reaction"))
+                .into_event(),
+        )
+        .await
+        .unwrap();
+
+        let event_ids = vec![
+            thread_root_id.to_owned(),
+            reacted_id.to_owned(),
+            lonely_id.to_owned(),
+            event_id!("$unknown").to_owned(),
+        ];
+        let filter = async |filter: Option<&[RelationType]>| {
+            let mut found = self
+                .filter_events_with_relations(room_id, event_ids.clone(), filter)
+                .await
+                .unwrap();
+            found.sort();
+            found
+        };
+
+        assert!(
+            self.filter_events_with_relations(room_id, Vec::new(), None).await.unwrap().is_empty()
+        );
+
+        let mut all = vec![thread_root_id.to_owned(), reacted_id.to_owned()];
+        all.sort();
+        assert_eq!(filter(None).await, all);
+        assert_eq!(filter(Some(&[RelationType::Thread])).await, vec![thread_root_id.to_owned()]);
+        assert_eq!(filter(Some(&[RelationType::Annotation])).await, vec![reacted_id.to_owned()]);
+        assert!(filter(Some(&[RelationType::Replacement])).await.is_empty());
+    }
+
+    async fn test_load_thread_infos(&self) {
+        let room_id = room_id!("!r0");
+        let another_room_id = room_id!("!r1");
+        let first_thread_id = event_id!("$first_thread");
+        let second_thread_id = event_id!("$second_thread");
+        let other_room_thread_id = event_id!("$other_room_thread");
+
+        for (room_id, thread_id, number_of_replies) in [
+            (room_id, first_thread_id, 1),
+            (room_id, second_thread_id, 2),
+            (another_room_id, other_room_thread_id, 3),
+        ] {
+            let mut thread_info =
+                self.load_thread_info(room_id, thread_id, true).await.unwrap().unwrap();
+            thread_info.number_of_replies = number_of_replies;
+            self.update_thread_info(room_id, thread_id, &thread_info).await.unwrap();
+        }
+
+        assert!(self.load_thread_infos(room_id, Vec::new()).await.unwrap().is_empty());
+
+        let mut thread_infos = self
+            .load_thread_infos(
+                room_id,
+                vec![
+                    first_thread_id.to_owned(),
+                    second_thread_id.to_owned(),
+                    // In another room.
+                    other_room_thread_id.to_owned(),
+                    event_id!("$unknown").to_owned(),
+                ],
+            )
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(thread_id, thread_info)| (thread_id, thread_info.number_of_replies))
+            .collect::<Vec<_>>();
+        thread_infos.sort();
+
+        assert_eq!(
+            thread_infos,
+            vec![(first_thread_id.to_owned(), 1), (second_thread_id.to_owned(), 2)]
+        );
+
+        // Loading the thread infos doesn't create the missing ones.
+        assert!(
+            self.load_thread_info(room_id, event_id!("$unknown"), false).await.unwrap().is_none()
+        );
+    }
+
     async fn test_delete_out_of_band_events(&self) {
         let room_id = room_id!("!r0");
         let another_room_id = room_id!("!r1");
@@ -3527,6 +3643,20 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_events_and_positions().await;
+            }
+
+            #[async_test]
+            async fn test_filter_events_with_relations() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_filter_events_with_relations().await;
+            }
+
+            #[async_test]
+            async fn test_load_thread_infos() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_thread_infos().await;
             }
 
             #[async_test]
