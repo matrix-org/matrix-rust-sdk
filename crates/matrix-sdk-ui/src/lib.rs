@@ -20,6 +20,7 @@ pub use eyeball_im;
 use ruma::html::HtmlSanitizerMode;
 
 pub mod encryption_sync_service;
+pub mod image_packs;
 pub mod notification_client;
 pub mod room_list_service;
 #[cfg(feature = "experimental-search")]
