@@ -2489,3 +2489,90 @@ async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonVa
         send_response(driver_handle, request_id, "notify_capabilities", caps, json!({}));
     }
 }
+
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_send_sticky_event() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4407.send.sticky_event",
+            "org.matrix.msc2762.send.event:m.rtc.member",
+        ]),
+    )
+    .await;
+
+    mock_server
+        .mock_room_send()
+        .for_type("m.rtc.member".into())
+        .with_sticky_duration(Duration::from_secs(5))
+        .ok(event_id!("$sticky"))
+        .mock_once()
+        .mount()
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-sticky-event",
+        "send_event",
+        json!({
+            "type": "m.rtc.member",
+            "content": { "msc4354_sticky_key": "slot", "application": "m.call" },
+            "sticky_duration_ms": 5000,
+        }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["event_id"], "$sticky");
+}
+
+#[cfg(feature = "unstable-msc4354")]
+#[async_test]
+async fn test_send_delayed_sticky_event() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!([
+            "org.matrix.msc4157.send.delayed_event",
+            "org.matrix.msc4407.send.sticky_event",
+            "org.matrix.msc2762.send.event:m.rtc.member",
+        ]),
+    )
+    .await;
+
+    Mock::given(method("PUT"))
+        .and(path_regex(
+            r"^/_matrix/client/unstable/org.matrix.msc4140/rooms/.*/delayed_event/m.rtc.member/.*$",
+        ))
+        .and(body_json(json!({
+            "delay_ms": 1000,
+            "content": { "msc4354_sticky_key": "slot" },
+            "org.matrix.msc4354.sticky_duration_ms": 5000,
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "delay_id": "1234" })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "send-delayed-sticky-event",
+        "send_event",
+        json!({
+            "type": "m.rtc.member",
+            "content": { "msc4354_sticky_key": "slot" },
+            "delay": 1000,
+            "sticky_duration_ms": 5000,
+        }),
+    );
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["response"]["delay_id"], "1234");
+}

@@ -299,6 +299,13 @@ pub(crate) struct SendEventRequest {
     /// response will contain a delay_id instead of a event_id. Defined by
     /// [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
     pub(crate) delay: Option<u64>,
+    /// The optional duration (in ms) for which the event stays sticky. If
+    /// provided, the event is sent as a sticky event as per
+    /// [MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354).
+    /// Defined by
+    /// [MSC4407](https://github.com/matrix-org/matrix-spec-proposals/pull/4407).
+    #[cfg(feature = "unstable-msc4354")]
+    pub(crate) sticky_duration_ms: Option<u64>,
 }
 
 impl From<SendEventRequest> for MatrixDriverRequestData {

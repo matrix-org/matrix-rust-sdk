@@ -49,6 +49,8 @@ use self::{
 };
 #[cfg(doc)]
 use super::WidgetDriver;
+#[cfg(feature = "unstable-msc4354")]
+use super::capabilities::SEND_STICKY_EVENT;
 use super::{
     Capabilities, StateEventFilter, StateKeySelector,
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
@@ -520,6 +522,33 @@ impl WidgetMachine {
                 raw_request,
                 format!("Not allowed: missing the {SEND_DELAYED_EVENT} capability."),
             ));
+        }
+
+        #[cfg(feature = "unstable-msc4354")]
+        if request.sticky_duration_ms.is_some() {
+            if !capabilities.send_sticky_event {
+                return Some(Self::send_from_widget_error_string_response(
+                    raw_request,
+                    format!("Not allowed: missing the {SEND_STICKY_EVENT} capability."),
+                ));
+            }
+
+            // MSC4354 only allows message-like events to be sticky.
+            if request.state_key.is_some() {
+                return Some(Self::send_from_widget_error_string_response(
+                    raw_request,
+                    "Cannot send a state event with a sticky duration",
+                ));
+            }
+
+            // A redaction is sent through the dedicated endpoint, which has no
+            // notion of stickiness.
+            if request.event_type == ruma::events::TimelineEventType::RoomRedaction.to_string() {
+                return Some(Self::send_from_widget_error_string_response(
+                    raw_request,
+                    "Cannot send a redaction with a sticky duration",
+                ));
+            }
         }
 
         if !capabilities.allow_sending(&request) {

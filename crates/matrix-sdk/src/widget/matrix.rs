@@ -16,6 +16,8 @@
 //! that is relevant for the widget API.
 
 use std::collections::BTreeMap;
+#[cfg(feature = "unstable-msc4354")]
+use std::time::Duration;
 
 use async_stream::stream;
 use futures_core::Stream;
@@ -239,12 +241,17 @@ impl MatrixDriver {
     /// This method allows the widget machine to handle widget requests by
     /// providing a unified, high-level widget-specific API for sending events
     /// to the room.
+    ///
+    /// With a `sticky_duration`, the event is sent as a sticky event as per
+    /// [MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354).
+    /// Only message-like events can be sticky.
     pub(crate) async fn send(
         &self,
         event_type: TimelineEventType,
         state_key: Option<String>,
         content: Box<RawJsonValue>,
         delayed_event_parameters: Option<delayed_events::DelayParameters>,
+        #[cfg(feature = "unstable-msc4354")] sticky_duration: Option<Duration>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
 
@@ -259,15 +266,39 @@ impl MatrixDriver {
         }
 
         Ok(match (state_key, delayed_event_parameters) {
-            (None, None) => SendEventResponse::from_event_id(
-                self.room.send_raw(&type_str, content).await?.response.event_id,
-            ),
+            (None, None) => {
+                let request = self.room.send_raw(&type_str, content);
+                #[cfg(feature = "unstable-msc4354")]
+                let request = match sticky_duration {
+                    Some(duration) => request.with_sticky_duration(duration),
+                    None => request,
+                };
+                SendEventResponse::from_event_id(request.await?.response.event_id)
+            }
 
             (Some(key), None) => SendEventResponse::from_event_id(
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
 
             (None, Some(delayed_event_parameters)) => {
+                #[cfg(feature = "unstable-msc4354")]
+                if let Some(sticky_duration) = sticky_duration {
+                    let delayed_events::DelayParameters::Timeout { timeout } =
+                        delayed_event_parameters
+                    else {
+                        return Err(Error::UnknownError(
+                            "Unsupported delay parameters for a sticky event".into(),
+                        ));
+                    };
+                    let response = self
+                        .room
+                        .send_raw(&type_str, content)
+                        .with_sticky_duration(sticky_duration)
+                        .into_delayed(timeout)
+                        .await?;
+                    return Ok(response.into());
+                }
+
                 let r = delayed_events::delayed_message_event::msc4140::Request::new_raw(
                     self.room.room_id().to_owned(),
                     TransactionId::new(),
