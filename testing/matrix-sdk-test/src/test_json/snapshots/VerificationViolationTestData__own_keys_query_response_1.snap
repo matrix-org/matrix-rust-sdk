@@ -1,6 +1,6 @@
 ---
 source: testing/matrix-sdk-test/src/test_json/keys_query_sets.rs
-expression: data
+expression: "ruma_response_to_json(VerificationViolationTestData::own_keys_query_response_1())"
 ---
 {
   "master_keys": {

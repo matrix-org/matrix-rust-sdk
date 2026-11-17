@@ -13,7 +13,6 @@ version = "0.19.1"
 release = true
 
 [lib]
-test = false
 doctest = false
 
 [features]
@@ -23,7 +22,6 @@ experimental-encrypted-state-events = ["ruma/unstable-msc4362"]
 as_variant.workspace = true
 http.workspace = true
 indexmap.workspace = true
-insta.workspace = true
 matrix-sdk-common = { version = "0.19.1", path = "../../crates/matrix-sdk-common" }
 matrix-sdk-test-macros = { version = "0.19.1", path = "../matrix-sdk-test-macros" }
 # Enable the unstable feature for polls support.
@@ -43,6 +41,9 @@ wiremock.workspace = true
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 wasm-bindgen-test.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
 
 [lints]
 workspace = true
