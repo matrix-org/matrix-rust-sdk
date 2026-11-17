@@ -86,7 +86,10 @@ pub use self::{
             pagination::RoomPagination,
         },
         subscriber::Subscriber,
-        thread::{ThreadEventCache, ThreadEventCacheUpdate, pagination::ThreadPagination},
+        thread::{
+            ThreadEventCache, ThreadEventCacheUpdate, ThreadUnreadCounts,
+            pagination::ThreadPagination,
+        },
     },
     search_backfill::SearchBackfillStrategy,
 };
@@ -516,6 +519,17 @@ impl EventCache {
         ))
     }
 
+    /// Get the unread counts of the threads of a room, as known by the event
+    /// cache.
+    ///
+    /// Only the threads that the event cache knows about are returned, i.e.
+    /// the threads that have been seen or opened at least once.
+    pub async fn thread_unread_counts(&self, room_id: &RoomId) -> Result<Vec<ThreadUnreadCounts>> {
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        caches_for_room.thread_unread_counts().await
+    }
+
     /// Get the [`ThreadInfo`] of a thread, if any.
     pub async fn thread_info(
         &self,
@@ -841,7 +855,7 @@ mod tests {
     use assert_matches::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
-        RoomState,
+        RoomState, ThreadingSupport,
         cross_process_lock::CrossProcessLockConfig,
         event_cache::store::{EventCacheStore, MemoryStore},
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
@@ -851,10 +865,18 @@ mod tests {
     use matrix_sdk_test::{
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{
+        event_id,
+        events::{
+            AnySyncEphemeralRoomEvent,
+            receipt::{ReceiptThread, ReceiptType},
+        },
+        push::Action,
+        room_id, user_id,
+    };
     use tokio::time::sleep;
 
-    use super::{EventCacheError, RoomEventCacheGenericUpdate};
+    use super::{EventCacheError, RoomEventCacheGenericUpdate, ThreadUnreadCounts};
     use crate::test_utils::{
         assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
     };
@@ -1208,5 +1230,92 @@ mod tests {
 
         // Creating room B's caches again works.
         event_cache.room(room_id_b).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_thread_unread_counts() {
+        let room_id = room_id!("!crepe:saucisse.bzh");
+        let thread_root = event_id!("$thread_root");
+        let thread_event_0 = event_id!("$thread_event_0");
+        let thread_event_1 = event_id!("$thread_event_1");
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+            })
+            .build()
+            .await;
+
+        let own_user_id = client.user_id().unwrap().to_owned();
+        let event_cache = client.event_cache().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+
+        let mut event_0 = f
+            .text_msg("in thread")
+            .event_id(thread_event_0)
+            .in_thread(thread_root, thread_root)
+            .into_event();
+        event_0.set_push_actions(vec![Action::Notify]);
+
+        let mut event_1 = f
+            .text_msg("still in thread")
+            .event_id(thread_event_1)
+            .in_thread(thread_root, thread_event_0)
+            .into_event();
+        event_1.set_push_actions(vec![Action::Notify]);
+
+        let mut updates = RoomUpdates::default();
+        updates.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline { events: vec![event_0, event_1], ..Default::default() },
+                ..Default::default()
+            },
+        );
+        event_cache.inner.handle_room_updates(updates).await.unwrap();
+
+        // The event cache knows about the thread, even if it has never been
+        // opened by the caller.
+        let expected = vec![ThreadUnreadCounts {
+            thread_id: thread_root.to_owned(),
+            unread_messages: 2,
+            unread_notifications: 2,
+            unread_mentions: 0,
+        }];
+        assert_eq!(event_cache.thread_unread_counts(room_id).await.unwrap(), expected);
+
+        // Same thing from a `Room`.
+        let room = client.get_room(room_id).unwrap();
+        assert_eq!(room.thread_unread_counts().await.unwrap(), expected);
+
+        // A receipt on the latest event of the thread clears the counts.
+        let receipt = f
+            .read_receipts()
+            .add(
+                thread_event_1,
+                own_user_id,
+                ReceiptType::Read,
+                ReceiptThread::Thread(thread_root.to_owned()),
+            )
+            .into_event()
+            .into_raw::<AnySyncEphemeralRoomEvent>();
+
+        let mut updates = RoomUpdates::default();
+        updates.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate { ephemeral: vec![receipt], ..Default::default() },
+        );
+        event_cache.inner.handle_room_updates(updates).await.unwrap();
+
+        let counts = event_cache.thread_unread_counts(room_id).await.unwrap();
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts[0].thread_id, thread_root);
+        assert_eq!(counts[0].unread_messages, 0);
+        assert_eq!(counts[0].unread_notifications, 0);
+        assert_eq!(counts[0].unread_mentions, 0);
     }
 }

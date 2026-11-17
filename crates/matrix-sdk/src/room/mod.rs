@@ -180,6 +180,7 @@ use crate::{
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
+    event_cache::ThreadUnreadCounts,
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
     live_locations_observer::LiveLocationsObserver,
     media::{MediaFormat, MediaRequestParameters},
@@ -546,6 +547,20 @@ impl Room {
     /// Returns the client this room is part of.
     pub fn client(&self) -> Client {
         self.client.clone()
+    }
+
+    /// Get the unread counts of the threads of this room, as computed
+    /// client-side.
+    ///
+    /// Only the threads known by the event cache are returned, i.e. the
+    /// threads that have been seen or opened at least once. Returns an empty
+    /// list if the event cache is disabled.
+    pub async fn thread_unread_counts(&self) -> Result<Vec<ThreadUnreadCounts>> {
+        let Some(event_cache) = self.client.event_cache() else {
+            return Ok(Vec::new());
+        };
+
+        Ok(event_cache.thread_unread_counts(self.room_id()).await?)
     }
 
     /// Get the sync state of this room, i.e. whether it was fully synced with
