@@ -283,3 +283,6 @@ spawn(async move {
 
 This module will only be active when used with the `experimental-widgets`
 feature flag.
+
+Sticky events (MSC4407) additionally need the `unstable-msc4354` feature flag,
+and the client to sync with simplified sliding sync (MSC4186).
