@@ -60,7 +60,7 @@ use tracing::{error, info, trace, warn};
 use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
     BeaconInfo, EventSendState, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind,
-    PollState, ReactionInfo, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    PollState, ReactionInfo, RedactionInfo, TimelineEventItemId, TimelineItem, TimelineItemContent,
     event_item::beacon_info_matches,
 };
 
@@ -131,8 +131,8 @@ pub(crate) enum AggregationKind {
     /// Our own pending redactions are applied reversibly, sent or remote ones
     /// irreversibly; see [`Aggregation::is_local`].
     Redaction {
-        /// The reason given with the redaction, if any.
-        reason: Option<String>,
+        /// Metadata about the redaction.
+        info: RedactionInfo,
     },
 
     /// An event has been edited.
@@ -290,17 +290,36 @@ impl Aggregation {
                 }
             }
 
-            AggregationKind::Redaction { reason } => {
+            AggregationKind::Redaction { info } => {
                 let is_local = self.is_local();
+
+                let incoming = info.clone();
+
+                let merged = match event.redaction_info() {
+                    Some(known) => known.merged_with(&incoming).into_record(),
+                    None => incoming,
+                };
+
                 let is_local_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_some();
                 let is_remote_redacted =
                     event.content().is_redacted() && event.unredacted_item.is_none();
                 if is_local && is_local_redacted || !is_local && is_remote_redacted {
+                    let mut updated = false;
+
+                    if event.redaction_info() != Some(&merged) {
+                        event.to_mut().redaction_info = Some(merged);
+                        updated = true;
+                    }
+
                     if event.redaction_send_state.is_some() && self.send_state.is_none() {
                         // The remote echo of a redaction we sent: nothing
                         // pending anymore.
                         event.to_mut().redaction_send_state = None;
+                        updated = true;
+                    }
+
+                    if updated {
                         ApplyAggregationResult::UpdatedItem
                     } else {
                         ApplyAggregationResult::LeftItemIntact
@@ -308,7 +327,7 @@ impl Aggregation {
                 } else {
                     let mut new_item = event.redact(&rules.redaction, is_local);
                     new_item.redaction_send_state = self.send_state.clone();
-                    new_item.redaction_reason = reason.clone();
+                    new_item.redaction_info = Some(merged);
                     *event = Cow::Owned(new_item);
                     ApplyAggregationResult::UpdatedItem
                 }

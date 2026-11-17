@@ -17,6 +17,7 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use imbl::vector;
+use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{User, async_test};
 use ruma::{
@@ -27,6 +28,8 @@ use ruma::{
         room::message::{OriginalSyncRoomMessageEvent, RedactedRoomMessageEventContent},
     },
     owned_event_id,
+    serde::Raw,
+    user_id,
 };
 use strass::assert_let;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -156,7 +159,7 @@ async fn test_redact_replied_to_event_not_in_timeline() {
 }
 
 #[async_test]
-async fn test_redaction_reason_from_remote_redaction() {
+async fn test_redaction_info_from_remote_redaction() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
@@ -164,23 +167,37 @@ async fn test_redaction_reason_from_remote_redaction() {
 
     timeline.handle_live_event(f.text_msg("spam spam").sender(User::Alice)).await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert_matches!(item.redaction_reason(), None);
+    assert!(item.redaction_info().is_none());
 
+    let redaction_id = event_id!("$redaction");
     timeline
-        .handle_live_event(f.redaction(item.event_id().unwrap()).sender(User::Bob).reason("spam"))
+        .handle_live_event(
+            f.redaction(item.event_id().unwrap())
+                .sender(User::Bob)
+                .reason("spam")
+                .event_id(redaction_id)
+                .server_ts(9000_u64),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert_eq!(item.redaction_reason(), Some("spam"));
+
+    let info = item.redaction_info().unwrap();
+    let expected_sender: ruma::OwnedUserId = User::Bob.into();
+    assert_eq!(info.redaction_event_id(), Some(redaction_id));
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+    assert_eq!(info.redaction_event_origin_server_ts().map(|ts| u64::from(ts.0)), Some(9000));
+    assert_eq!(info.reason(), Some("spam"));
 }
 
 #[async_test]
-async fn test_redaction_reason_from_redacted_event() {
+async fn test_redaction_info_from_redacted_event() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
+    let expected_sender: ruma::OwnedUserId = User::Bob.into();
 
     // An event that was redacted before we saw it.
     timeline
@@ -192,7 +209,12 @@ async fn test_redaction_reason_from_redacted_event() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().is_redacted());
-    assert_eq!(item.redaction_reason(), Some("spam"));
+
+    let info = item.redaction_info().unwrap();
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+    assert_eq!(info.reason(), Some("spam"));
+    assert!(info.redaction_event_id().is_some());
+    assert!(info.redaction_event_origin_server_ts().is_some());
 
     // Without a reason, there is none.
     timeline
@@ -203,7 +225,10 @@ async fn test_redaction_reason_from_redacted_event() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().is_redacted());
-    assert_matches!(item.redaction_reason(), None);
+
+    let info = item.redaction_info().unwrap();
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+    assert_matches!(info.reason(), None);
 }
 
 #[async_test]
@@ -239,6 +264,14 @@ async fn test_redaction_before_event() {
     assert!(first_item.content().is_redacted());
     assert_matches!(first_item.original_json(), None);
     assert_matches!(first_item.latest_edit_json(), None);
+
+    // The metadata from the redaction that arrived before the target is kept.
+    let info = first_item.redaction_info().unwrap();
+    let expected_sender: ruma::OwnedUserId = User::Alice.into();
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+    assert!(info.redaction_event_id().is_some());
+    assert!(info.redaction_event_origin_server_ts().is_some());
+    assert_matches!(info.reason(), None);
 
     // And the reactions didn't get applied.
     assert!(first_item.reactions().is_empty());
@@ -367,11 +400,17 @@ async fn test_local_and_remote_echo_of_redaction() {
 
     // Now redact the message. We first emit the local echo of the redaction
     // event. The timeline event should be marked as being under redaction, and
-    // our reason is known already.
+    // our reason and sender are known already, but the redaction event itself
+    // doesn't exist yet.
     timeline.handle_local_redaction(event_id.clone(), Some("bye")).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert_eq!(item.redaction_reason(), Some("bye"));
+    let info = item.redaction_info().unwrap();
+    let expected_sender: ruma::OwnedUserId = User::Alice.into();
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+    assert_eq!(info.reason(), Some("bye"));
+    assert!(info.redaction_event_id().is_none());
+    assert!(info.redaction_event_origin_server_ts().is_none());
     assert_let!(Some(unredacted_item) = item.unredacted_item);
     assert!(unredacted_item.original_json.is_some());
     assert_let!(
@@ -380,11 +419,25 @@ async fn test_local_and_remote_echo_of_redaction() {
     assert!(original_json.is_none());
 
     // Then comes the remote echo of the redaction event. The timeline event
-    // should now be redacted, with the same reason.
-    timeline.handle_live_event(f.redaction(&event_id).sender(User::Alice).reason("bye")).await;
+    // should now be redacted, with the same metadata completed by the
+    // redaction event's ID and timestamp.
+    let redaction_id = event_id!("$redaction");
+    timeline
+        .handle_live_event(
+            f.redaction(&event_id)
+                .sender(User::Alice)
+                .reason("bye")
+                .event_id(redaction_id)
+                .server_ts(9000_u64),
+        )
+        .await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert_eq!(item.redaction_reason(), Some("bye"));
+    let info = item.redaction_info().unwrap();
+    assert_eq!(info.redaction_event_id(), Some(redaction_id));
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+    assert_eq!(info.redaction_event_origin_server_ts().map(|ts| u64::from(ts.0)), Some(9000));
+    assert_eq!(info.reason(), Some("bye"));
     assert!(item.unredacted_item.is_none());
     assert_let!(
         EventTimelineItemKind::Remote(RemoteEventTimelineItem { original_json, .. }) = item.kind
@@ -451,4 +504,137 @@ async fn test_local_redaction_send_state() {
     assert!(item.redaction_send_state().is_none());
 
     assert_pending!(stream);
+}
+
+// Built by hand instead of with `EventFactory`: the redaction's timestamp must
+// be distinct from the target's so that the assertions can tell which one is
+// exposed, and the factory's counter can't provide two chosen values.
+fn redacted_snapshot(reason: Option<&str>) -> TimelineEvent {
+    let mut redacted_because = serde_json::json!({
+        "type": "m.room.redaction",
+        "event_id": "$redaction",
+        "sender": "@bob:example.org",
+        // Deliberately not the target's 1000: the redaction's own timestamp is
+        // the one that must be exposed, never the redacted event's.
+        "origin_server_ts": 9000,
+        "content": {},
+    });
+
+    if let Some(reason) = reason {
+        redacted_because["content"]["reason"] = serde_json::json!(reason);
+    }
+
+    let value = serde_json::json!({
+        "type": "m.room.message",
+        "event_id": "$target",
+        "sender": "@alice:example.org",
+        "origin_server_ts": 1000,
+        "content": {},
+        "unsigned": { "redacted_because": redacted_because },
+    });
+
+    TimelineEvent::from_plaintext(Raw::new(&value).unwrap().cast_unchecked())
+}
+
+#[async_test]
+async fn test_redaction_metadata_from_cache_update() {
+    // Start from a live event the server already redacted, whose
+    // `unsigned.redacted_because` carries the redaction's id, sender and
+    // timestamp (9000), but no reason. The target keeps its own 1000.
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+
+    timeline.handle_live_event(redacted_snapshot(None)).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(item.content().is_redacted());
+    assert_eq!(u64::from(item.timestamp().0), 1000);
+
+    let info = item.redaction_info().unwrap();
+    assert_eq!(info.redaction_event_id(), Some(event_id!("$redaction")));
+    let expected_sender = user_id!("@bob:example.org");
+    assert_eq!(info.redactor(), Some(expected_sender));
+    assert_eq!(info.redaction_event_origin_server_ts().map(|ts| u64::from(ts.0)), Some(9000));
+    assert_eq!(info.reason(), None);
+
+    timeline
+        .handle_event_update(
+            vec![VectorDiff::Set { index: 0, value: redacted_snapshot(Some("cleanup")) }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    // The target's own timestamp is untouched.
+    assert_eq!(u64::from(item.timestamp().0), 1000);
+
+    let info = item.redaction_info().unwrap();
+    assert_eq!(info.redaction_event_id(), Some(event_id!("$redaction")));
+    assert_eq!(info.redactor(), Some(expected_sender));
+    assert_eq!(info.redaction_event_origin_server_ts().map(|ts| u64::from(ts.0)), Some(9000));
+    assert_eq!(info.reason(), Some("cleanup"));
+
+    // An update without the metadata doesn't erase it.
+    timeline
+        .handle_event_update(
+            vec![VectorDiff::Set { index: 0, value: redacted_snapshot(None) }],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_pending_redaction_metadata_has_no_timestamp() {
+    // A local redaction is known before the server echoes it: the sender and
+    // reason come from the request, while the event ID and timestamp are only
+    // known once the redaction event exists.
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    timeline.handle_live_event(f.text_msg("bye").sender(User::Alice)).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event_id = item.event_id().unwrap().to_owned();
+
+    timeline.handle_local_redaction(event_id, Some("cleanup")).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let info = item.redaction_info().unwrap();
+    assert_eq!(info.reason(), Some("cleanup"));
+    assert!(info.redaction_event_id().is_none());
+    assert!(info.redaction_event_origin_server_ts().is_none());
+    let expected_sender: ruma::OwnedUserId = User::Alice.into();
+    assert_eq!(info.redactor(), Some(expected_sender.as_ref()));
+}
+
+#[async_test]
+async fn test_aborting_a_pending_redaction_clears_metadata() {
+    // A pending redaction exposes metadata; cancelling the send removes both
+    // the redaction and the metadata with it.
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+    let f = &timeline.factory;
+
+    timeline.handle_live_event(f.text_msg("bye").sender(User::Alice)).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event_id = item.event_id().unwrap().to_owned();
+
+    let txn_id = timeline.handle_local_redaction(event_id, Some("cleanup")).await;
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(item.content().is_redacted());
+    assert!(item.redaction_info().is_some());
+
+    timeline
+        .handle_room_send_queue_update(RoomSendQueueUpdate::CancelledLocalEvent {
+            transaction_id: txn_id,
+        })
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert!(!item.content().is_redacted());
+    assert!(item.redaction_info().is_none());
 }
