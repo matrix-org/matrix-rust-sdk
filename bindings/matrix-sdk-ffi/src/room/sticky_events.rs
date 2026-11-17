@@ -119,7 +119,10 @@ impl From<SdkStickyEventsUpdate> for StickyEventsUpdate {
             removed: update
                 .removed
                 .into_iter()
-                .map(|(key, reason)| StickyEventRemoval { key: key.into(), reason })
+                .map(|removal| StickyEventRemoval {
+                    key: removal.key.into(),
+                    reason: removal.reason,
+                })
                 .collect(),
         }
     }
