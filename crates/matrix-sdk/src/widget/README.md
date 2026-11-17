@@ -11,6 +11,8 @@ following MSC's:
 - [MSC3819: Allowing widgets to send/receive to-device messages](https://github.com/matrix-org/matrix-spec-proposals/pull/3819)
 - [MSC4515: RTC transports discovery (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4515)
 - [MSC4533: LiveKit client-server endpoints (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4533)
+- [MSC4407: Sticky Events (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4407),
+  with the `unstable-msc4354` feature flag
 
 It supports sending and reading events and provides some rudimentary client
 navigation features. There are some additional actions:
