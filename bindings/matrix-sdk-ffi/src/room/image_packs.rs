@@ -27,10 +27,12 @@ pub struct ImagePack {
     /// The state key of the pack's state event, identifying it within its
     /// room.
     pub state_key: String,
-    /// The display name of the pack, or of its room if the pack has none.
+    /// The name to display for the pack: its own display name if it has one,
+    /// otherwise the name of its room. `None` only if neither has a name.
     pub display_name: Option<String>,
-    /// The `mxc://` URL of the avatar of the pack, or of its room if the pack
-    /// has none.
+    /// The `mxc://` URL of the avatar to display for the pack: its own avatar
+    /// if it has one, otherwise the avatar of its room. `None` only if neither
+    /// has an avatar.
     pub avatar_url: Option<String>,
     /// Whether the pack's images can be used as inline emoticons.
     pub is_emoticon_pack: bool,
