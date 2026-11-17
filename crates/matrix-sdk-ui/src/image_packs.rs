@@ -17,8 +17,7 @@
 //!
 //! [Image packs]: https://spec.matrix.org/v1.19/client-server-api/#image-packs
 
-use std::collections::HashSet;
-
+use itertools::Itertools;
 use matrix_sdk::{Result, Room, RoomState, deserialized_responses::SyncOrStrippedState};
 use ruma::{
     OwnedRoomId,
@@ -87,8 +86,8 @@ pub async fn image_packs(room: &Room, space_service: &SpaceService) -> Result<Ve
     let mut packs = Vec::new();
 
     if let Some(raw) = client.account().account_data::<ImagePackRoomsEventContent>().await? {
-        // Malformed account data must not hide the packs of the room and its
-        // spaces.
+        // Any client can write this account data, so a malformed one is ignored
+        // rather than hiding the packs of the room and its spaces too.
         let rooms = raw.deserialize().map(|content| content.rooms).unwrap_or_else(|error| {
             warn!("Ignoring malformed m.image_pack.rooms account data: {error}");
             Default::default()
@@ -120,10 +119,7 @@ pub async fn image_packs(room: &Room, space_service: &SpaceService) -> Result<Ve
 
     // Keep only the first occurrence of each pack, identified by its room and
     // state key.
-    let mut seen = HashSet::new();
-    packs.retain(|pack| seen.insert((pack.room_id.clone(), pack.state_key.clone())));
-
-    Ok(packs)
+    Ok(packs.into_iter().unique_by(|pack| (pack.room_id.clone(), pack.state_key.clone())).collect())
 }
 
 /// Get the image packs defined in the locally known state of a room.

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, User, async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder, User, async_test,
     event_factory::EventFactory,
 };
 use matrix_sdk_ui::{image_packs::image_packs, spaces::SpaceService};
@@ -123,6 +123,124 @@ async fn test_image_packs() {
             (DEFAULT_TEST_ROOM_ID.as_str(), "room_only", "room_only", Some("Room only")),
             (space_id.as_str(), "space", "space", None),
             (parent_space_id.as_str(), "parent_space", "parent_space", None),
+        ]
+    );
+}
+
+#[async_test]
+async fn test_enabled_image_packs() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let joined_room_id = owned_room_id!("!joined:localhost");
+    let invited_room_id = owned_room_id!("!invited:localhost");
+    let left_room_id = owned_room_id!("!left:localhost");
+    let f = EventFactory::new().sender(User::Alice);
+
+    // The user enabled a pack of a joined room, a pack which doesn't exist in
+    // that room, and packs of rooms they aren't in.
+    let enabled_pack =
+        |state_key: &str| BTreeMap::from([(state_key.to_owned(), RoomImagePackMeta::new())]);
+    let enabled = ImagePackRoomsEventContent::new(BTreeMap::from([
+        (
+            joined_room_id.clone(),
+            BTreeMap::from([
+                ("enabled".to_owned(), RoomImagePackMeta::new()),
+                ("missing".to_owned(), RoomImagePackMeta::new()),
+            ]),
+        ),
+        (invited_room_id.clone(), enabled_pack("invited")),
+        (left_room_id.clone(), enabled_pack("left")),
+        (owned_room_id!("!unknown:localhost"), enabled_pack("unknown")),
+    ]));
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder
+                .add_global_account_data(f.event(enabled))
+                .add_joined_room(JoinedRoomBuilder::default())
+                .add_joined_room(
+                    JoinedRoomBuilder::new(&joined_room_id)
+                        .add_state_event(f.event(pack("enabled")).state_key("enabled"))
+                        .add_state_event(f.event(pack("not_enabled")).state_key("not_enabled")),
+                )
+                .add_invited_room(
+                    InvitedRoomBuilder::new(&invited_room_id)
+                        .add_state_event(f.event(pack("invited")).state_key("invited")),
+                )
+                .add_left_room(
+                    LeftRoomBuilder::new(&left_room_id)
+                        .add_state_bulk([f.event(pack("left")).state_key("left").into()]),
+                );
+        })
+        .await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let space_service = SpaceService::new(client.clone()).await;
+    let packs = image_packs(&room, &space_service).await.unwrap();
+
+    // Only the enabled pack of the joined room is returned.
+    let packs = packs
+        .iter()
+        .map(|pack| (pack.room_id.as_str(), pack.state_key.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(packs, [(joined_room_id.as_str(), "enabled")]);
+}
+
+#[async_test]
+async fn test_room_image_packs() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new().sender(User::Alice);
+    let room_avatar = owned_mxc_uri!("mxc://localhost/room_avatar");
+    let pack_avatar = owned_mxc_uri!("mxc://localhost/pack_avatar");
+
+    // A pack with its own name and avatar, one without, and one without
+    // images.
+    let mut own_metadata = named_pack("own_metadata", "Own name");
+    own_metadata.pack.avatar_url = Some(pack_avatar.clone());
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.room_name("Room name").default_room())
+                    .add_state_event(f.room_avatar().url(room_avatar.clone()).default_room())
+                    .add_state_event(f.event(own_metadata).default_room().state_key("own_metadata"))
+                    .add_state_event(
+                        f.event(pack("room_metadata")).default_room().state_key("room_metadata"),
+                    )
+                    .add_state_event(
+                        f.event(RoomImagePackEventContent::new(BTreeMap::new()))
+                            .default_room()
+                            .state_key("empty"),
+                    ),
+            );
+        })
+        .await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let space_service = SpaceService::new(client.clone()).await;
+    let packs = image_packs(&room, &space_service).await.unwrap();
+
+    // The pack without a name or avatar uses those of the room, and the one
+    // without images is skipped.
+    let packs = packs
+        .iter()
+        .map(|pack| {
+            (
+                pack.state_key.as_str(),
+                pack.content.pack.display_name.as_deref(),
+                pack.content.pack.avatar_url.as_ref(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        packs,
+        [
+            ("own_metadata", Some("Own name"), Some(&pack_avatar)),
+            ("room_metadata", Some("Room name"), Some(&room_avatar)),
         ]
     );
 }
