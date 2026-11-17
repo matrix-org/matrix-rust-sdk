@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{OwnedRoomId, owned_room_id};
-use serde_json::json;
+use assert_matches::assert_matches;
+use ruma::{OwnedRoomId, events::AnyTimelineEvent, owned_room_id, serde::Raw};
+use serde_json::{Value as JsonValue, json};
 use strass::assert_let;
 
 use super::{WIDGET_ID, parse_msg};
@@ -25,6 +26,23 @@ const ROOM_ID: &str = "!a98sd12bjh:example.org";
 
 fn room_id() -> OwnedRoomId {
     owned_room_id!("!a98sd12bjh:example.org")
+}
+
+/// A sticky `m.rtc.member` event of `sender`.
+fn sticky_member_event(event_id: &str, sender: &str) -> JsonValue {
+    json!({
+        "type": "m.rtc.member",
+        "event_id": event_id,
+        "sender": sender,
+        "origin_server_ts": 1_000,
+        "room_id": ROOM_ID,
+        "content": { "msc4354_sticky_key": "slot", "application": "m.call" },
+        "msc4354_sticky": { "duration_ms": 600_000 },
+    })
+}
+
+fn raw_event(event: &JsonValue) -> Raw<AnyTimelineEvent> {
+    serde_json::from_value(event.clone()).unwrap()
 }
 
 /// Run the capability negotiation with the widget requesting, and the driver
@@ -98,6 +116,95 @@ fn error_message(actions: Vec<Action>) -> String {
     assert_eq!(request_id, "send_event-request-id");
     assert_eq!(msg["action"], "send_event");
     msg["response"]["error"]["message"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn test_live_sticky_events_are_pushed_once_the_capability_is_granted() {
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id(), false);
+    let mut actions = negotiate_capabilities(
+        &mut machine,
+        actions,
+        &[
+            "org.matrix.msc2762.receive.event:m.rtc.member",
+            "org.matrix.msc4407.receive.sticky_event",
+        ],
+    );
+
+    pop_notify_capabilities(&mut actions);
+    let [subscribe, read_sticky]: [Action; 2] = actions.try_into().unwrap();
+    assert_matches!(subscribe, Action::Subscribe);
+    assert_let!(
+        Action::MatrixDriverRequest {
+            request_id,
+            data: MatrixDriverRequestData::ReadStickyEvents
+        } = read_sticky
+    );
+
+    // The driver answers with a sticky event the widget may read, and one it
+    // may not.
+    let alice = sticky_member_event("$alice", "@alice:example.org");
+    let mut message = sticky_member_event("$bob", "@bob:example.org");
+    message["type"] = "m.room.message".into();
+    let actions = machine.process(IncomingMessage::MatrixDriverResponse {
+        request_id,
+        response: Ok(MatrixDriverResponse::EventsRead(vec![
+            raw_event(&alice),
+            raw_event(&message),
+        ])),
+    });
+
+    // Only the allowed one is pushed.
+    let [action]: [Action; 1] = actions.try_into().unwrap();
+    assert_let!(Action::SendToWidget(msg) = action);
+    let (msg, _) = parse_msg(&msg);
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["data"], alice);
+}
+
+#[test]
+fn test_live_sticky_events_are_not_read_with_only_state_read_filters() {
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id(), false);
+    let mut actions = negotiate_capabilities(
+        &mut machine,
+        actions,
+        &[
+            "org.matrix.msc2762.receive.state_event:m.room.member",
+            "org.matrix.msc4407.receive.sticky_event",
+        ],
+    );
+
+    // Sticky events are message-like. Only the initial room state is read.
+    pop_notify_capabilities(&mut actions);
+    let [subscribe, read_state]: [Action; 2] = actions.try_into().unwrap();
+    assert_matches!(subscribe, Action::Subscribe);
+    assert_matches!(
+        read_state,
+        Action::MatrixDriverRequest { data: MatrixDriverRequestData::ReadState(_), .. }
+    );
+}
+
+#[test]
+fn test_live_sticky_events_are_not_read_without_the_capability() {
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id(), false);
+    let mut actions = negotiate_capabilities(
+        &mut machine,
+        actions,
+        &["org.matrix.msc2762.receive.event:m.rtc.member"],
+    );
+
+    pop_notify_capabilities(&mut actions);
+    let [subscribe]: [Action; 1] = actions.try_into().unwrap();
+    assert_matches!(subscribe, Action::Subscribe);
+}
+
+#[test]
+fn test_live_sticky_events_are_not_read_without_a_read_filter() {
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id(), false);
+    let mut actions =
+        negotiate_capabilities(&mut machine, actions, &["org.matrix.msc4407.receive.sticky_event"]);
+
+    pop_notify_capabilities(&mut actions);
+    assert!(actions.is_empty());
 }
 
 #[test]
@@ -193,4 +300,32 @@ fn test_a_redaction_cannot_be_sticky() {
         },
     })));
     assert_eq!(error_message(actions), "Cannot send a redaction with a sticky duration");
+}
+
+#[test]
+fn test_a_failed_read_of_the_live_sticky_events_pushes_nothing() {
+    let (mut machine, actions) = WidgetMachine::new(WIDGET_ID.to_owned(), room_id(), false);
+    let mut actions = negotiate_capabilities(
+        &mut machine,
+        actions,
+        &[
+            "org.matrix.msc2762.receive.event:m.rtc.member",
+            "org.matrix.msc4407.receive.sticky_event",
+        ],
+    );
+
+    pop_notify_capabilities(&mut actions);
+    let [_subscribe, read_sticky]: [Action; 2] = actions.try_into().unwrap();
+    assert_let!(
+        Action::MatrixDriverRequest {
+            request_id,
+            data: MatrixDriverRequestData::ReadStickyEvents
+        } = read_sticky
+    );
+
+    let actions = machine.process(IncomingMessage::MatrixDriverResponse {
+        request_id,
+        response: Err(crate::Error::UnknownError("OHMG!".into())),
+    });
+    assert!(actions.is_empty());
 }
