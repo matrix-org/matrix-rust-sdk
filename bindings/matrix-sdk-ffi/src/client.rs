@@ -25,8 +25,8 @@ use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
-    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
-    ToDeviceMessage as SdkToDeviceMessage,
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, HttpResult, SessionChange,
+    SessionTokens, ToDeviceMessage as SdkToDeviceMessage,
     authentication::oauth::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
@@ -43,6 +43,7 @@ use matrix_sdk::{
             account::request_openid_token,
             discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
+            retention::{RoomIdOrAllRooms, get_retention_configuration},
             room::{Visibility, create_room},
             session::get_login_types,
             user_directory::search_users,
@@ -150,7 +151,7 @@ use crate::{
     },
     notification_settings::NotificationSettings,
     qr_code::{GrantLoginWithQrCodeHandler, LoginWithQrCodeHandler},
-    room::{RoomHistoryVisibility, RoomInfoListener, RoomSendQueueUpdate},
+    room::{RoomHistoryVisibility, RoomInfoListener, RoomRetentionPolicy, RoomSendQueueUpdate},
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{
@@ -397,6 +398,86 @@ impl From<request_openid_token::v3::Response> for OpenIdToken {
             matrix_server_name: value.matrix_server_name.to_string(),
             expires_in_seconds: value.expires_in.as_secs(),
         }
+    }
+}
+
+/// The server's message retention policy configuration.
+///
+/// See
+/// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+/// for more info.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RetentionConfiguration {
+    /// The server's default retention policy (`"*"`), if any.
+    pub default_policy: Option<RoomRetentionPolicy>,
+    /// Map between a room ID and the per-room override the server defines for
+    /// that room.
+    pub room_policies: HashMap<String, RoomRetentionPolicy>,
+    /// Limits to apply to policies defined by `m.room.retention` state events.
+    pub limits: RetentionLimits,
+}
+
+impl From<get_retention_configuration::msc1763::Response> for RetentionConfiguration {
+    fn from(value: get_retention_configuration::msc1763::Response) -> Self {
+        let mut default_policy = None;
+        let mut room_policies = HashMap::new();
+
+        for (room, policy) in value.policies {
+            match room {
+                RoomIdOrAllRooms::AllRooms => default_policy = Some(policy.into()),
+                RoomIdOrAllRooms::RoomId(room_id) => {
+                    room_policies.insert(room_id.to_string(), policy.into());
+                }
+            }
+        }
+
+        Self { default_policy, room_policies, limits: value.limits.into() }
+    }
+}
+
+/// Limits to apply to policies defined by `m.room.retention` state events.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RetentionLimits {
+    /// Limits to apply to the minimum lifetime of `m.room.retention` policies.
+    pub min_lifetime: Option<RetentionLifetimeLimits>,
+    /// Limits to apply to the maximum lifetime of `m.room.retention` policies.
+    pub max_lifetime: Option<RetentionLifetimeLimits>,
+}
+
+impl From<get_retention_configuration::msc1763::RetentionLimits> for RetentionLimits {
+    fn from(value: get_retention_configuration::msc1763::RetentionLimits) -> Self {
+        Self {
+            min_lifetime: value.min_lifetime.map(Into::into),
+            max_lifetime: value.max_lifetime.map(Into::into),
+        }
+    }
+}
+
+/// Global limits for the per-room retention policy lifetimes.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RetentionLifetimeLimits {
+    /// The minimum accepted value for this limit.
+    pub min: Option<Duration>,
+    /// The maximum accepted value for this limit.
+    pub max: Option<Duration>,
+}
+
+impl From<get_retention_configuration::msc1763::LifetimeLimits> for RetentionLifetimeLimits {
+    fn from(value: get_retention_configuration::msc1763::LifetimeLimits) -> Self {
+        Self { min: value.min(), max: value.max() }
+    }
+}
+
+/// Convert the result of a retention configuration request, reporting a
+/// homeserver that doesn't implement the endpoint as `None` instead of an
+/// error.
+fn retention_configuration_or_none(
+    result: HttpResult<get_retention_configuration::msc1763::Response>,
+) -> Result<Option<RetentionConfiguration>, ClientError> {
+    match result {
+        Ok(response) => Ok(Some(response.into())),
+        Err(error) if error.is_endpoint_not_implemented() => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -2512,6 +2593,45 @@ impl Client {
         &self,
     ) -> Result<Option<MediaPreviewConfig>, ClientError> {
         Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
+    }
+
+    /// Fetch the server's message retention policy configuration.
+    ///
+    /// Returns the server-level retention policy limits and any per-room
+    /// overrides defined by the server, or `None` if the homeserver doesn't
+    /// implement the endpoint.
+    ///
+    /// This always makes a request to the homeserver. On success, the
+    /// response is stored in the client's cache and persisted in the state
+    /// store, so it can be read with [`Client::retention_configuration`],
+    /// even after a restart without connectivity.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn fetch_retention_configuration(
+        &self,
+    ) -> Result<Option<RetentionConfiguration>, ClientError> {
+        retention_configuration_or_none(self.inner.fetch_retention_configuration().await)
+    }
+
+    /// Get the server's message retention policy configuration, from the cache
+    /// if possible.
+    ///
+    /// If the cached value is missing or older than 6 hours, it is re-fetched
+    /// from the homeserver with [`Client::fetch_retention_configuration`]. If
+    /// that request fails (e.g. because there is no connectivity) and a stale
+    /// value is cached, the stale value is returned instead. The only
+    /// exception is when the homeserver doesn't implement the endpoint, in
+    /// which case `None` is always returned.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn retention_configuration(
+        &self,
+    ) -> Result<Option<RetentionConfiguration>, ClientError> {
+        retention_configuration_or_none(self.inner.retention_configuration().await)
     }
 
     /// Gets the `max_upload_size` value from the homeserver, which controls the

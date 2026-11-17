@@ -46,6 +46,7 @@ use ruma::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
             join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
+            retention::RoomRetentionEventContent,
         },
     },
 };
@@ -1709,6 +1710,26 @@ pub fn matrix_to_room_alias_permalink(
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomInfoListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, room_info: RoomInfo);
+}
+
+/// A message retention policy, as defined by an `m.room.retention` state
+/// event or by the server.
+///
+/// See
+/// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+/// for more info.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RoomRetentionPolicy {
+    /// The minimum amount of time messages should be kept on the homeserver.
+    pub min_lifetime: Option<Duration>,
+    /// The maximum amount of time messages should be kept on the homeserver.
+    pub max_lifetime: Option<Duration>,
+}
+
+impl From<RoomRetentionEventContent> for RoomRetentionPolicy {
+    fn from(content: RoomRetentionEventContent) -> Self {
+        Self { min_lifetime: content.min_lifetime(), max_lifetime: content.max_lifetime() }
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
