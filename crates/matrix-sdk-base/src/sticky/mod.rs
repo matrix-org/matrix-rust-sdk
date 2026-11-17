@@ -71,6 +71,12 @@ const MAX_PENDING: usize = 5000;
 /// The capacity of the broadcast channel behind [`StickyEvents::subscribe`].
 const UPDATES_CHANNEL_CAPACITY: usize = 32;
 
+/// Whether `raw`, received now, is a sticky event that the map of its room
+/// tracks.
+pub fn is_tracked(raw: &Raw<AnySyncTimelineEvent>) -> bool {
+    classify(now_ms(), raw).is_some()
+}
+
 /// The key of a sticky event in the map of a room.
 ///
 /// MSC4354 keys the map by `(room_id, sender, type, content.sticky_key)`; the
@@ -124,6 +130,20 @@ pub enum RemovalReason {
     RoomLeft,
 }
 
+/// A sticky event that is no longer live in the map of a room.
+#[derive(Clone, Debug)]
+pub struct StickyEventRemoval {
+    /// The key the event was tracked under.
+    pub key: StickyKey,
+    /// Why it is no longer live.
+    pub reason: RemovalReason,
+    /// The event that removed it, when the reason is
+    /// [`RemovalReason::Replaced`] which is the newer event with the same key
+    /// and an empty content. This empty tombstone event is not live and, thus,
+    /// never part of [`StickyEvents::live`].
+    pub tombstone: Option<StickyEvent>,
+}
+
 /// A batch of visible changes to the map of a room.
 ///
 /// One update is broadcast per processed sync response, and one per expiry
@@ -135,7 +155,7 @@ pub struct StickyEventsUpdate {
     /// The events that replaced the live event of their key.
     pub updated: Vec<StickyEvent>,
     /// The keys whose live event disappeared, and why.
-    pub removed: Vec<(StickyKey, RemovalReason)>,
+    pub removed: Vec<StickyEventRemoval>,
 }
 
 impl StickyEventsUpdate {
@@ -228,11 +248,18 @@ impl StickyEvents {
         self.inner.state.lock().unwrap().map.live(now_ms()).collect()
     }
 
+    /// The sticky events that have not expired, in no particular order.
+    /// Includes live events plus removals (tombstones).
+    pub fn unexpired(&self) -> Vec<StickyEvent> {
+        self.inner.state.lock().unwrap().map.unexpired(now_ms()).collect()
+    }
+
     /// Subscribe to the changes of the map.
     ///
     /// A subscriber that falls behind receives a
     /// [`Lagged`](broadcast::error::RecvError::Lagged) error, after which it
-    /// should reconcile with [`live`](Self::live).
+    /// should reconcile with [`live`](Self::live) (or
+    /// [`unexpired`](Self::unexpired) when relaying the events).
     pub fn subscribe(&self) -> broadcast::Receiver<StickyEventsUpdate> {
         self.inner.updates.subscribe()
     }
@@ -321,7 +348,14 @@ impl StickyEvents {
         };
 
         self.publish(StickyEventsUpdate {
-            removed: removed.into_iter().map(|key| (key, RemovalReason::RoomLeft)).collect(),
+            removed: removed
+                .into_iter()
+                .map(|key| StickyEventRemoval {
+                    key,
+                    reason: RemovalReason::RoomLeft,
+                    tombstone: None,
+                })
+                .collect(),
             ..Default::default()
         });
     }
@@ -361,7 +395,14 @@ impl StickyEventsInner {
 
         if !removed.is_empty() {
             let _ = self.updates.send(StickyEventsUpdate {
-                removed: removed.into_iter().map(|key| (key, RemovalReason::Expired)).collect(),
+                removed: removed
+                    .into_iter()
+                    .map(|key| StickyEventRemoval {
+                        key,
+                        reason: RemovalReason::Expired,
+                        tombstone: None,
+                    })
+                    .collect(),
                 ..Default::default()
             });
         }
@@ -395,7 +436,8 @@ mod tests {
     use tokio::sync::broadcast::error::TryRecvError;
 
     use super::{
-        Candidate, PendingEvent, RemovalReason, StickyEvents, StickyKey, StickyMeta, now_ms,
+        Candidate, PendingEvent, RemovalReason, StickyEventRemoval, StickyEvents, StickyKey,
+        StickyMeta, now_ms,
     };
     use crate::sticky::Payload;
 
@@ -472,7 +514,10 @@ mod tests {
             .await
             .expect("the expiry should be broadcast in time")
             .unwrap();
-        assert_let!([(key, RemovalReason::Expired)] = update.removed.as_slice());
+        assert_let!(
+            [StickyEventRemoval { key, reason: RemovalReason::Expired, tombstone: None }] =
+                update.removed.as_slice()
+        );
         assert_eq!(key.sticky_key, "slot");
 
         assert!(sticky.live().is_empty());
@@ -491,7 +536,10 @@ mod tests {
         sticky.clear();
 
         let update = subscriber.try_recv().unwrap();
-        assert_let!([(key, RemovalReason::RoomLeft)] = update.removed.as_slice());
+        assert_let!(
+            [StickyEventRemoval { key, reason: RemovalReason::RoomLeft, tombstone: None }] =
+                update.removed.as_slice()
+        );
         assert_eq!(key.sticky_key, "slot");
         assert!(sticky.live().is_empty());
         assert_let!(Err(TryRecvError::Empty) = subscriber.try_recv());
