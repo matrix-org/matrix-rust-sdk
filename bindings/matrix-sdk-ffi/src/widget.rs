@@ -198,6 +198,18 @@ pub fn get_element_call_required_permissions(
         },
     ];
 
+    // The MatrixRTC (MSC4143) member event in stable and unstable form.
+    #[cfg(feature = "unstable-msc4354")]
+    let read_send: Vec<_> = read_send
+        .into_iter()
+        .chain([
+            WidgetEventFilter::MessageLikeWithType {
+                event_type: "org.matrix.msc4143.rtc.member".to_owned(),
+            },
+            WidgetEventFilter::MessageLikeWithType { event_type: "m.rtc.member".to_owned() },
+        ])
+        .collect();
+
     WidgetCapabilities {
         read: vec![
             // To compute the current state of the matrixRTC session.
@@ -279,6 +291,10 @@ pub fn get_element_call_required_permissions(
         rtc_transports: true,
         rtc_livekit_get_token: true,
         rtc_livekit_delegate_delayed_leave: true,
+        #[cfg(feature = "unstable-msc4354")]
+        send_sticky_event: true,
+        #[cfg(feature = "unstable-msc4354")]
+        receive_sticky_event: true,
     }
 }
 
@@ -355,6 +371,15 @@ pub struct WidgetCapabilities {
     /// This allows the widget to hand the delayed leave event of a MatrixRTC
     /// session over to the homeserver (MSC4533).
     pub rtc_livekit_delegate_delayed_leave: bool,
+    /// This allows the widget to send sticky events (MSC4354) of the types it
+    /// may send, as per MSC4407.
+    #[cfg(feature = "unstable-msc4354")]
+    pub send_sticky_event: bool,
+    /// This allows the widget to receive the live sticky events (MSC4354) of
+    /// the types it may read when its capabilities are negotiated, as per
+    /// MSC4407.
+    #[cfg(feature = "unstable-msc4354")]
+    pub receive_sticky_event: bool,
 }
 
 impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
@@ -369,6 +394,10 @@ impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
             rtc_transports: value.rtc_transports,
             rtc_livekit_get_token: value.rtc_livekit_get_token,
             rtc_livekit_delegate_delayed_leave: value.rtc_livekit_delegate_delayed_leave,
+            #[cfg(feature = "unstable-msc4354")]
+            send_sticky_event: value.send_sticky_event,
+            #[cfg(feature = "unstable-msc4354")]
+            receive_sticky_event: value.receive_sticky_event,
         }
     }
 }
@@ -385,6 +414,10 @@ impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
             rtc_transports: value.rtc_transports,
             rtc_livekit_get_token: value.rtc_livekit_get_token,
             rtc_livekit_delegate_delayed_leave: value.rtc_livekit_delegate_delayed_leave,
+            #[cfg(feature = "unstable-msc4354")]
+            send_sticky_event: value.send_sticky_event,
+            #[cfg(feature = "unstable-msc4354")]
+            receive_sticky_event: value.receive_sticky_event,
         }
     }
 }
@@ -582,6 +615,17 @@ mod tests {
         // RTC decline
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4310.rtc.decline");
         cap_assert("org.matrix.msc2762.send.event:org.matrix.msc4310.rtc.decline");
+
+        // Sticky RTC memberships (MSC4407)
+        #[cfg(feature = "unstable-msc4354")]
+        {
+            cap_assert("org.matrix.msc4407.send.sticky_event");
+            cap_assert("org.matrix.msc4407.receive.sticky_event");
+            cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4143.rtc.member");
+            cap_assert("org.matrix.msc2762.send.event:org.matrix.msc4143.rtc.member");
+            cap_assert("org.matrix.msc2762.receive.event:m.rtc.member");
+            cap_assert("org.matrix.msc2762.send.event:m.rtc.member");
+        }
 
         // Download avatars
         cap_assert("org.matrix.msc4039.download_file");
