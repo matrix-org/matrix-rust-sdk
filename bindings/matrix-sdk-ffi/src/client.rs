@@ -164,7 +164,7 @@ use crate::{
     sync_v2::{SyncListenerV2, SyncResponseV2, SyncSettingsV2},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
-    utils::AsyncRuntimeDropped,
+    utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -1515,26 +1515,26 @@ impl Client {
             .await?)
     }
 
+    #[uniffi::method(default(animated = false))]
     pub async fn get_media_thumbnail(
         &self,
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        animated: bool,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
-        debug!(?source, width, height, "requesting media thumbnail");
+        debug!(?source, width, height, animated, "requesting media thumbnail");
+
+        let mut settings = MediaThumbnailSettings::new(u64_to_uint(width), u64_to_uint(height));
+        settings.animated = animated;
+
         Ok(self
             .inner
             .media()
             .get_media_content(
-                &MediaRequestParameters {
-                    source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                        UInt::new(width).unwrap(),
-                        UInt::new(height).unwrap(),
-                    )),
-                },
+                &MediaRequestParameters { source, format: MediaFormat::Thumbnail(settings) },
                 true,
             )
             .await?)
