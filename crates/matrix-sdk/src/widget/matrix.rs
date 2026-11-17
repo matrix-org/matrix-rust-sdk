@@ -336,6 +336,21 @@ impl MatrixDriver {
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
 
+    /// Reads the sticky events ([MSC4354]) that are currently live in the
+    /// room.
+    ///
+    /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
+    #[cfg(feature = "unstable-msc4354")]
+    pub(crate) fn read_sticky_events(&self) -> Vec<Raw<AnyTimelineEvent>> {
+        let room_id = self.room.room_id();
+        self.room
+            .sticky_events()
+            .live()
+            .iter()
+            .map(|event| attach_room_id(event.raw(), room_id))
+            .collect()
+    }
+
     /// Starts forwarding new room events. Once the returned `EventReceiver` is
     /// dropped, forwarding will be stopped.
     pub(crate) fn events(&self) -> EventReceiver<Raw<AnyTimelineEvent>> {

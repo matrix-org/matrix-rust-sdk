@@ -247,6 +247,11 @@ impl WidgetDriver {
                         .await
                         .map(MatrixDriverResponse::StateRead),
 
+                    #[cfg(feature = "unstable-msc4354")]
+                    MatrixDriverRequestData::ReadStickyEvents => {
+                        Ok(MatrixDriverResponse::EventsRead(matrix_driver.read_sticky_events()))
+                    }
+
                     MatrixDriverRequestData::SendEvent(req) => {
                         let SendEventRequest {
                             event_type,
