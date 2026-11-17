@@ -2293,3 +2293,64 @@ async fn test_has_other_devices_to_verify_against() {
     let devices = machine.get_user_devices(user_id(), None).await.unwrap();
     assert!(devices.has_other_devices_to_verify_against());
 }
+
+/// The sticky marker of MSC4354 is on the encrypted envelope and decryption
+/// carries it over to the plaintext event.
+#[async_test]
+async fn test_megolm_decryption_keeps_the_sticky_marker() {
+    let (alice, bob) =
+        get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
+    let room_id = room_id!("!test:example.org");
+
+    let to_device_requests = alice
+        .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+        .await
+        .unwrap();
+    let event = ToDeviceEvent::new(
+        alice.user_id().to_owned(),
+        to_device_requests_to_content(to_device_requests),
+    );
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let group_session = bob
+        .store()
+        .with_transaction(async |tr| {
+            let res = bob
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
+                .await?;
+            Ok(res)
+        })
+        .await
+        .unwrap()
+        .inbound_group_session
+        .unwrap();
+    bob.store().save_inbound_group_sessions(std::slice::from_ref(&group_session)).await.unwrap();
+
+    let content = RoomMessageEventContent::text_plain("I am sticky");
+    let result = alice
+        .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content))
+        .await
+        .unwrap();
+
+    let sticky = json!({ "duration_ms": 600_000 });
+    let event = json!({
+        "event_id": "$xxxxx:example.org",
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "sender": alice.user_id(),
+        "type": "m.room.encrypted",
+        "content": result.content,
+        "msc4354_sticky": sticky,
+    });
+    let event = json_convert(&event).unwrap();
+
+    let decryption_result =
+        bob.try_decrypt_room_event(&event, room_id, &decryption_settings).await.unwrap();
+    assert_let!(RoomEventDecryptionResult::Decrypted(decrypted_event) = decryption_result);
+
+    let marker = decrypted_event.event.get_field::<serde_json::Value>("msc4354_sticky").unwrap();
+    assert_eq!(marker, Some(sticky));
+    // The stable name is only carried over when the envelope used it.
+    assert_eq!(decrypted_event.event.get_field::<serde_json::Value>("sticky").unwrap(), None);
+}
