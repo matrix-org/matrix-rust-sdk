@@ -1605,6 +1605,79 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_joined_ancestors_of() {
+        // Given a room in two spaces, one of which is in a top-level space that
+        // also contains the other one.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let top_level_space_id = room_id!("!top_level_space:example.org");
+        let middle_space_id = room_id!("!middle_space:example.org");
+        let other_space_id = room_id!("!other_space:example.org");
+        let leaf_room_id = room_id!("!leaf_room:example.org");
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: top_level_space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![middle_space_id, other_space_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: middle_space_id,
+                    order: None,
+                    parents: vec![top_level_space_id],
+                    children: vec![leaf_room_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: other_space_id,
+                    order: None,
+                    parents: vec![top_level_space_id],
+                    children: vec![leaf_room_id],
+                    power_level: None,
+                },
+            ],
+            &client,
+            &server,
+            &factory,
+            user_id,
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        // Then the room's ancestors come closest first, with the top-level
+        // space only once even though both of its parents lead to it.
+        assert_eq!(
+            space_service.joined_ancestors_of(leaf_room_id).await,
+            [middle_space_id.to_owned(), other_space_id.to_owned(), top_level_space_id.to_owned()]
+        );
+
+        // And a subspace only has the spaces above it.
+        assert_eq!(
+            space_service.joined_ancestors_of(middle_space_id).await,
+            [top_level_space_id.to_owned()]
+        );
+
+        // And a top-level space or a room the graph doesn't know about has
+        // none.
+        assert!(space_service.joined_ancestors_of(top_level_space_id).await.is_empty());
+        assert!(
+            space_service
+                .joined_ancestors_of(room_id!("!unknown_room:example.org"))
+                .await
+                .is_empty()
+        );
+    }
+
+    #[async_test]
     async fn test_get_space_room_for_id() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
