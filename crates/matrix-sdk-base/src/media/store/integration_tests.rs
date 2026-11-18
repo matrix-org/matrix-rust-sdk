@@ -1083,6 +1083,9 @@ pub trait MediaStoreIntegrationTests {
 
     /// Test media sizes.
     async fn test_media_sizes(&self);
+    
+    /// Test replacing a MXID that already exists.
+    async fn test_replace_media_key_overwrites_existing(&self);
 }
 
 impl<Store> MediaStoreIntegrationTests for Store
@@ -1314,6 +1317,71 @@ where
         assert!(sizes.get(uri).copied().unwrap() >= (file.len() + thumbnail.len()) as u64);
         assert!(sizes.get(other_uri).copied().unwrap() >= other_file.len() as u64);
     }
+    
+    async fn test_replace_media_key_overwrites_existing(&self) {
+        let uri = mxc_uri!("mxc://sendqueue.local/tr4n-s4ct-10n1-d");
+        let req = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+
+        let content = "hello".as_bytes().to_owned();
+
+        // Media isn't present in the cache.
+        assert!(self.get_media_content(&req).await.unwrap().is_none(), "unexpected media found");
+
+        // Add the media.
+        self.add_media_content(&req, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
+
+        // Sanity-check: media is found after adding it.
+        assert_eq!(self.get_media_content(&req).await.unwrap().unwrap(), b"hello");
+
+        // Replacing a media request works.
+        let new_uri = mxc_uri!("mxc://matrix.org/tr4n-s4ct-10n1-d");
+        let new_req = MediaRequestParameters {
+            source: MediaSource::Plain(new_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        self.replace_media_key(&req, &new_req)
+            .await
+            .expect("replacing the media request key failed");
+
+        // Finding with the previous request doesn't work anymore.
+        assert!(
+            self.get_media_content(&req).await.unwrap().is_none(),
+            "unexpected media found with the old key"
+        );
+
+        // Add the media again.
+        self.add_media_content(&req, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
+
+        // Sanity-check: media is found after adding it again.
+        assert_eq!(self.get_media_content(&req).await.unwrap().unwrap(), b"hello");
+
+        self.replace_media_key(&req, &new_req)
+            .await
+            .expect("replacing the media request key failed");
+
+        // Finding with the previous request doesn't work anymore.
+        assert!(
+            self.get_media_content(&req).await.unwrap().is_none(),
+            "unexpected media found with the old key"
+        );
+
+        // Finding with the new request does work.
+        assert_eq!(self.get_media_content(&new_req).await.unwrap().unwrap(), b"hello");
+
+        // Now remove the media.
+        self.remove_media_content(&new_req).await.unwrap();
+        assert!(
+            self.get_media_content(&new_req).await.unwrap().is_none(),
+            "duplicate entry left under the new key"
+        );
+    }
 }
 
 /// Macro building to allow your [`MediaStore`] implementation to run the entire
@@ -1370,6 +1438,12 @@ macro_rules! media_store_integration_tests {
             async fn test_media_sizes() {
                 let media_store = get_media_store().await.unwrap();
                 media_store.test_media_sizes().await;
+            }
+ 
+            #[async_test]
+            async fn test_replace_media_key_overwrites_existing() {
+                let media_store = get_media_store().await.unwrap();
+                media_store.test_replace_media_key_overwrites_existing().await;
             }
         }
     };

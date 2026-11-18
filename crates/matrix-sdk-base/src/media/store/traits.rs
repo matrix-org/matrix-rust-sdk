@@ -71,6 +71,9 @@ pub trait MediaStore: AsyncTraitDeps {
     /// This should not raise an error when the `from` parameter points to an
     /// unknown media, and it should silently continue in this case.
     ///
+    /// If `to` already exists it will be overwritten. (in case a media was
+    /// uploaded twice and the server returned the same MXC URI).
+    ///
     /// # Arguments
     ///
     /// - `from` - The previous `MediaRequest` of the file.
