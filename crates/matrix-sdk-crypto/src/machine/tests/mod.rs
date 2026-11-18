@@ -1707,6 +1707,56 @@ async fn test_importing_private_cross_signing_keys_verifies_the_public_identity(
 }
 
 #[async_test]
+async fn test_bootstrap_cross_signing_repairs_an_unverified_own_identity() {
+    let (alice, bob) =
+        get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
+    setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+
+    let own_identity = |machine: &OlmMachine| {
+        let machine = machine.clone();
+        async move {
+            machine
+                .get_identity(machine.user_id(), None)
+                .await
+                .unwrap()
+                .expect("We should know about our own user identity")
+                .own()
+                .unwrap()
+        }
+    };
+
+    let identity = own_identity(&alice).await;
+    assert!(identity.is_verified(), "Holding the private keys should leave our identity verified");
+
+    // Put the machine into a stuck state, where the private cross-signing keys
+    // are cached and match the public identity, but the stored public
+    // identity is marked as unverified.
+    identity.mark_as_unverified();
+    let mut changes = Changes::default();
+    changes.identities.changed.push(crate::UserIdentityData::Own(identity.inner));
+    alice.store().save_changes(changes).await.unwrap();
+
+    let identity = own_identity(&alice).await;
+    assert!(!identity.is_verified(), "The seeded identity should start unverified");
+    let status = alice.cross_signing_status().await;
+    assert!(
+        status.has_master && status.has_self_signing && status.has_user_signing,
+        "The machine should still hold all three private cross-signing keys"
+    );
+
+    // Attempt to bootstrap cross signing again, which should probably be
+    // changed to mark the identity as verified if the private key is cached
+    // cached and matches the public key.
+    alice.bootstrap_cross_signing(false).await.unwrap();
+
+    let identity = own_identity(&alice).await;
+    assert!(
+        identity.is_verified(),
+        "Bootstrapping with matching private cross-signing keys should re-verify our own identity"
+    );
+}
+
+#[async_test]
 async fn test_wait_on_key_query_doesnt_block_store() {
     // Waiting for a key query shouldn't delay other write attempts to the
     // store. This test will end immediately if it works, and times out after a
