@@ -46,7 +46,7 @@ mod native;
 mod wasm;
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) use native::HttpSettings;
+pub use native::HttpSettings;
 
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
