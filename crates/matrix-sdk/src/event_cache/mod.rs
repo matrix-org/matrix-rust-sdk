@@ -689,11 +689,8 @@ impl EventCacheInner {
         // The constraints are very similar to what we do in `clear_all_rooms`.
         // See this information to understand them.
 
-        let mut caches_for_all_rooms = self.by_room.write().await;
+        let caches_for_all_rooms = self.by_room.write().await;
         self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
-
-        // Finally, we forget all the caches if any exists in memory.
-        caches_for_all_rooms.remove(room_id);
 
         Ok(())
     }
