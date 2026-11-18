@@ -172,6 +172,7 @@ pub fn get_element_call_required_permissions(
         },
         // To read and send encryption keys
         WidgetEventFilter::ToDevice { event_type: "io.element.call.encryption_keys".to_owned() },
+        WidgetEventFilter::ToDevice { event_type: "m.rtc.encryption_key".to_owned() },
         // TODO change this to the appropriate to-device version once ready
         // remove this once all matrixRTC call apps supports to-device
         // encryption.
@@ -611,6 +612,10 @@ mod tests {
         );
         cap_assert("org.matrix.msc2762.send.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.send.event:io.element.call.encryption_keys");
+        cap_assert("org.matrix.msc3819.receive.to_device:io.element.call.encryption_keys");
+        cap_assert("org.matrix.msc3819.receive.to_device:m.rtc.encryption_key");
+        cap_assert("org.matrix.msc3819.send.to_device:io.element.call.encryption_keys");
+        cap_assert("org.matrix.msc3819.send.to_device:m.rtc.encryption_key");
 
         // RTC decline
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4310.rtc.decline");
