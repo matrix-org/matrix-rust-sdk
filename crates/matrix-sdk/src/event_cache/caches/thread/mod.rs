@@ -92,6 +92,24 @@ impl fmt::Debug for ThreadEventCache {
     }
 }
 
+/// The unread counts of a thread, as computed by the [`EventCache`].
+///
+/// [`EventCache`]: super::super::EventCache
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadUnreadCounts {
+    /// The ID of the thread root.
+    pub thread_id: OwnedEventId,
+
+    /// The number of unread messages.
+    pub unread_messages: u64,
+
+    /// The number of unread notifications, i.e. messages that should notify.
+    pub unread_notifications: u64,
+
+    /// The number of unread mentions, i.e. messages causing a highlight.
+    pub unread_mentions: u64,
+}
+
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
     #[allow(clippy::too_many_arguments)]
@@ -192,6 +210,23 @@ impl ThreadEventCache {
     /// [`Self::read_receipts`] as it involves a single lock.
     pub async fn num_unread_mentions(&self) -> Result<u64> {
         Ok(self.inner.state.read().await?.thread_info.read().await.read_receipts.num_mentions)
+    }
+
+    /// Get the unread counts for this thread.
+    ///
+    /// This computes all the counts with a single lock, contrary to calling
+    /// [`Self::num_unread_messages`], [`Self::num_unread_notifications`] and
+    /// [`Self::num_unread_mentions`] separately.
+    pub async fn unread_counts(&self) -> Result<ThreadUnreadCounts> {
+        let state = self.inner.state.read().await?;
+        let thread_info = state.thread_info.read().await;
+
+        Ok(ThreadUnreadCounts {
+            thread_id: self.inner.thread_id.clone(),
+            unread_messages: thread_info.read_receipts.num_unread,
+            unread_notifications: thread_info.read_receipts.num_notifications,
+            unread_mentions: thread_info.read_receipts.num_mentions,
+        })
     }
 
     /// Get the detailed information about read receipts for this thread.
