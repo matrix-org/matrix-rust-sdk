@@ -116,12 +116,3 @@ pub(super) struct SecretStorageDisabledContent {}
 pub(super) struct KeyBackupContent {
     pub enabled: bool,
 }
-
-/// Unstable prefix form of [MSC4287].
-///
-/// [MSC4287]: https://github.com/matrix-org/matrix-spec-proposals/pull/4287
-#[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
-#[ruma_event(type = "m.org.matrix.custom.backup_disabled", kind = GlobalAccountData)]
-pub(super) struct BackupDisabledContent {
-    pub disabled: bool,
-}
