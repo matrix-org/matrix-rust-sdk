@@ -14,7 +14,37 @@
 
 use std::{sync::Arc, time::Duration};
 
-use matrix_sdk::reqwest::Certificate;
+use matrix_sdk::reqwest::{self, Certificate};
+
+/// A standalone HTTP client, configured with the same [`HttpSettings`] as the
+/// one used by a `Client`.
+#[derive(uniffi::Object)]
+struct HttpClient {
+    inner: reqwest::Client,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl HttpClient {
+    #[uniffi::constructor]
+    pub fn from_settings(http_settings: HttpSettings) -> Result<Self, HttpClientError> {
+        let inner = matrix_sdk::HttpSettings::from(http_settings)
+            .make_client()
+            .map_err(|error| HttpClientError::HttpClientCreation { error: error.to_string() })?;
+        Ok(Self { inner })
+    }
+
+    pub async fn get_url(&self, url: String) -> Result<Vec<u8>, HttpClientError> {
+        let response = self.inner.get(url).send().await?;
+        if response.status().is_success() {
+            Ok(response.bytes().await?.into())
+        } else {
+            Err(HttpClientError::GetUrl {
+                msg: response.status().to_string(),
+                details: response.text().await.ok(),
+            })
+        }
+    }
+}
 
 #[derive(uniffi::Record, Default, Clone)]
 pub struct HttpSettings {
@@ -80,4 +110,14 @@ impl HttpCertificate {
 pub enum HttpClientError {
     #[error("Failed to add a root certificate as DER ({der_error}) or PEM ({pem_error})")]
     FailedToFormatCertificate { der_error: String, pem_error: String },
+    #[error("Failed to create HTTP client from settings: {error}")]
+    HttpClientCreation { error: String },
+    #[error("Failed to get URL content from url: {msg}")]
+    GetUrl { msg: String, details: Option<String> },
+}
+
+impl From<reqwest::Error> for HttpClientError {
+    fn from(err: reqwest::Error) -> Self {
+        Self::GetUrl { msg: err.to_string(), details: None }
+    }
 }
