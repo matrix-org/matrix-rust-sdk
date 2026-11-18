@@ -21,6 +21,8 @@
 
 pub use async_trait::async_trait;
 pub use bytes;
+#[cfg(not(target_family = "wasm"))]
+pub use http_client::HttpSettings;
 pub use matrix_sdk_base::{
     CallIntentConsensus, ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent,
     DraftThumbnail, EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,

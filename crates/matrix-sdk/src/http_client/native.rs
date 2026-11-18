@@ -178,15 +178,23 @@ impl HttpClient {
 }
 
 #[cfg(not(target_family = "wasm"))]
+/// Settings used to build the underlying [`reqwest::Client`].
 #[derive(Clone, Debug)]
-pub(crate) struct HttpSettings {
-    pub(crate) disable_ssl_verification: bool,
-    pub(crate) proxy: Option<String>,
-    pub(crate) user_agent: Option<String>,
-    pub(crate) timeout: Option<Duration>,
-    pub(crate) read_timeout: Option<Duration>,
-    pub(crate) additional_root_certificates: Vec<Certificate>,
-    pub(crate) disable_built_in_root_certificates: bool,
+pub struct HttpSettings {
+    /// Accept invalid TLS certificates. Dangerous, only use for testing.
+    pub disable_ssl_verification: bool,
+    /// URL of a proxy to route all requests through.
+    pub proxy: Option<String>,
+    /// User agent to send, defaults to `matrix-rust-sdk`.
+    pub user_agent: Option<String>,
+    /// Total timeout for a request.
+    pub timeout: Option<Duration>,
+    /// Timeout for each read operation.
+    pub read_timeout: Option<Duration>,
+    /// Extra root certificates to trust.
+    pub additional_root_certificates: Vec<Certificate>,
+    /// Only trust `additional_root_certificates`, not the built-in ones.
+    pub disable_built_in_root_certificates: bool,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -207,7 +215,7 @@ impl Default for HttpSettings {
 #[cfg(not(target_family = "wasm"))]
 impl HttpSettings {
     /// Build a client with the specified configuration.
-    pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
+    pub fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
         let mut http_client = reqwest::Client::builder()
             .user_agent(user_agent)
