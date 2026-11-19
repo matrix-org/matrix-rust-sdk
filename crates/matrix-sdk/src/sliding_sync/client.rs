@@ -39,7 +39,6 @@ const HAS_ENCRYPTED_ROOMS_LIST_NAME: &str = "encrypted_rooms";
 /// See [#7465](https://github.com/matrix-org/matrix-rust-sdk/issues/7465) for
 /// the move to the stable version.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum), uniffi(name = "SlidingSyncVersion"))]
 pub enum Version {
     /// No version. Useful to represent that sliding sync is disabled for
     /// example, and that the version is unknown.
