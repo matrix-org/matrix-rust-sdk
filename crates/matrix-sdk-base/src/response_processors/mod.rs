@@ -38,10 +38,13 @@ type RoomInfoNotableUpdates = BTreeMap<OwnedRoomId, RoomInfoNotableUpdateReasons
 pub(crate) struct Context {
     pub(super) state_changes: StateChanges,
     pub(super) room_info_notable_updates: RoomInfoNotableUpdates,
+    /// The rooms listed in the `m.direct` event of the response, if it has one.
+    #[cfg(feature = "unstable-msc4563")]
+    pub(super) direct_rooms: Option<std::collections::BTreeSet<OwnedRoomId>>,
 }
 
 impl Context {
     pub fn new(state_changes: StateChanges) -> Self {
-        Self { state_changes, room_info_notable_updates: Default::default() }
+        Self { state_changes, ..Default::default() }
     }
 }

@@ -286,6 +286,8 @@ impl Rules {
 ///
 /// - `is_encrypted` - `Yes` if the room is encrypted
 /// - `is_one_to_one` - `Yes` if the room is a direct chat involving two people
+// MSC4563 deprecates the one-to-one rules.
+#[allow(deprecated)]
 pub(crate) fn get_predefined_underride_room_rule_id(
     is_encrypted: IsEncrypted,
     is_one_to_one: IsOneToOne,
@@ -314,6 +316,7 @@ pub(crate) fn get_predefined_underride_poll_start_rule_id(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 pub(crate) mod tests {
     use imbl::HashSet;
     use matrix_sdk_test::{

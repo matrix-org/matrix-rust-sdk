@@ -124,6 +124,8 @@ impl BaseClient {
 
         let global_account_data_processor =
             processors::account_data::global(&extensions.account_data.global);
+        #[cfg(feature = "unstable-msc4563")]
+        global_account_data_processor.collect_direct_rooms(&mut context);
         let push_rules = self.get_push_rules(&global_account_data_processor).await?;
 
         let mut room_updates = RoomUpdates::default();

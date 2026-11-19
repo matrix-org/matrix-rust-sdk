@@ -583,6 +583,7 @@ impl NotificationSettings {
 
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
+#[allow(deprecated)]
 mod tests {
     use std::sync::{
         Arc,
