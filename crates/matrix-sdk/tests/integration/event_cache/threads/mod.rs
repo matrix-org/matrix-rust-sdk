@@ -1283,3 +1283,52 @@ async fn test_thread_summary_counts_replies_loaded_by_room_pagination() {
     assert_eq!(thread_info.latest_event.as_deref(), Some(thread_resp3_id));
     assert_eq!(thread_info.number_of_replies, 3);
 }
+
+#[async_test]
+async fn test_room_pagination_does_not_count_replies_of_an_unknown_thread() {
+    // A back-pagination of the room loads a reply of a thread the event cache
+    // has never seen. It must not start counting the replies: the summary
+    // bundled with the thread root knows more than this single reply.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let thread_root_id = event_id!("$thread_root");
+    let thread_resp_id = event_id!("$thread_resp");
+
+    let event_cache = client.event_cache().unwrap();
+
+    // Receive an event which isn't part of the thread, after a gap.
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Hello").event_id(event_id!("$hello")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+    // Paginate the room backwards: the gap is filled with a reply of the
+    // thread.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("Thread reply")
+                .in_thread(thread_root_id, thread_root_id)
+                .event_id(thread_resp_id),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+    assert_eq!(outcome.events.len(), 1);
+
+    assert!(event_cache.thread_info(room_id, thread_root_id).await.unwrap().is_none());
+}
