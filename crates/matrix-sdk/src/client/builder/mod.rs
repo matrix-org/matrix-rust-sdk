@@ -708,7 +708,7 @@ impl ClientBuilder {
             match self.http_cfg.unwrap_or_default() {
                 #[cfg(not(target_family = "wasm"))]
                 HttpConfig::Settings(mut settings) => {
-                    settings.timeout = self.request_config.timeout;
+                    settings.apply_timeouts(&self.request_config);
                     settings.make_client()?
                 }
                 HttpConfig::Custom(c) => c,
