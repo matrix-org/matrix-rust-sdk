@@ -244,6 +244,11 @@ impl ThreadEventCache {
         &self.inner.state
     }
 
+    /// Return a reference to the update sender.
+    pub(in super::super) fn update_sender(&self) -> &ThreadEventCacheUpdateSender {
+        &self.inner.update_sender
+    }
+
     /// Handle an update from a joined room.
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_joined_room_update(
@@ -294,12 +299,6 @@ impl ThreadEventCache {
                 // generic update is handled by it.
                 None,
             );
-        }
-
-        if let Some(read_receipts) = read_receipts.into_inner() {
-            state
-                .update_sender
-                .send(ThreadEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
         }
 
         Ok(())
