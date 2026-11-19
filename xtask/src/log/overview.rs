@@ -8,7 +8,7 @@ use std::{
     sync::LazyLock,
 };
 
-use chrono::{DateTime, FixedOffset};
+use jiff::Timestamp;
 use regex::{Regex, RegexBuilder};
 
 use crate::Result;
@@ -113,10 +113,12 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         if let Some(captures) = line_parser.captures(&line) {
             number_of_matched_lines += 1;
 
-            let date_time = DateTime::parse_from_rfc3339(
-                captures.name("datetime").expect("Failed to capture `datetime`").as_str(),
-            )
-            .expect("Failed to parse `datetime`");
+            let date_time = captures
+                .name("datetime")
+                .expect("Failed to capture `datetime`")
+                .as_str()
+                .parse::<Timestamp>()
+                .expect("Failed to parse `datetime`");
             let full_target = captures.name("target").expect("Failed to capture `target`").as_str();
             let level = captures
                 .name("level")
@@ -309,11 +311,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         }
     }
 
-    fn render_span(
-        date_time: DateTime<FixedOffset>,
-        span: Span,
-        buffer: &mut io::BufWriter<fs::File>,
-    ) {
+    fn render_span(date_time: Timestamp, span: Span, buffer: &mut io::BufWriter<fs::File>) {
         let Span { message, log_line, .. } = span;
 
         let message_parser = &*MESSAGE_PARSER;
@@ -336,8 +334,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 <span class=\"highlight\"><input type=\"checkbox\" title=\"Highlight\" /></span>\
                 </span>\
                 ",
-                date_time = date_time.format("%+"),
-                time = date_time.format("%H:%M:%S%.3f"),
+                time = date_time.strftime("%H:%M:%S%.3f"),
             )
             .unwrap();
 
@@ -434,7 +431,7 @@ type SourceFile = String;
 type SourceLine = usize;
 type LogLocations = HashMap<SourceFile, Spans>;
 
-type Spans = BTreeMap<SourceLine, BTreeMap<DateTime<FixedOffset>, Span>>;
+type Spans = BTreeMap<SourceLine, BTreeMap<Timestamp, Span>>;
 
 #[derive(Debug)]
 struct Span {
