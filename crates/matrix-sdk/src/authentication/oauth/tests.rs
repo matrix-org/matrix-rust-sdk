@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::Context as _;
 use assert_matches::assert_matches;
 use matrix_sdk_base::{sleep::sleep, store::RoomLoadSettings, ttl::TtlValue};
-use matrix_sdk_test::{TestDevice, User, async_test};
+use matrix_sdk_test::{TestAuthToken, TestDevice, User, async_test};
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
     DeviceId, ServerName, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
@@ -594,7 +594,8 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     for client in [
         // Create an insecure client with the homeserver_url method.
         Client::builder().homeserver_url(&server_url).build().await?,
-        // Create an insecure client with the insecure_server_name_no_tls method.
+        // Create an insecure client with the insecure_server_name_no_tls
+        // method.
         Client::builder()
             .insecure_server_name_no_tls(&ServerName::parse(
                 server_url.strip_prefix("http://").unwrap(),
@@ -844,8 +845,8 @@ fn test_oauth_session_serialization() {
             "client_id": "test_client_id",
             "user_id": User::Default,
             "device_id": TestDevice::Default,
-            "access_token": "1234",
-            "refresh_token": "ZYXWV",
+            "access_token": TestAuthToken::AccessDefault,
+            "refresh_token": TestAuthToken::RefreshDefault,
         })
     );
 

@@ -30,7 +30,7 @@ use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder, TestDevice, User, event_factory::EventFactory, test_json,
+    SyncResponseBuilder, TestAuthToken, TestDevice, User, event_factory::EventFactory, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
@@ -1212,8 +1212,8 @@ impl MatrixMockServer {
     /// Creates a prebuilt mock for the endpoint used to get information about
     /// the owner of the given access token.
     ///
-    /// If no access token is provided, the access token to match is `"1234"`,
-    /// which matches the default value in the mock data.
+    /// If no access token is provided, the access token to match is
+    /// [`TestAuthToken::AccessDefault`].
     pub fn mock_who_am_i(&self) -> MockEndpoint<'_, WhoAmIEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/account/whoami"));
         self.mock_endpoint(mock, WhoAmIEndpoint).expect_default_access_token()
@@ -2245,8 +2245,8 @@ impl<'a, T> MockEndpoint<'a, T> {
     }
 
     /// Expect authentication with the given access token on this endpoint.
-    pub fn expect_access_token(mut self, access_token: &'static str) -> Self {
-        self.expected_access_token = ExpectedAccessToken::Custom(access_token);
+    pub fn expect_access_token(mut self, access_token: impl Into<&'static str>) -> Self {
+        self.expected_access_token = ExpectedAccessToken::Custom(access_token.into());
         self
     }
 
@@ -2556,7 +2556,8 @@ impl wiremock::Match for ExpectedAccessToken {
     fn matches(&self, request: &Request) -> bool {
         match self {
             Self::Ignore => true,
-            Self::Default => Self::access_token(request) == Some("1234"),
+            Self::Default => Self::access_token(request)
+                .is_some_and(|token| token == TestAuthToken::AccessDefault),
             Self::Custom(token) => Self::access_token(request) == Some(token),
             Self::Any => Self::access_token(request).is_some(),
             Self::Missing => request.headers.get(&http::header::AUTHORIZATION).is_none(),
@@ -5042,13 +5043,13 @@ pub struct LoginResponseTemplate200 {
 
 impl LoginResponseTemplate200 {
     /// Constructor for a response with the given minimal expected fields.
-    pub fn new<T1: Into<OwnedDeviceId>, T2: Into<OwnedUserId>>(
-        access_token: &str,
-        device_id: T1,
-        user_id: T2,
+    pub fn new(
+        access_token: impl Into<String>,
+        device_id: impl Into<OwnedDeviceId>,
+        user_id: impl Into<OwnedUserId>,
     ) -> Self {
         Self {
-            access_token: Some(access_token.to_owned()),
+            access_token: Some(access_token.into()),
             device_id: Some(device_id.into()),
             user_id: Some(user_id.into()),
             ..Default::default()
@@ -5059,7 +5060,7 @@ impl LoginResponseTemplate200 {
     /// fields.
     pub fn with_default_fields() -> Self {
         Self {
-            access_token: Some("1234".to_owned()),
+            access_token: Some(TestAuthToken::AccessDefault.into()),
             device_id: Some(TestDevice::Default.into()),
             user_id: Some(User::Default.into()),
             ..Default::default()
@@ -5073,8 +5074,8 @@ impl LoginResponseTemplate200 {
     }
 
     /// sets refresh_token
-    pub fn refresh_token(mut self, value: &str) -> Self {
-        self.refresh_token = Some(value.to_owned());
+    pub fn refresh_token(mut self, value: impl Into<String>) -> Self {
+        self.refresh_token = Some(value.into());
         self
     }
 
@@ -5095,7 +5096,7 @@ impl<'a> MockEndpoint<'a, RegisterEndpoint> {
     /// Returns a successful default response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "access_token": "1234",
+            "access_token": TestAuthToken::AccessDefault,
             "device_id": TestDevice::Default,
             "user_id": User::Default,
         }))

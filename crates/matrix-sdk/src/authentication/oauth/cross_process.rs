@@ -641,7 +641,7 @@ mod tests {
         // `invalid_grant`.
         oauth_server
             .mock_token()
-            .ok_with_tokens("1234", "ZYXWV") // == mock_session_tokens_with_refresh()
+            .ok() // == mock_session_tokens_with_refresh()
             .mock_once()
             .with_priority(1)
             .mount()
