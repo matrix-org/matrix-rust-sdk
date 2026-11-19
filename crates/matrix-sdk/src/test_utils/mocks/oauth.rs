@@ -14,6 +14,7 @@
 
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
+use matrix_sdk_test::TestAuthToken;
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
     serde::Raw,
@@ -321,15 +322,19 @@ pub struct TokenEndpoint;
 impl<'a> MockEndpoint<'a, TokenEndpoint> {
     /// Returns a successful token response with the default tokens.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_with_tokens("1234", "ZYXWV")
+        self.ok_with_tokens(TestAuthToken::AccessDefault, TestAuthToken::RefreshDefault)
     }
 
     /// Returns a successful token response with custom tokens.
-    pub fn ok_with_tokens(self, access_token: &str, refresh_token: &str) -> MatrixMock<'a> {
+    pub fn ok_with_tokens<'b, 'c>(
+        self,
+        access_token: impl Into<&'b str>,
+        refresh_token: impl Into<&'c str>,
+    ) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "access_token": access_token,
+            "access_token": access_token.into(),
             "expires_in": 300,
-            "refresh_token":  refresh_token,
+            "refresh_token":  refresh_token.into(),
             "token_type": "Bearer"
         }))
     }

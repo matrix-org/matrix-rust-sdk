@@ -20,7 +20,7 @@ use matrix_sdk::{
         no_retry_test_client_with_server, test_client_builder_with_server,
     },
 };
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{TestAuthToken, async_test, test_json};
 use ruma::{
     api::{
         MatrixVersion,
@@ -30,7 +30,7 @@ use ruma::{
     assign, owned_device_id, owned_user_id,
 };
 use serde_json::json;
-use strass::assert_let;
+use strass::{assert_let, assert_variant_eq};
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
 use wiremock::{
     Mock, ResponseTemplate,
@@ -670,7 +670,7 @@ async fn test_oauth_refresh_token_handled_success() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessAlt1)
         .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
@@ -721,7 +721,7 @@ async fn test_oauth_refresh_token_handled_failure() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessAlt1)
         .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
@@ -856,7 +856,7 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
     // token has expired.
     server
         .mock_versions()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessAlt1)
         .error_unknown_token(true)
         .expect(1..)
         .named("versions with expired token")
@@ -917,7 +917,7 @@ async fn test_supported_versions_handle_refresh_token() {
     // Request with the expired access token returns an unknown token error.
     server
         .mock_versions()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessAlt1)
         .error_unknown_token(true)
         .named("versions with expired access token")
         .expect(1)
@@ -979,7 +979,7 @@ async fn test_supported_versions_handle_refresh_token() {
     // The result was cached.
     assert_matches!(client.supported_versions_cached().await, Ok(Some(_)));
     // The access token was refreshed.
-    assert_eq!(client.access_token().as_deref(), Some("1234"));
+    assert_variant_eq!(client.access_token(), Some(TestAuthToken::AccessDefault));
 
     // This call hits the cache.
     assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
