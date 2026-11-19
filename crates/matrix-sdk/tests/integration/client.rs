@@ -1649,7 +1649,7 @@ async fn test_client_pause_waits_for_held_state_store_write() {
     client.state_store().set_custom_value(b"held_write_key", b"initial".to_vec()).await.unwrap();
 
     let write_fut = client.state_store().set_custom_value(b"held_write_key", b"updated".to_vec());
-    tokio::pin!(write_fut);
+    let mut write_fut = pin!(write_fut);
 
     assert!(
         write_fut.as_mut().now_or_never().is_none(),

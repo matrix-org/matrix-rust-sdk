@@ -1,6 +1,6 @@
-use std::{assert_matches, collections::BTreeSet, time::Duration};
+use std::{assert_matches, collections::BTreeSet, pin::pin, time::Duration};
 
-use futures_util::{StreamExt, pin_mut};
+use futures_util::StreamExt;
 use matrix_sdk::{
     config::SyncSettings,
     deserialized_responses::RawSyncOrStrippedState,
@@ -2650,7 +2650,7 @@ async fn test_sync_loop_without_throttling() {
     let sync_settings =
         SyncSettings::new().timeout(Duration::from_millis(0)).throttle_sync_loop(false);
     let sync_stream = client.sync_stream(sync_settings).await;
-    pin_mut!(sync_stream);
+    let mut sync_stream = pin!(sync_stream);
 
     // With throttling enabled, each sync after the first one would be delayed
     // by one second, so receiving 5 responses would take at least 4
