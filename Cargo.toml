@@ -32,7 +32,7 @@ base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 bitflags = { version = "2.13.2", default-features = false }
 byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "help", "usage"] }
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
+jiff = { version = "1.0.1", default-features = false, features = ["std", "tz-system"] }
 ctor = "1.0.13"
 dirs = { version = "7.0.0", default-features = false }
 eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }

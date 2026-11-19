@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use assert_matches::assert_matches;
-use chrono::{Datelike, TimeZone, Utc};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
+use jiff::{Timestamp, ZonedDateTime, tz::TimeZone};
 use matrix_sdk_test::{User, async_test};
 use ruma::{
     events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
@@ -45,7 +45,7 @@ async fn test_date_divider() {
 
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_let!(VirtualTimelineItem::DateDivider(ts) = date_divider.as_virtual().unwrap());
-    let date = Utc.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    let date = ZonedDateTime::new(Timestamp::from_millisecond(ts.0.into()).unwrap(), TimeZone::UTC);
     assert_eq!(date.year(), 1970);
     assert_eq!(date.month(), 1);
     assert_eq!(date.day(), 1);
@@ -74,7 +74,7 @@ async fn test_date_divider() {
     let date_divider =
         assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
     assert_let!(VirtualTimelineItem::DateDivider(ts) = date_divider.as_virtual().unwrap());
-    let date = Utc.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    let date = ZonedDateTime::new(Timestamp::from_millisecond(ts.0.into()).unwrap(), TimeZone::UTC);
     assert_eq!(date.year(), 1970);
     assert_eq!(date.month(), 1);
     assert_eq!(date.day(), 2);
