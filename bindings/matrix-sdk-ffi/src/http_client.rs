@@ -22,7 +22,7 @@ use crate::client_builder::RequestConfig;
 
 /// A standalone HTTP client, configured with the same [`HttpSettings`] and
 /// [`RequestConfig`] as the ones used by a `Client`, including its retry
-/// behaviour.
+/// behaviour, certificates, user-agent, etc.
 #[derive(uniffi::Object)]
 struct HttpClient {
     inner: matrix_sdk::HttpClient,
@@ -45,6 +45,9 @@ impl HttpClient {
 
     /// Send a `GET` request to `url` and return the raw bytes of the
     /// response.
+    ///
+    ///  Note: When an HTTP error occurs, the error response can be found in the
+    ///  `HttpClientError::GetUrl`'s `details` field.
     pub async fn get_url(&self, url: String) -> Result<Vec<u8>, HttpClientError> {
         let request = http::Request::get(&url)
             .body(Bytes::new())
