@@ -27,7 +27,7 @@ use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
 use reqwest::tls;
-use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
+use ruma::api::{IncomingResponse, IncomingResponseExt as _, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
@@ -43,9 +43,9 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> HttpResult<R::IncomingResponse>
+    ) -> HttpResult<R>
     where
-        R: OutgoingRequest + Debug,
+        R: IncomingResponse,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         // some functions split out so they only get compiled once, not
@@ -159,7 +159,7 @@ impl HttpClient {
                 .await?;
                 let (parts, body) = response.into_parts();
                 let response: http::Response<&[u8]> = http::Response::from_parts(parts, &body);
-                R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
+                R::try_from_http_response(response).map_err(HttpError::from)
             }
         };
 
@@ -174,6 +174,19 @@ impl HttpClient {
                 warn!("Error {error:?} received, will retry in {duration:?}");
             })
             .await
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl HttpClient {
+    /// Create a new client, using `settings` to configure the underlying
+    /// [`reqwest::Client`] and `request_config` as the default config of
+    /// each request.
+    pub fn with_settings(
+        settings: &HttpSettings,
+        request_config: RequestConfig,
+    ) -> Result<Self, HttpError> {
+        Ok(Self::new(settings.make_client()?, request_config))
     }
 }
 
@@ -215,7 +228,7 @@ impl Default for HttpSettings {
 #[cfg(not(target_family = "wasm"))]
 impl HttpSettings {
     /// Build a client with the specified configuration.
-    pub fn make_client(&self) -> Result<reqwest::Client, HttpError> {
+    pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
         let mut http_client = reqwest::Client::builder()
             .user_agent(user_agent)

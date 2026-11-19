@@ -14,35 +14,42 @@
 
 use std::{sync::Arc, time::Duration};
 
-use matrix_sdk::reqwest::{self, Certificate};
+use matrix_sdk::{HttpError, bytes::Bytes, reqwest::Certificate};
+use matrix_sdk_base::http;
+use ruma::api::error::ErrorBody;
 
-/// A standalone HTTP client, configured with the same [`HttpSettings`] as the
-/// one used by a `Client`.
+use crate::client_builder::RequestConfig;
+
+/// A standalone HTTP client, configured with the same [`HttpSettings`] and
+/// [`RequestConfig`] as the ones used by a `Client`, including its retry
+/// behaviour.
 #[derive(uniffi::Object)]
 struct HttpClient {
-    inner: reqwest::Client,
+    inner: matrix_sdk::HttpClient,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl HttpClient {
     #[uniffi::constructor]
-    pub fn from_settings(http_settings: HttpSettings) -> Result<Self, HttpClientError> {
-        let inner = matrix_sdk::HttpSettings::from(http_settings)
-            .make_client()
-            .map_err(|error| HttpClientError::HttpClientCreation { error: error.to_string() })?;
+    pub fn from_settings(
+        http_settings: HttpSettings,
+        request_config: RequestConfig,
+    ) -> Result<Self, HttpClientError> {
+        let inner =
+            matrix_sdk::HttpClient::with_settings(&http_settings.into(), request_config.into())
+                .map_err(|error| HttpClientError::HttpClientCreation {
+                    error: error.to_string(),
+                })?;
         Ok(Self { inner })
     }
 
+    /// Send a `GET` request to `url` and return the raw bytes of the
+    /// response.
     pub async fn get_url(&self, url: String) -> Result<Vec<u8>, HttpClientError> {
-        let response = self.inner.get(url).send().await?;
-        if response.status().is_success() {
-            Ok(response.bytes().await?.into())
-        } else {
-            Err(HttpClientError::GetUrl {
-                msg: response.status().to_string(),
-                details: response.text().await.ok(),
-            })
-        }
+        let request = http::Request::get(&url)
+            .body(Bytes::new())
+            .map_err(|error| HttpClientError::FailedToFormatUrl { url, msg: error.to_string() })?;
+        self.inner.send_raw(request, None).await.map_err(HttpClientError::from_get_url_error)
     }
 }
 
@@ -113,11 +120,28 @@ pub enum HttpClientError {
     #[error("Failed to create HTTP client from settings: {error}")]
     HttpClientCreation { error: String },
     #[error("Failed to get URL content from url: {msg}")]
-    GetUrl { msg: String, details: Option<String> },
+    GetUrl {
+        msg: String,
+        /// The HTTP status code of the response, if the server responded with
+        /// an error. `None` if the request failed before getting a response.
+        status_code: Option<u16>,
+        /// The body of the response, if the server responded with an error.
+        details: Option<String>,
+    },
+    #[error("Failed to parse {url} as a URL: {msg}")]
+    FailedToFormatUrl { url: String, msg: String },
 }
 
-impl From<reqwest::Error> for HttpClientError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::GetUrl { msg: err.to_string(), details: None }
+impl HttpClientError {
+    fn from_get_url_error(error: HttpError) -> Self {
+        let api_error = error.as_client_api_error();
+        let status_code = api_error.map(|api_error| api_error.status_code.as_u16());
+        let details = api_error.and_then(|api_error| match &api_error.body {
+            ErrorBody::Standard(body) => serde_json::to_string(body).ok(),
+            ErrorBody::Json(json) => Some(json.to_string()),
+            ErrorBody::NotJson { bytes, .. } => Some(String::from_utf8_lossy(bytes).into_owned()),
+        });
+
+        Self::GetUrl { msg: error.to_string(), status_code, details }
     }
 }
