@@ -30,9 +30,9 @@ use eyeball::SharedObservable;
 use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
-    OutgoingRequest, OutgoingRequestExt, SupportedVersions,
+    IncomingResponse, OutgoingRequest, OutgoingRequestExt, SupportedVersions,
     auth_scheme::{self, AuthScheme, SendAccessToken},
-    error::{FromHttpResponseError, IntoHttpError},
+    error::{DeserializationError, FromHttpResponseError, IntoHttpError},
     path_builder,
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
@@ -74,8 +74,10 @@ impl MaybeSemaphore {
     }
 }
 
+/// An HTTP client that sends requests with the retry and concurrency limits
+/// of a [`RequestConfig`].
 #[derive(Clone, Debug)]
-pub(crate) struct HttpClient {
+pub struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
     concurrent_request_semaphore: MaybeSemaphore,
@@ -134,7 +136,7 @@ impl HttpClient {
         Ok(request)
     }
 
-    pub fn send<R>(
+    pub(crate) fn send<R>(
         &self,
         request: R,
         config: Option<RequestConfig>,
@@ -148,22 +150,52 @@ impl HttpClient {
         R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        // some functions split out so they only get compiled once, not
-        // monomorphized per request type
-        fn make_span(client: &HttpClient, config: &RequestConfig) -> tracing::Span {
-            tracing::info_span!(
-                "send",
-                uri = tracing::field::Empty,
-                ?config,
-                method = tracing::field::Empty,
-                request_id = client.get_request_id(),
-                request_size = tracing::field::Empty,
-                request_duration = tracing::field::Empty,
-                status = tracing::field::Empty,
-                response_size = tracing::field::Empty,
-                sentry_event_id = tracing::field::Empty
-            )
+        let config = config.unwrap_or(self.request_config);
+
+        async move {
+            let request = self
+                .serialize_request(request, config, homeserver, access_token, path_builder_input)
+                .map_err(HttpError::IntoHttp)?;
+            self.send_http_request::<R::IncomingResponse>(request, config, send_progress).await
         }
+        .instrument(make_span(self, &config))
+    }
+
+    /// Send an already built HTTP request and return the body of the
+    /// response.
+    ///
+    /// The request goes through the same machinery as the Matrix API
+    /// requests: it's retried according to the [`RequestConfig`], and
+    /// concurrent requests are limited the same way.
+    ///
+    /// If `config` is `None`, the default config of this client is used.
+    pub fn send_raw(
+        &self,
+        request: http::Request<Bytes>,
+        config: Option<RequestConfig>,
+    ) -> impl Future<Output = Result<Vec<u8>, HttpError>> {
+        let config = config.unwrap_or(self.request_config);
+
+        async move {
+            let response =
+                self.send_http_request::<RawResponse>(request, config, Default::default()).await?;
+            Ok(response.0)
+        }
+        .instrument(make_span(self, &config))
+    }
+
+    async fn send_http_request<R>(
+        &self,
+        request: http::Request<Bytes>,
+        config: RequestConfig,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<R, HttpError>
+    where
+        R: IncomingResponse,
+        HttpError: From<FromHttpResponseError<R::EndpointError>>,
+    {
+        // some functions split out so they only get compiled once, not
+        // monomorphized per response type
         fn record_request_uri_and_size(request: &http::Request<Bytes>) {
             let method = request.method();
 
@@ -200,35 +232,54 @@ impl HttpClient {
             error!("Error while sending request: {e:?}");
         }
 
-        let config = match config {
-            Some(config) => config,
-            None => self.request_config,
-        };
+        record_request_uri_and_size(&request);
 
-        async move {
-            let request = self
-                .serialize_request(request, config, homeserver, access_token, path_builder_input)
-                .map_err(HttpError::IntoHttp)?;
-            record_request_uri_and_size(&request);
+        // will be automatically dropped at the end of this function
+        let _handle = self.concurrent_request_semaphore.acquire().await;
 
-            // will be automatically dropped at the end of this function
-            let _handle = self.concurrent_request_semaphore.acquire().await;
-
-            // There's a bunch of state in send_request, factor out a pinned
-            // inner future to reduce the size of futures that await this
-            // function.
-            match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
-                Ok(response) => {
-                    log_got_response();
-                    Ok(response)
-                }
-                Err(e) => {
-                    log_error(&e);
-                    Err(e)
-                }
+        // There's a bunch of state in send_request, factor out a pinned
+        // inner future to reduce the size of futures that await this
+        // function.
+        match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
+            Ok(response) => {
+                log_got_response();
+                Ok(response)
+            }
+            Err(e) => {
+                log_error(&e);
+                Err(e)
             }
         }
-        .instrument(make_span(self, &config))
+    }
+}
+
+// Split out so it only gets compiled once, not monomorphized per request type.
+fn make_span(client: &HttpClient, config: &RequestConfig) -> tracing::Span {
+    tracing::info_span!(
+        "send",
+        uri = tracing::field::Empty,
+        ?config,
+        method = tracing::field::Empty,
+        request_id = client.get_request_id(),
+        request_size = tracing::field::Empty,
+        request_duration = tracing::field::Empty,
+        status = tracing::field::Empty,
+        response_size = tracing::field::Empty,
+        sentry_event_id = tracing::field::Empty
+    )
+}
+
+/// The raw body of a response to a request sent with
+/// [`HttpClient::send_raw()`].
+struct RawResponse(Vec<u8>);
+
+impl IncomingResponse for RawResponse {
+    type EndpointError = ruma::api::error::Error;
+
+    fn try_from_http_response_inner(
+        response: http::Response<&[u8]>,
+    ) -> Result<Self, DeserializationError> {
+        Ok(Self(response.body().to_vec()))
     }
 }
 
