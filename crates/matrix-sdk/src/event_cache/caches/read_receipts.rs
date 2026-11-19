@@ -100,7 +100,7 @@
 //! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     ops::{ControlFlow, Deref, DerefMut, Not},
 };
 
@@ -117,7 +117,9 @@ use ruma::{
     EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     events::{
         AnySyncTimelineEvent, MessageLikeEventType,
-        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType, Receipts},
+        receipt::{
+            Receipt, ReceiptEventContent, ReceiptThread, ReceiptType, Receipts, UserReceipts,
+        },
         relation::RelationType,
     },
     serde::Raw,
@@ -729,6 +731,10 @@ fn is_redacted(event: &Raw<AnySyncTimelineEvent>) -> bool {
     )
 }
 
+/// An inline read receipt, as a tuple.
+pub(super) type ReadReceiptTuple<'a> =
+    (&'a OwnedEventId, (&'a ReceiptType, (&'a UserId, &'a Receipt)));
+
 /// A type representing `Option<ReceiptEventContent>`.
 ///
 /// It is useful because it implements [`FromIterator`], similarly to
@@ -761,14 +767,38 @@ impl DerefMut for MaybeReceiptEventContent {
     }
 }
 
-impl FromIterator<(OwnedEventId, Receipts)> for MaybeReceiptEventContent {
+impl<'a> FromIterator<ReadReceiptTuple<'a>> for MaybeReceiptEventContent {
     fn from_iter<T>(iterator: T) -> Self
     where
-        T: IntoIterator<Item = (OwnedEventId, Receipts)>,
+        T: IntoIterator<Item = ReadReceiptTuple<'a>>,
     {
+        let mut default = Self(None);
+
         let mut iterator = iterator.into_iter().peekable();
 
-        Self(if iterator.peek().is_some() { Some(iterator.collect()) } else { None })
+        if iterator.peek().is_some() {
+            default.extend(iterator);
+        }
+
+        default
+    }
+}
+
+impl<'a> Extend<ReadReceiptTuple<'a>> for MaybeReceiptEventContent {
+    fn extend<I>(&mut self, iterator: I)
+    where
+        I: IntoIterator<Item = ReadReceiptTuple<'a>>,
+    {
+        let receipt_event_content =
+            self.get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()));
+
+        for (event_id, (receipt_type, (user_id, receipt))) in iterator {
+            let receipts: &mut Receipts =
+                receipt_event_content.entry(event_id.clone()).or_default();
+            let user_receipts: &mut UserReceipts =
+                receipts.entry(receipt_type.clone()).or_default();
+            user_receipts.insert(user_id.to_owned(), receipt.clone());
+        }
     }
 }
 
@@ -782,7 +812,7 @@ mod tests {
     use ruma::{
         EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId, event_id,
         events::{
-            receipt::{Receipt, ReceiptThread, ReceiptType, UserReceipts},
+            receipt::{Receipt, ReceiptThread, ReceiptType},
             room::{member::MembershipState, message::MessageType},
         },
         owned_event_id,
@@ -791,8 +821,8 @@ mod tests {
     };
 
     use super::{
-        EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, Receipts,
-        RoomReadReceiptEventFilter, marks_as_unread, select_best_receipt, stop_on_event_ids,
+        EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, RoomReadReceiptEventFilter,
+        marks_as_unread, select_best_receipt, stop_on_event_ids,
     };
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk, pagination::BackPaginationOutcome,
@@ -1546,14 +1576,11 @@ mod tests {
     #[test]
     fn test_maybe_receipt_event_content_from_iterator() {
         let maybe: MaybeReceiptEventContent = vec![(
-            event_id!("$ev").to_owned(),
-            Receipts::from([(
-                ReceiptType::Read,
-                UserReceipts::from([(
-                    user_id!("@ali:ce").to_owned(),
-                    Receipt::new(MilliSecondsSinceUnixEpoch::now()),
-                )]),
-            )]),
+            &event_id!("$ev").to_owned(),
+            (
+                &ReceiptType::Read,
+                (user_id!("@ali:ce"), &Receipt::new(MilliSecondsSinceUnixEpoch::now())),
+            ),
         )]
         .into_iter()
         .collect();
