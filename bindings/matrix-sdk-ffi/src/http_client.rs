@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use matrix_sdk::{HttpError, bytes::Bytes, reqwest::Certificate};
 use matrix_sdk_base::http;
@@ -36,7 +36,7 @@ impl HttpClient {
         request_config: RequestConfig,
     ) -> Result<Self, HttpClientError> {
         let inner =
-            matrix_sdk::HttpClient::with_settings(&http_settings.into(), request_config.into())
+            matrix_sdk::HttpClient::with_settings(http_settings.into(), request_config.into())
                 .map_err(|error| HttpClientError::HttpClientCreation {
                     error: error.to_string(),
                 })?;
@@ -62,10 +62,6 @@ pub struct HttpSettings {
     #[uniffi(default = None)]
     pub user_agent: Option<String>,
     #[uniffi(default = None)]
-    pub timeout: Option<Duration>,
-    #[uniffi(default = None)]
-    pub read_timeout: Option<Duration>,
-    #[uniffi(default = None)]
     pub additional_root_certificates: Option<Vec<Arc<HttpCertificate>>>,
     #[uniffi(default = false)]
     pub disable_built_in_root_certificates: bool,
@@ -73,20 +69,18 @@ pub struct HttpSettings {
 
 impl From<HttpSettings> for matrix_sdk::HttpSettings {
     fn from(value: HttpSettings) -> Self {
-        Self {
-            disable_ssl_verification: value.disable_ssl_verification,
-            proxy: value.proxy,
-            user_agent: value.user_agent,
-            timeout: value.timeout,
-            read_timeout: value.read_timeout,
-            additional_root_certificates: value
-                .additional_root_certificates
-                .unwrap_or_default()
-                .into_iter()
-                .map(|cert| cert.inner.clone())
-                .collect(),
-            disable_built_in_root_certificates: value.disable_built_in_root_certificates,
-        }
+        let mut settings = Self::default();
+        settings.disable_ssl_verification = value.disable_ssl_verification;
+        settings.proxy = value.proxy;
+        settings.user_agent = value.user_agent;
+        settings.additional_root_certificates = value
+            .additional_root_certificates
+            .unwrap_or_default()
+            .into_iter()
+            .map(|cert| cert.inner.clone())
+            .collect();
+        settings.disable_built_in_root_certificates = value.disable_built_in_root_certificates;
+        settings
     }
 }
 

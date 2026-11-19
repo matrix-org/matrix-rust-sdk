@@ -547,8 +547,6 @@ impl ClientBuilder {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            // `timeout` and `read_timeout` are driven by `request_config`
-            // instead.
             let http_settings = matrix_sdk::HttpSettings::from(builder.http_settings);
 
             inner_builder =
@@ -758,8 +756,8 @@ impl ClientBuilder {
 #[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
     /// Configure the HTTP client: proxy, user agent, TLS settings and extra
-    /// root certificates. Its `timeout` and `read_timeout` are ignored, use
-    /// [`ClientBuilder::request_config`] instead.
+    /// root certificates. Timeouts are set with
+    /// [`ClientBuilder::request_config`].
     pub fn http_settings(self: Arc<Self>, settings: HttpSettings) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.http_settings = settings;
@@ -778,11 +776,16 @@ pub struct RequestConfig {
     max_concurrent_requests: Option<u64>,
     /// Base delay between retries.
     max_retry_time: Option<u64>,
+    /// Timeout for each read operation in milliseconds, which resets after a
+    /// successful read. Defaults to 60 seconds.
+    #[uniffi(default = None)]
+    read_timeout: Option<u64>,
 }
 
 impl From<RequestConfig> for matrix_sdk::config::RequestConfig {
     fn from(value: RequestConfig) -> Self {
-        let mut config = Self::default().read_timeout(DEFAULT_READ_TIMEOUT);
+        let read_timeout = value.read_timeout.map_or(DEFAULT_READ_TIMEOUT, Duration::from_millis);
+        let mut config = Self::default().read_timeout(read_timeout);
         if let Some(retry_limit) = value.retry_limit {
             config = config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
         }

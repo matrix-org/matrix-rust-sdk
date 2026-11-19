@@ -181,11 +181,12 @@ impl HttpClient {
 impl HttpClient {
     /// Create a new client, using `settings` to configure the underlying
     /// [`reqwest::Client`] and `request_config` as the default config of
-    /// each request.
+    /// each request, including its timeouts.
     pub fn with_settings(
-        settings: &HttpSettings,
+        mut settings: HttpSettings,
         request_config: RequestConfig,
     ) -> Result<Self, HttpError> {
+        settings.apply_timeouts(&request_config);
         Ok(Self::new(settings.make_client()?, request_config))
     }
 }
@@ -200,10 +201,12 @@ pub struct HttpSettings {
     pub proxy: Option<String>,
     /// User agent to send, defaults to `matrix-rust-sdk`.
     pub user_agent: Option<String>,
-    /// Total timeout for a request.
-    pub timeout: Option<Duration>,
-    /// Timeout for each read operation.
-    pub read_timeout: Option<Duration>,
+    /// Total timeout for a request. Overridden by the [`RequestConfig`] the
+    /// client is built with.
+    pub(crate) timeout: Option<Duration>,
+    /// Timeout for each read operation. Overridden by the [`RequestConfig`]
+    /// the client is built with.
+    pub(crate) read_timeout: Option<Duration>,
     /// Extra root certificates to trust.
     pub additional_root_certificates: Vec<Certificate>,
     /// Only trust `additional_root_certificates`, not the built-in ones.
@@ -227,6 +230,13 @@ impl Default for HttpSettings {
 
 #[cfg(not(target_family = "wasm"))]
 impl HttpSettings {
+    /// Use the timeouts of `request_config`, since `reqwest` only supports
+    /// setting a read timeout on the whole client, not per request.
+    pub(crate) fn apply_timeouts(&mut self, request_config: &RequestConfig) {
+        self.timeout = request_config.timeout;
+        self.read_timeout = request_config.read_timeout;
+    }
+
     /// Build a client with the specified configuration.
     pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
