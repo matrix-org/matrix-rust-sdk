@@ -5826,7 +5826,8 @@ mod tests {
 
     #[async_test]
     async fn test_subscribe_to_effective_retention() {
-        use futures_util::pin_mut;
+        use std::pin::pin;
+
         use stream_assert::assert_pending;
 
         use crate::assert_next_matches_with_timeout;
@@ -5837,7 +5838,7 @@ mod tests {
         let f = EventFactory::new().sender(user_id!("@alice:b.c"));
 
         let stream = room.subscribe_to_effective_retention();
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         // The server configuration was never fetched.
         assert_next_matches_with_timeout!(stream, None);
