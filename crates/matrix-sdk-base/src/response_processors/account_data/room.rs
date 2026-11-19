@@ -55,23 +55,6 @@ pub fn for_room(
                                 on_unread_marker(
                                     room_id,
                                     &event.content,
-                                    AccountDataSource::Stable,
-                                    room_info,
-                                    &mut context.room_info_notable_updates,
-                                );
-                            },
-                        );
-                    }
-                    AnyRoomAccountDataEvent::UnstableMarkedUnread(event) => {
-                        on_room_info(
-                            room_id,
-                            &mut context.state_changes,
-                            state_store,
-                            |room_info| {
-                                on_unread_marker(
-                                    room_id,
-                                    &event.content.0,
-                                    AccountDataSource::Unstable,
                                     room_info,
                                     &mut context.room_info_notable_updates,
                                 );
@@ -165,21 +148,13 @@ fn on_fully_read_marker(
         .insert(RoomInfoNotableUpdateReasons::FULLY_READ);
 }
 
-// Helper to update the unread marker for stable and unstable prefixes.
+// Helper to update the unread marker.
 fn on_unread_marker(
     room_id: &RoomId,
     content: &MarkedUnreadEventContent,
-    source: AccountDataSource,
     room_info: &mut RoomInfo,
     room_info_notable_updates: &mut RoomInfoNotableUpdates,
 ) {
-    if room_info.base_info.is_marked_unread_source == AccountDataSource::Stable
-        && source != AccountDataSource::Stable
-    {
-        // Ignore the unstable source if a stable source was used previously.
-        return;
-    }
-
     if room_info.base_info.is_marked_unread != content.unread {
         // Notify the room list about a manual read marker change if the value's
         // changed.
@@ -190,5 +165,5 @@ fn on_unread_marker(
     }
 
     room_info.base_info.is_marked_unread = content.unread;
-    room_info.base_info.is_marked_unread_source = source;
+    room_info.base_info.is_marked_unread_source = AccountDataSource::Stable;
 }

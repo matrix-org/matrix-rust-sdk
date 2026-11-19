@@ -100,7 +100,6 @@ matrix-sdk-store-encryption.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
 regex.workspace = true
 ruma = { workspace = true, features = [
-    "unstable-msc2867",
     "unstable-msc3381",
     "unstable-msc4186",
     "unstable-msc4262",

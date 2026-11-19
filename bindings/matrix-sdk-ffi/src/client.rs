@@ -107,7 +107,7 @@ use ruma::{
         identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
-        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        marked_unread::MarkedUnreadEventContent,
         push_rules::PushRulesEventContent,
         room::{
             history_visibility::RoomHistoryVisibilityEventContent,
@@ -1089,9 +1089,6 @@ impl Client {
                         listener.on_change(event, room_id.clone());
                     }
                 })
-            }
-            RoomAccountDataEventType::UnstableMarkedUnread => {
-                observe!(UnstableMarkedUnreadEventContent)
             }
             _ => {
                 // TODO: Support the remaining types
