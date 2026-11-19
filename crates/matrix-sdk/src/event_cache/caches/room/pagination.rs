@@ -18,6 +18,7 @@
 //! [`RoomEventCache`]: super::super::super::RoomEventCache
 
 use std::{
+    collections::BTreeSet,
     fmt,
     iter::empty,
     pin::Pin,
@@ -30,10 +31,11 @@ use futures_core::{Stream, ready};
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, LinkedChunkId, Update},
+    serde_helpers::extract_thread_root,
 };
 use pin_project_lite::pin_project;
 use ruma::api::Direction;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 pub use super::super::pagination::PaginationStatus;
 use super::{
@@ -455,7 +457,62 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             );
         }
 
+        // The thread caches have their own lock: release this one first, as a
+        // sync does.
+        drop(state);
+
+        if let Err(err) = self.update_thread_summaries(&events).await {
+            warn!(?err, "Failed to update the thread summaries after a back-pagination");
+        }
+
         Ok(Some(BackPaginationOutcome { events, reached_start }))
+    }
+}
+
+impl RoomEventCacheInner {
+    /// Update the summary of the threads that have new in-thread events after
+    /// a back-pagination of the room.
+    ///
+    /// The number of replies of a thread is the number of in-thread events the
+    /// Event Cache knows. A sync updates it when it brings in-thread events; a
+    /// back-pagination of the room can bring some too.
+    ///
+    /// Only the threads that have a `ThreadInfo` already are updated. For the
+    /// other ones, the summary bundled with the thread root is more accurate
+    /// than the count of the few replies that have just been loaded.
+    async fn update_thread_summaries(&self, events: &[Event]) -> Result<()> {
+        let thread_ids = events
+            .iter()
+            .filter_map(|event| extract_thread_root(event.raw()))
+            .collect::<BTreeSet<_>>();
+
+        if thread_ids.is_empty() {
+            return Ok(());
+        }
+
+        let Some(room) = self.weak_room.get() else {
+            // The client is shutting down.
+            return Ok(());
+        };
+        let client = room.client();
+        let Some(event_cache) = client.event_cache() else {
+            return Ok(());
+        };
+
+        let all_caches = event_cache.inner.all_caches_for_room(&self.room_id).await?;
+
+        for thread_id in thread_ids {
+            if event_cache.thread_info(&self.room_id, &thread_id).await?.is_none() {
+                continue;
+            }
+
+            let thread = all_caches.thread(thread_id).await?;
+            let new_thread_summary = thread.update_thread_summary().await?;
+
+            all_caches.room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
+        }
+
+        Ok(())
     }
 }
 
