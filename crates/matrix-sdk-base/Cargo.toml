@@ -74,6 +74,9 @@ unstable-msc4274 = []
 # MSC4480 extension.
 unstable-msc4354 = ["ruma/unstable-msc4480"]
 
+# Add support for the `direct_message` push rule condition (MSC4563).
+unstable-msc4563 = ["ruma/unstable-msc4563"]
+
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["ruma/unstable-msc4426"]
 

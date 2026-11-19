@@ -71,6 +71,21 @@ impl Global {
         self.raw_by_type.get(&GlobalAccountDataEventType::PushRules)
     }
 
+    /// Stores the rooms listed in the `m.direct` event of the response in
+    /// `context`.
+    ///
+    /// [`Self::apply`] only updates the rooms once their timelines are
+    /// processed, the push rules need to know about direct rooms before.
+    #[cfg(feature = "unstable-msc4563")]
+    pub fn collect_direct_rooms(&self, context: &mut Context) {
+        context.direct_rooms = self.parsed_events.iter().find_map(|event| match event {
+            AnyGlobalAccountDataEvent::Direct(event) => {
+                Some(event.content.values().flatten().cloned().collect())
+            }
+            _ => None,
+        });
+    }
+
     /// Processes the direct rooms in a sync response:
     ///
     /// Given a [`StateChanges`] instance, processes any direct room info from
