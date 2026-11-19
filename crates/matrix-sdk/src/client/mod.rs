@@ -3194,7 +3194,6 @@ impl Client {
 
     /// Obtain a token to authenticate with a LiveKit SFU, by calling the
     /// homeserver's `/rtc/livekit/get_token` endpoint
-    /// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
     ///
     /// # Arguments
     ///
@@ -3225,7 +3224,7 @@ impl Client {
 
     /// Hand the delayed leave event of a MatrixRTC session over to the
     /// homeserver, by calling its `/rtc/livekit/delegate_delayed_leave`
-    /// endpoint ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
+    /// endpoint.
     ///
     /// The homeserver then takes care of keeping the delayed event alive
     /// while the user is connected to the LiveKit SFU, and lets it be sent
