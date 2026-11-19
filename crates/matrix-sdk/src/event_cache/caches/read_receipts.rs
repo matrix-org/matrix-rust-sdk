@@ -729,6 +729,7 @@ impl MaybeReceiptEventContent {
         Self(None)
     }
 
+    #[cfg(test)]
     pub fn into_inner(self) -> Option<ReceiptEventContent> {
         self.0
     }

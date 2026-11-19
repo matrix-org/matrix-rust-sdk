@@ -273,6 +273,65 @@ pub fn aggregate_timeline_for_pinned_events(
     new_timeline
 }
 
+/// Read receipts, from all users, to be broadcast to the room and thread
+/// caches' subscribers.
+///
+/// See [`group_all_read_receipts_by_thread`].
+#[derive(Debug, Default)]
+pub struct ReadReceiptsToBroadcast {
+    /// Read receipts for the room, i.e. unthreaded or on the main timeline.
+    pub room: Option<ReceiptEventContent>,
+
+    /// Read receipts for each thread, keyed by thread root.
+    pub threads: BTreeMap<OwnedEventId, ReceiptEventContent>,
+}
+
+/// Group all the read receipts found in (deserialised) ephemeral events, for
+/// all users, by the room or the thread they belong to.
+///
+/// Contrary to [`aggregate_timeline_and_read_receipts_for_room`] and
+/// [`aggregate_timeline_and_read_receipts_for_threads`], which only keep the
+/// receipts of the own user (used to compute the unread counts), this keeps
+/// receipts from every user, so that they can be broadcast to subscribers.
+pub fn group_all_read_receipts_by_thread(
+    events: &[AnySyncEphemeralRoomEvent],
+) -> ReadReceiptsToBroadcast {
+    let mut result = ReadReceiptsToBroadcast::default();
+
+    let receipt_contents = events.iter().filter_map(|ephemeral| match ephemeral {
+        AnySyncEphemeralRoomEvent::Receipt(receipt_event) => Some(&receipt_event.content),
+        _ => None,
+    });
+
+    for content in receipt_contents {
+        for (event_id, receipts) in content.iter() {
+            for (receipt_type, user_receipts) in receipts {
+                for (user_id, receipt) in user_receipts {
+                    let target = match &receipt.thread {
+                        ReceiptThread::Main | ReceiptThread::Unthreaded => {
+                            result.room.get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
+                        }
+                        ReceiptThread::Thread(thread_root) => result
+                            .threads
+                            .entry(thread_root.clone())
+                            .or_insert_with(|| ReceiptEventContent(BTreeMap::new())),
+                        _ => continue,
+                    };
+
+                    target
+                        .entry(event_id.clone())
+                        .or_default()
+                        .entry(receipt_type.clone())
+                        .or_default()
+                        .insert(user_id.clone(), receipt.clone());
+                }
+            }
+        }
+    }
+
+    result
+}
+
 /// Filter (deserialised) ephemeral events to only keep the read receipts
 /// matching a particular predicate and user id.
 ///
