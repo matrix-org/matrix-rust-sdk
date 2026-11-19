@@ -15,6 +15,7 @@ use ruma::{
 };
 
 #[async_test]
+#[allow(deprecated)]
 async fn test_get_notification_mode() {
     let room_default_id = TestRoom::Default;
     let room_no_rules_id = TestRoom::Other;
@@ -84,6 +85,7 @@ async fn test_get_notification_mode() {
 }
 
 #[async_test]
+#[allow(deprecated)]
 async fn test_cached_notification_mode_is_updated_when_syncing() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

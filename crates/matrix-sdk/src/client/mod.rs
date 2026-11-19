@@ -3217,11 +3217,9 @@ impl Client {
         slot_id: String,
         member_id: String,
         server_name: Option<OwnedServerName>,
-    ) -> HttpResult<get_token::msc4195::Response> {
+    ) -> HttpResult<get_token::v1::Response> {
         let request =
-            assign!(get_token::msc4195::Request::new(url, room_id, slot_id, member_id), {
-                server_name
-            });
+            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
         self.send(request).await
     }
 
@@ -3252,10 +3250,9 @@ impl Client {
         slot_id: String,
         member_id: String,
         delay_id: String,
-    ) -> HttpResult<delegate_delayed_leave::msc4195::Response> {
-        let request = delegate_delayed_leave::msc4195::Request::new(
-            url, room_id, slot_id, member_id, delay_id,
-        );
+    ) -> HttpResult<delegate_delayed_leave::v1::Response> {
+        let request =
+            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
         self.send(request).await
     }
 
