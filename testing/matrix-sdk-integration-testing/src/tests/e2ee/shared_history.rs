@@ -1,9 +1,9 @@
-use std::{assert_matches, ops::Deref, pin::pin, sync::Arc, time::Duration};
+use std::{assert_matches, future, ops::Deref, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assign::assign;
 use eyeball_im::VectorDiff;
-use futures::{FutureExt, StreamExt, future};
+use futures::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, Room, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
