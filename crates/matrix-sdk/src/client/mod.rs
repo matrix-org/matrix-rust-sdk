@@ -3194,7 +3194,6 @@ impl Client {
 
     /// Obtain a token to authenticate with a LiveKit SFU, by calling the
     /// homeserver's `/rtc/livekit/get_token` endpoint
-    /// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
     ///
     /// # Arguments
     ///
@@ -3217,17 +3216,15 @@ impl Client {
         slot_id: String,
         member_id: String,
         server_name: Option<OwnedServerName>,
-    ) -> HttpResult<get_token::msc4195::Response> {
+    ) -> HttpResult<get_token::v1::Response> {
         let request =
-            assign!(get_token::msc4195::Request::new(url, room_id, slot_id, member_id), {
-                server_name
-            });
+            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
         self.send(request).await
     }
 
     /// Hand the delayed leave event of a MatrixRTC session over to the
     /// homeserver, by calling its `/rtc/livekit/delegate_delayed_leave`
-    /// endpoint ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
+    /// endpoint.
     ///
     /// The homeserver then takes care of keeping the delayed event alive
     /// while the user is connected to the LiveKit SFU, and lets it be sent
@@ -3252,10 +3249,9 @@ impl Client {
         slot_id: String,
         member_id: String,
         delay_id: String,
-    ) -> HttpResult<delegate_delayed_leave::msc4195::Response> {
-        let request = delegate_delayed_leave::msc4195::Request::new(
-            url, room_id, slot_id, member_id, delay_id,
-        );
+    ) -> HttpResult<delegate_delayed_leave::v1::Response> {
+        let request =
+            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
         self.send(request).await
     }
 
