@@ -682,3 +682,127 @@ impl fmt::Display for TestDevice {
         self.id().fmt(f)
     }
 }
+
+/// A Matrix test authentication token.
+///
+/// This is meant to be used for access tokens and refresh tokens with the
+/// authentication APIs.
+///
+/// This can be converted to the following types with `.into()`:
+///
+/// - `&'static str`
+/// - `String`
+///
+/// It implements `PartialEq` with all the types above, as well as with
+/// `serde_json::Value` to use with the `assert_eq!` macro.
+///
+/// It implements `Serialize` to use it with the `json!` macro.
+#[derive(Debug, Clone, Copy)]
+pub enum TestAuthToken {
+    /// The default access token, `1234`.
+    AccessDefault,
+
+    /// The first alternate access token, `5678`.
+    AccessAlt1,
+
+    /// The second alternate access token, `9999`.
+    AccessAlt2,
+
+    /// The default refresh token, `ZYXWV`.
+    RefreshDefault,
+
+    /// The first alternate refresh token, `UTSRQ`.
+    RefreshAlt1,
+
+    /// The second alternate refresh token, `PONML`.
+    RefreshAlt2,
+}
+
+impl TestAuthToken {
+    /// The token as a `&str`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AccessDefault => "1234",
+            Self::AccessAlt1 => "5678",
+            Self::AccessAlt2 => "9999",
+            Self::RefreshDefault => "ZYXWV",
+            Self::RefreshAlt1 => "UTSRQ",
+            Self::RefreshAlt2 => "PONML",
+        }
+    }
+}
+
+impl From<TestAuthToken> for &'static str {
+    fn from(token: TestAuthToken) -> Self {
+        token.as_str()
+    }
+}
+
+impl From<TestAuthToken> for String {
+    fn from(token: TestAuthToken) -> Self {
+        token.as_str().to_owned()
+    }
+}
+
+impl PartialEq<String> for TestAuthToken {
+    fn eq(&self, other: &String) -> bool {
+        (*self).as_str().eq(other)
+    }
+}
+
+impl PartialEq<TestAuthToken> for String {
+    fn eq(&self, other: &TestAuthToken) -> bool {
+        self.eq((*other).as_str())
+    }
+}
+
+impl PartialEq<&String> for TestAuthToken {
+    fn eq(&self, other: &&String) -> bool {
+        self.eq(*other)
+    }
+}
+
+impl PartialEq<TestAuthToken> for &String {
+    fn eq(&self, other: &TestAuthToken) -> bool {
+        (*self).eq(other)
+    }
+}
+
+impl PartialEq<&str> for TestAuthToken {
+    fn eq(&self, other: &&str) -> bool {
+        (*self).as_str().eq(*other)
+    }
+}
+
+impl PartialEq<TestAuthToken> for &str {
+    fn eq(&self, other: &TestAuthToken) -> bool {
+        self.eq(&(*other).as_str())
+    }
+}
+
+impl PartialEq<serde_json::Value> for TestAuthToken {
+    fn eq(&self, other: &serde_json::Value) -> bool {
+        (*self).as_str().eq(other)
+    }
+}
+
+impl PartialEq<TestAuthToken> for serde_json::Value {
+    fn eq(&self, other: &TestAuthToken) -> bool {
+        self.eq((*other).as_str())
+    }
+}
+
+impl Serialize for TestAuthToken {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        (*self).as_str().serialize(serializer)
+    }
+}
+
+impl fmt::Display for TestAuthToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (*self).as_str().fmt(f)
+    }
+}
