@@ -15,6 +15,7 @@
 #![recursion_limit = "256"]
 
 mod encryption_sync_service;
+mod image_packs;
 mod notification_client;
 mod room_list_service;
 #[cfg(feature = "experimental-search")]
