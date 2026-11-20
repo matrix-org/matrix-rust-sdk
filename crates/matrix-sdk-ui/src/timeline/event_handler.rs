@@ -53,8 +53,8 @@ use super::{
     date_dividers::DateDividerAdjuster,
     event_item::{
         AnyOtherStateEventContentChange, EventSendState, EventTimelineItemKind,
-        LocalEventTimelineItem, PollState, Profile, RemoteEventOrigin, RemoteEventTimelineItem,
-        TimelineEventItemId,
+        LocalEventTimelineItem, PollState, Profile, RedactionInfo, RemoteEventOrigin,
+        RemoteEventTimelineItem, TimelineEventItemId,
     },
     traits::RoomDataProvider,
 };
@@ -904,8 +904,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             return;
         }
 
+        let (event_id, timestamp) = match &self.ctx.flow {
+            Flow::Remote { event_id, .. } => (Some(event_id.clone()), Some(self.ctx.timestamp)),
+            Flow::Local { .. } => (None, None),
+        };
+        let info = RedactionInfo::new(event_id, Some(self.ctx.sender.clone()), timestamp, reason);
+
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation = self.new_aggregation(AggregationKind::Redaction { reason });
+        let aggregation = self.new_aggregation(AggregationKind::Redaction { info });
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(
@@ -1095,7 +1101,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         if item.content().is_redacted()
             && let Flow::Remote { raw_event, .. } = &self.ctx.flow
         {
-            item.redaction_reason = redaction_reason(raw_event);
+            item.redaction_info = RedactionInfo::from_redacted_event(raw_event);
         }
 
         // Apply any pending or stashed aggregations.
@@ -1270,14 +1276,28 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             } => {
                 // The event cache redacts the raw event independently of the
                 // aggregations system, which reaches us here as an `UpdateAt`.
-                // If the item is already redacted (via the aggregations system,
-                // applied earlier in the diff batch), skip it to avoid a
-                // spurious duplicate update; unless it has no raw JSON yet,
-                // since the redacted event (with its `redacted_because`) is
-                // only to be found in this update.
+                // If the existing item is already redacted with the same
+                // information, skip it to avoid a spurious duplicate update;
+                // unless the existing item has no raw JSON yet, since the
+                // redacted event (with its `redacted_because`) is only to be
+                // found in this update.
+                let mut item = item;
+
+                if item.content().is_redacted()
+                    && let Some(known) =
+                        self.items[*idx].as_event().and_then(|previous| previous.redaction_info())
+                {
+                    item.redaction_info = Some(match item.redaction_info() {
+                        Some(incoming) => known.merged_with(incoming).into_record(),
+                        None => known.clone(),
+                    });
+                }
+
                 let already_redacted = item.content().is_redacted()
                     && self.items[*idx].as_event().is_some_and(|existing| {
-                        existing.content().is_redacted() && existing.original_json().is_some()
+                        existing.content().is_redacted()
+                            && existing.original_json().is_some()
+                            && existing.redaction_info() == item.redaction_info()
                     });
 
                 if already_redacted {
@@ -1509,22 +1529,4 @@ fn transfer_details(new_item: &mut EventTimelineItem, old_item: &EventTimelineIt
     if matches!(&in_reply_to.event, TimelineDetails::Unavailable) {
         in_reply_to.event = old_in_reply_to.event.clone();
     }
-}
-
-/// The reason found in a redacted event's `unsigned.redacted_because`, if any.
-fn redaction_reason(raw_event: &Raw<AnySyncTimelineEvent>) -> Option<String> {
-    #[derive(serde::Deserialize)]
-    struct Unsigned {
-        redacted_because: Option<RedactedBecause>,
-    }
-    #[derive(serde::Deserialize)]
-    struct RedactedBecause {
-        content: Option<Content>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Content {
-        reason: Option<String>,
-    }
-
-    raw_event.get_field::<Unsigned>("unsigned").ok().flatten()?.redacted_because?.content?.reason
 }

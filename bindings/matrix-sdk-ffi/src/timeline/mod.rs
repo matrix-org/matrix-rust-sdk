@@ -1216,6 +1216,39 @@ impl From<SdkShieldState> for ShieldState {
     }
 }
 
+/// Metadata about a redaction of an event.
+#[derive(Clone, uniffi::Record)]
+pub struct RedactionInfo {
+    /// The ID of the redaction event, if known.
+    ///
+    /// This is not the ID of the redacted event.
+    pub redaction_event_id: Option<String>,
+    /// The user who sent the redaction, if known.
+    ///
+    /// This is not the sender of the redacted event.
+    pub redactor: Option<String>,
+    /// The redaction event's `origin_server_ts`, if known.
+    ///
+    /// This is not the redacted event's timestamp, and it is unknown while a
+    /// local redaction is only pending.
+    pub redaction_event_origin_server_ts: Option<Timestamp>,
+    /// The reason given with the redaction, if any.
+    pub reason: Option<String>,
+}
+
+impl From<&matrix_sdk_ui::timeline::RedactionInfo> for RedactionInfo {
+    fn from(info: &matrix_sdk_ui::timeline::RedactionInfo) -> Self {
+        Self {
+            redaction_event_id: info.redaction_event_id().map(ToString::to_string),
+            redactor: info.redactor().map(ToString::to_string),
+            redaction_event_origin_server_ts: info
+                .redaction_event_origin_server_ts()
+                .map(Into::into),
+            reason: info.reason().map(ToOwned::to_owned),
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct EventTimelineItem {
     /// Indicates that an event is remote.
@@ -1238,9 +1271,8 @@ pub struct EventTimelineItem {
     edit_send_state: Option<EventSendState>,
     /// Send state of our pending redaction of this event, if any.
     redaction_send_state: Option<EventSendState>,
-    /// The reason given with the redaction of this event, if any: from the
-    /// server, or from our own redaction while it is still pending.
-    redaction_reason: Option<String>,
+    /// Metadata of the redaction of this event, if any.
+    redaction_info: Option<RedactionInfo>,
     local_created_at: Option<u64>,
     read_receipts: HashMap<String, Receipt>,
     origin: Option<EventItemOrigin>,
@@ -1284,7 +1316,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             local_send_state: item.send_state().map(|s| s.into()),
             edit_send_state: item.edit_send_state().map(|s| s.into()),
             redaction_send_state: item.redaction_send_state().map(|s| s.into()),
-            redaction_reason: item.redaction_reason().map(ToOwned::to_owned),
+            redaction_info: item.redaction_info().map(RedactionInfo::from),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
             read_receipts,
             origin: item.origin(),

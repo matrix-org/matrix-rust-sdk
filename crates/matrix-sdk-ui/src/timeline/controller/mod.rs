@@ -65,9 +65,9 @@ pub(super) use self::{
 };
 use super::{
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
-    MediaUploadProgress, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus,
-    TimelineItem, TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
-    VirtualTimelineItem,
+    MediaUploadProgress, Profile, RedactionInfo, TimelineDetails, TimelineEventItemId,
+    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
+    TimelineReadReceiptTracking, VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::RemoteEventOrigin,
     item::TimelineUniqueId,
@@ -1409,9 +1409,16 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         let target = TimelineEventItemId::EventId(redacts);
 
+        let info = RedactionInfo::new(
+            None,
+            Some(self.room_data_provider.own_user_id().to_owned()),
+            None,
+            reason,
+        );
+
         let aggregation = Aggregation::new_local(
             TimelineEventItemId::TransactionId(txn_id),
-            AggregationKind::Redaction { reason },
+            AggregationKind::Redaction { info },
             send_handle,
         );
 

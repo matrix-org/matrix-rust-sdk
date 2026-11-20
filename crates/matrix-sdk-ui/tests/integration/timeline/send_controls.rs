@@ -291,7 +291,7 @@ async fn test_abort_failed_redaction_restores_item() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), Some(EventSendState::NotSentYet { .. }));
-    assert_eq!(item.redaction_reason(), Some("oops"));
+    assert_eq!(item.redaction_info().and_then(|info| info.reason()), Some("oops"));
 
     assert_let_timeout!(Some(updates) = stream.next());
     assert_eq!(updates.len(), 1);
@@ -310,7 +310,7 @@ async fn test_abort_failed_redaction_restores_item() {
     let item = item.as_event().unwrap();
     assert_eq!(item.content().as_message().unwrap().body(), "hello");
     assert_matches!(item.redaction_send_state(), None);
-    assert_matches!(item.redaction_reason(), None);
+    assert_matches!(item.redaction_info(), None);
     assert_pending!(stream);
 }
 
