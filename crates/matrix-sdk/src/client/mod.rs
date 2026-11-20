@@ -3217,11 +3217,9 @@ impl Client {
         slot_id: String,
         member_id: String,
         server_name: Option<OwnedServerName>,
-    ) -> HttpResult<get_token::msc4195::Response> {
+    ) -> HttpResult<get_token::v1::Response> {
         let request =
-            assign!(get_token::msc4195::Request::new(url, room_id, slot_id, member_id), {
-                server_name
-            });
+            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
         self.send(request).await
     }
 
@@ -3243,6 +3241,9 @@ impl Client {
     /// * `delay_id` - The ID of the delayed `m.rtc.member` leave event to
     ///   delegate.
     ///
+    /// The stable endpoint is used if the homeserver advertises the
+    /// `org.matrix.msc4195.stable` feature, the unstable one otherwise.
+    ///
     /// Homeservers that don't implement the endpoint respond with an
     /// `M_UNRECOGNIZED` error, which is returned as-is.
     pub async fn rtc_livekit_delegate_delayed_leave(
@@ -3252,10 +3253,9 @@ impl Client {
         slot_id: String,
         member_id: String,
         delay_id: String,
-    ) -> HttpResult<delegate_delayed_leave::msc4195::Response> {
-        let request = delegate_delayed_leave::msc4195::Request::new(
-            url, room_id, slot_id, member_id, delay_id,
-        );
+    ) -> HttpResult<delegate_delayed_leave::v1::Response> {
+        let request =
+            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
         self.send(request).await
     }
 
@@ -5028,6 +5028,68 @@ pub(crate) mod tests {
         let unstable_features = client.unstable_features().await.unwrap();
         assert!(unstable_features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
         assert!(!unstable_features.contains(&FeatureFlag::from("you.shall.pass")));
+    }
+
+    #[async_test]
+    async fn test_rtc_livekit_endpoints_path_selection() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        for (stable, prefix) in
+            [(false, "/_matrix/client/unstable/io.element.msc4195"), (true, "/_matrix/client/v1")]
+        {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().no_server_versions().build().await;
+
+            server
+                .mock_versions()
+                .with_feature("org.matrix.msc4195.stable", stable)
+                .ok()
+                .mock_once()
+                .mount()
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path(format!("{prefix}/rtc/livekit/get_token")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "jwt": "the-jwt" })))
+                .expect(1)
+                .mount(server.server())
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path(format!("{prefix}/rtc/livekit/delegate_delayed_leave")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+                .expect(1)
+                .mount(server.server())
+                .await;
+
+            let room_id = ruma::owned_room_id!("!1:example.org");
+
+            let response = client
+                .rtc_livekit_get_token(
+                    "wss://livekit.example.org".to_owned(),
+                    room_id.clone(),
+                    "m.call".to_owned(),
+                    "member-id".to_owned(),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.jwt, "the-jwt");
+
+            client
+                .rtc_livekit_delegate_delayed_leave(
+                    "wss://livekit.example.org".to_owned(),
+                    room_id,
+                    "m.call".to_owned(),
+                    "member-id".to_owned(),
+                    "delay-id".to_owned(),
+                )
+                .await
+                .unwrap();
+        }
     }
 
     #[async_test]
