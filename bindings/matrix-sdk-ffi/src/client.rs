@@ -1198,25 +1198,16 @@ impl Client {
     }
 
     pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            self.inner
-                .account()
-                .set_display_name(Some(name.as_str()))
-                .await
-                .context("Unable to set display name")?;
-        }
-
-        #[cfg(target_family = "wasm")]
-        {
-            self.inner.account().set_display_name(Some(name.as_str())).await.map_err(|e| {
-                ClientError::Generic {
-                    msg: "Unable to set display name".to_owned(),
-                    details: Some(e.to_string()),
-                }
-            })?;
-        }
-
+        self.inner.account().set_display_name(Some(name.as_str())).await.map_err(|error| {
+            // Keep the API error kind, but add context to every other failure.
+            match ClientError::from(error) {
+                ClientError::Generic { msg, details } => ClientError::Generic {
+                    msg: format!("Unable to set display name: {msg}"),
+                    details,
+                },
+                error => error,
+            }
+        })?;
         Ok(())
     }
 
@@ -1384,6 +1375,14 @@ impl Client {
         Ok(self.inner.account().request_openid_token().await?.into())
     }
 
+    /// Uploads the given image and sets it as the user's avatar.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::MatrixApi`] with [`ErrorKind::ProfileTooLarge`]
+    /// if setting the avatar would make the profile exceed its maximum size.
+    ///
+    /// [`ErrorKind::ProfileTooLarge`]: crate::error::ErrorKind::ProfileTooLarge
     pub async fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
         let mime: Mime = mime_type.parse()?;
         self.inner.account().upload_avatar(&mime, data).await?;
