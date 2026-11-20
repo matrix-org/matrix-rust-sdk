@@ -27,7 +27,9 @@ use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
 
-use self::subscriber::AutoShrinkMessage;
+use self::{
+    room::RoomEventCacheUpdate, subscriber::AutoShrinkMessage, thread::ThreadEventCacheUpdate,
+};
 use super::{
     EventCacheError, EventsOrigin, Result, back_pagination_queue::BackPaginationQueue, states,
 };
@@ -328,10 +330,16 @@ impl Caches {
             .filter_map(|ephemeral_event| ephemeral_event.deserialize().ok())
             .collect::<Vec<_>>();
 
+        // Group the read receipts from all users, so that they can be
+        // broadcast to subscribers once the caches have been updated.
+        let read_receipts_to_broadcast =
+            aggregator::group_all_read_receipts_by_thread(&original_ephemeral);
+
         // Room.
         {
             let (timeline, read_receipts) =
                 aggregator::aggregate_timeline_and_read_receipts_for_room(
+                    room.own_user_id(),
                     &original_timeline,
                     &original_ephemeral,
                 );
@@ -344,6 +352,13 @@ impl Caches {
                 avatar_changes,
             )
             .await?;
+
+            // Broadcast the read receipts unconditionally, after the timeline
+            // updates have been sent.
+            if let Some(event) = read_receipts_to_broadcast.room {
+                room.update_sender()
+                    .send(RoomEventCacheUpdate::AddReadReceiptEvent { event }, None);
+            }
         }
 
         // Threads.
@@ -360,6 +375,7 @@ impl Caches {
                 let all_states = all_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
+                    room.own_user_id(),
                     &original_timeline,
                     &original_ephemeral,
                     all_states.threads(),
@@ -374,6 +390,14 @@ impl Caches {
                 // events.
                 let update_thread_summary = timeline.events.is_empty().not();
 
+                if timeline.events.is_empty()
+                    && read_receipts.as_ref().is_none_or(|receipts| receipts.is_empty())
+                {
+                    // There are no timeline or own read receipt updates, so
+                    // there is nothing to do
+                    continue;
+                }
+
                 let thread = self.thread(thread_id).await?;
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
@@ -381,6 +405,22 @@ impl Caches {
                     let new_thread_summary = thread.update_thread_summary().await?;
 
                     room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
+                }
+            }
+
+            // Broadcast the thread read receipts unconditionally, after the
+            // timeline updates have been sent. A thread without a
+            // cache has no subscribers, so there is no need to
+            // create one.
+            if !read_receipts_to_broadcast.threads.is_empty() {
+                let threads = self.threads.read().await;
+
+                for (thread_id, event) in read_receipts_to_broadcast.threads {
+                    if let Some(thread) = threads.get(&thread_id) {
+                        thread
+                            .update_sender()
+                            .send(ThreadEventCacheUpdate::AddReadReceiptEvent { event }, None);
+                    }
                 }
             }
         }
@@ -429,7 +469,11 @@ impl Caches {
         // Room.
         {
             let (timeline, _read_receipts) =
-                aggregator::aggregate_timeline_and_read_receipts_for_room(&original_timeline, &[]);
+                aggregator::aggregate_timeline_and_read_receipts_for_room(
+                    room.own_user_id(),
+                    &original_timeline,
+                    &[],
+                );
 
             room.handle_left_room_update(timeline, ambiguity_changes).await?;
         }
@@ -448,6 +492,7 @@ impl Caches {
                 let all_caches_states = all_caches_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
+                    room.own_user_id(),
                     &original_timeline,
                     &[],
                     all_caches_states.threads(),

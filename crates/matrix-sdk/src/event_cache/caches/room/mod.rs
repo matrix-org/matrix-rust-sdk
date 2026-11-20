@@ -487,7 +487,8 @@ impl RoomEventCacheInner {
         }
 
         // The order matters here: first send the timeline event diffs, then
-        // only the related events (read receipts, etc.).
+        // only the related events (members, etc.). Read receipts are broadcast
+        // by `Caches::handle_joined_room_update`, after this.
         //
         // The diffs must be sent while the state lock is still held: the
         // indices they carry are only valid if no other change to the linked
@@ -500,11 +501,6 @@ impl RoomEventCacheInner {
                 }),
                 Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
             );
-        }
-
-        if let Some(read_receipts) = read_receipts.into_inner() {
-            self.update_sender
-                .send(RoomEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
         }
 
         if !ambiguity_changes.is_empty() || avatar_changes.as_ref().is_some_and(|c| !c.is_empty()) {
