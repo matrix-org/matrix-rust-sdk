@@ -569,7 +569,7 @@ async fn test_oauth_refresh_token_handled_success() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expect_access_token(TestAuthToken::AccessAlt1)
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
@@ -620,7 +620,7 @@ async fn test_oauth_refresh_token_handled_failure() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expect_access_token(TestAuthToken::AccessAlt1)
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
@@ -755,7 +755,7 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
     // token has expired.
     server
         .mock_versions()
-        .expect_access_token(TestAuthToken::AccessAlt1)
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .expect(1..)
         .named("versions with expired token")
@@ -816,7 +816,7 @@ async fn test_supported_versions_handle_refresh_token() {
     // Request with the expired access token returns an unknown token error.
     server
         .mock_versions()
-        .expect_access_token(TestAuthToken::AccessAlt1)
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .named("versions with expired access token")
         .expect(1)

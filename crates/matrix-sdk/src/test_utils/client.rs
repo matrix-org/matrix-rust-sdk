@@ -253,12 +253,12 @@ pub fn mock_session_tokens_with_refresh() -> SessionTokens {
 /// Different session tokens than the ones returned by
 /// [`mock_session_tokens_with_refresh()`].
 ///
-/// This returns a session with [`TestAuthToken::AccessAlt1`] and
-/// [`TestAuthToken::RefreshAlt1`].
+/// This returns a session with [`TestAuthToken::AccessPrev`] and
+/// [`TestAuthToken::RefreshPrev`].
 pub fn mock_prev_session_tokens_with_refresh() -> SessionTokens {
     SessionTokens {
-        access_token: TestAuthToken::AccessAlt1.into(),
-        refresh_token: Some(TestAuthToken::RefreshAlt1.into()),
+        access_token: TestAuthToken::AccessPrev.into(),
+        refresh_token: Some(TestAuthToken::RefreshPrev.into()),
     }
 }
 
