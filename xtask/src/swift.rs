@@ -171,11 +171,24 @@ impl Platform {
 /// info stripped.
 const STRIPPED_PROFILE: &str = "small-release-stripped";
 
-/// The base name of the FFI library.
-const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
+fn ffi_library_name() -> String {
+    let ffi_crate_cleaned = ffi_crate().replace("-", "_");
+    format!("lib{ffi_crate_cleaned}.a")
+}
 
-/// The features enabled for the FFI library.
-const FFI_FEATURES: &str = "sentry";
+fn ffi_crate() -> String {
+    workspace::xtask_metadata()
+        .expect("parsing workspace.metadata.xtask in Cargo.toml failed")
+        .ffi_crate
+        .unwrap_or_else(|| "matrix-sdk-ffi".to_string())
+}
+
+fn ffi_features() -> String {
+    workspace::xtask_metadata()
+        .expect("parsing workspace.metadata.xtask in Cargo.toml failed")
+        .swift_features
+        .unwrap_or_else(|| "sentry".to_string())
+}
 
 /// Symbols the library keeps to itself, as `ld -unexported_symbols_list`
 /// patterns.
@@ -250,22 +263,25 @@ const TARGETS: &[Target] = &[
 
 fn build_library() -> Result<()> {
     println!("Running debug library build.");
+    let ffi_library_name = ffi_library_name();
+    let ffi_features = ffi_features();
+    let ffi_crate = ffi_crate();
 
     let root_directory = workspace::root_path()?;
     let target_directory = workspace::target_path()?;
-    let ffi_directory = root_directory.join("bindings/apple/generated/matrix_sdk_ffi");
+    let ffi_directory = root_directory.join(format!("bindings/apple/generated/{ffi_crate}"));
     let lib_output_dir = target_directory.join("debug");
 
     create_dir_all(ffi_directory.as_path())?;
 
     let sh = sh();
-    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --features {FFI_FEATURES}").run()?;
+    cmd!(sh, "rustup run stable cargo build -p {ffi_crate} --features {ffi_features}").run()?;
 
-    rename(lib_output_dir.join(FFI_LIBRARY_NAME), ffi_directory.join(FFI_LIBRARY_NAME))?;
+    rename(lib_output_dir.join(&ffi_library_name), ffi_directory.join(&ffi_library_name))?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
     create_dir_all(swift_directory.as_path())?;
 
-    generate_uniffi(&ffi_directory.join(FFI_LIBRARY_NAME), &ffi_directory)?;
+    generate_uniffi(&ffi_directory.join(ffi_library_name), &ffi_directory)?;
 
     let module_map_file = ffi_directory.join("module.modulemap");
     if module_map_file.exists() {
@@ -410,6 +426,8 @@ fn build_targets(
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
 
+    let crate_name = ffi_crate();
+
     // Note: `push_env` stores environment variables and returns a RAII guard
     // that will restore the environment variable to its previous value when
     // dropped.
@@ -426,15 +444,16 @@ fn build_targets(
     // `cargo build` would also produce the `lib` crate type, which silently
     // disables the profile's LTO. `cargo rustc` restricts the output to the
     // static library, but only accepts one target per invocation.
+    let ffi_features = ffi_features();
     for target in &targets {
         let triple = target.triple;
 
         println!("-- Building for {}", target.description);
         if target.status == TargetStatus::TopTier {
-            cmd!(sh, "rustup run stable cargo rustc -p matrix-sdk-ffi --crate-type staticlib --target {triple} --profile {profile} --features {FFI_FEATURES}")
+            cmd!(sh, "rustup run stable cargo rustc -p {crate_name} --crate-type staticlib --target {triple} --profile {profile} --features {ffi_features}")
                 .run()?;
         } else {
-            cmd!(sh, "rustup run nightly cargo rustc -p matrix-sdk-ffi --crate-type staticlib -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
+            cmd!(sh, "rustup run nightly cargo rustc -p {crate_name} --crate-type staticlib -Zbuild-std --target {triple} --profile {profile} --features {ffi_features}")
                 .run()?;
         }
     }
@@ -489,11 +508,12 @@ fn localize_private_symbols(
     strip_debug_info: bool,
 ) -> Result<()> {
     let sh = sh();
+    let crate_name = ffi_crate();
     let directory = library.parent().expect("the library lives in a directory");
     let symbols_list = directory.join("private_symbols.txt");
-    let merged_object = directory.join("libmatrix_sdk_ffi_merged.o");
+    let merged_object = directory.join(format!("lib{crate_name}merged.o"));
     let objects_directory = directory.join("objects");
-    let remainder = directory.join("libmatrix_sdk_ffi_remainder.a");
+    let remainder = directory.join(format!("lib{crate_name}remainder.a"));
 
     std::fs::write(&symbols_list, PRIVATE_SYMBOL_PATTERNS.join("\n") + "\n")?;
 
@@ -603,7 +623,10 @@ fn build_path_for_target(target: &Target, profile: &str) -> Result<Utf8PathBuf> 
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?.join(target.triple).join(profile_dir_name).join(FFI_LIBRARY_NAME))
+    Ok(workspace::target_path()?
+        .join(target.triple)
+        .join(profile_dir_name)
+        .join(ffi_library_name()))
 }
 
 /// Lipo's together the libraries for each platform into a single library.
@@ -624,7 +647,7 @@ fn lipo_platform_libraries(
         let output_folder = generated_dir.join("lipo").join(platform.lib_folder_name());
         create_dir_all(&output_folder)?;
 
-        let output_path = output_folder.join(FFI_LIBRARY_NAME);
+        let output_path = output_folder.join(ffi_library_name());
         let mut cmd = cmd!(sh, "lipo -create");
         for path in paths {
             cmd = cmd.arg(path);
