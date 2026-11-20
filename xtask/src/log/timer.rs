@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use chrono::{DateTime, FixedOffset};
+use jiff::Timestamp;
 use regex::RegexBuilder;
 
 use crate::Result;
@@ -63,10 +63,12 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         if let Some(captures) = find_timer.captures(&line) {
             number_of_matched_lines += 1;
 
-            let date_time = DateTime::parse_from_rfc3339(
-                captures.name("datetime").expect("Failed to capture `datetime`").as_str(),
-            )
-            .expect("Failed to parse `datetime`");
+            let date_time = captures
+                .name("datetime")
+                .expect("Failed to capture `datetime`")
+                .as_str()
+                .parse::<Timestamp>()
+                .expect("Failed to parse `datetime`");
             let level = captures
                 .name("level")
                 .expect("Failed to capture `level`")
@@ -163,8 +165,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 level_class = level.css(),
                 duration = duration.as_nanos(),
                 duration_label = duration,
-                date_time = date_time.format("%+"),
-                time = date_time.format("%H:%M:%S%.3f"),
+                time = date_time.strftime("%H:%M:%S%.3f"),
             )
             .unwrap();
         }
@@ -204,7 +205,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
 
 #[derive(Debug)]
 struct Timer {
-    date_time: DateTime<FixedOffset>,
+    date_time: Timestamp,
     level: Level,
     target: String,
     message: String,

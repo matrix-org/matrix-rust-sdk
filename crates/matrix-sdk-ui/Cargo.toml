@@ -12,7 +12,7 @@ rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
 default = ["rustls-aws-lc-rs"]
-js = ["matrix-sdk/js"]
+js = ["matrix-sdk/js", "jiff/js"]
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi", "ruma/unstable-uniffi"]
 
 rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs"]
@@ -50,7 +50,7 @@ async-rx = { workspace = true, features = ["alloc"] }
 async-stream.workspace = true
 async_cell.workspace = true
 bitflags.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 emojis = { version = "0.9.0", default-features = false }
 eyeball.workspace = true
 eyeball-im.workspace = true
