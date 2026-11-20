@@ -1,9 +1,11 @@
 #[cfg(feature = "unstable-msc4426")]
 use std::assert_matches;
+use std::collections::BTreeSet;
 
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk::{Client, assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use ruma::{
+    OwnedUserId, UserId,
     api::{
         MatrixVersion,
         client::profile::{AvatarUrl, DisplayName, TimeZone},
@@ -12,6 +14,33 @@ use ruma::{
     profile::{ProfileFieldName, ProfileFieldValue},
 };
 use strass::assert_let;
+use tokio::sync::broadcast;
+
+/// Creates a mock server advertising Matrix v1.16 and the profiles sliding sync
+/// extension, so that profile field changes are echoed into the local store,
+/// and a client connected to it.
+async fn server_with_profile_sync() -> (MatrixMockServer, Client) {
+    let server = MatrixMockServer::new().await;
+    server
+        .mock_versions()
+        .with_versions(vec!["v1.16"])
+        .with_profiles_sliding_sync_extension()
+        .ok()
+        .named("versions")
+        .mount()
+        .await;
+    let client = server.client_builder().no_server_versions().build().await;
+    (server, client)
+}
+
+/// Asserts that a global profile update for `user_id` is received promptly.
+async fn assert_profile_updated(
+    profile_updates: &mut broadcast::Receiver<BTreeSet<OwnedUserId>>,
+    user_id: &UserId,
+) {
+    assert_let_timeout!(Ok(updated_users) = profile_updates.recv());
+    assert_eq!(updated_users, BTreeSet::from([user_id.to_owned()]));
+}
 
 #[async_test]
 async fn test_account_deactivation() {
@@ -296,24 +325,108 @@ async fn test_get_cached_avatar_url() {
     assert_eq!(res_avatar_url, None);
 }
 
+#[async_test]
+async fn test_set_time_zone() {
+    // Given an account without a time zone.
+    let (server, client) = server_with_profile_sync().await;
+    let user_id = client.user_id().unwrap();
+    let mut profile_updates = client.subscribe_to_global_profile_updates();
+
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::TimeZone)
+        .expect_field_value(ProfileFieldValue::TimeZone("Europe/London".to_owned()))
+        .ok()
+        .mock_once()
+        .named("set m.tz profile field")
+        .mount()
+        .await;
+
+    // When setting a time zone.
+    let account = client.account();
+    let result = account.set_time_zone("Europe/London".to_owned()).await;
+
+    // Then the time zone should be sent and stored as a local echo, with any
+    // subscribers being notified.
+    assert!(result.is_ok());
+    let profile = client
+        .state_store()
+        .get_global_profile(user_id)
+        .await
+        .unwrap()
+        .expect("the local echo should be stored");
+    assert_eq!(profile.get_static::<TimeZone>().unwrap().as_deref(), Some("Europe/London"));
+    assert_profile_updated(&mut profile_updates, user_id).await;
+}
+
+#[async_test]
+async fn test_clear_time_zone() {
+    // Given an account that already has a time zone (locally echoed into the
+    // store for this test).
+    let (server, client) = server_with_profile_sync().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::TimeZone)
+        .ok()
+        .mock_once()
+        .named("set m.tz profile field")
+        .mount()
+        .await;
+    server
+        .mock_delete_profile_field(user_id, ProfileFieldName::TimeZone)
+        .ok()
+        .mock_once()
+        .named("delete m.tz profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+    account.set_time_zone("Europe/London".to_owned()).await.unwrap();
+    let mut profile_updates = client.subscribe_to_global_profile_updates();
+
+    // When the time zone is cleared.
+    let result = account.clear_time_zone().await;
+
+    // Then the deletion should be sent and stored as a local echo, with any
+    // subscribers being notified.
+    assert!(result.is_ok());
+    let profile = client
+        .state_store()
+        .get_global_profile(user_id)
+        .await
+        .unwrap()
+        .expect("the profile should still be stored");
+    assert_eq!(profile.get_static::<TimeZone>().unwrap(), None);
+    assert_profile_updated(&mut profile_updates, user_id).await;
+}
+
+#[async_test]
+async fn test_set_empty_time_zone_clears_it() {
+    // Given an account with profile sync enabled.
+    let (server, client) = server_with_profile_sync().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_delete_profile_field(user_id, ProfileFieldName::TimeZone)
+        .ok()
+        .mock_once()
+        .named("delete m.tz profile field")
+        .mount()
+        .await;
+
+    // When setting an empty time zone, then the field is deleted instead of
+    // being set to an empty string (the set endpoint isn't mocked, so calling
+    // it would fail).
+    client.account().set_time_zone("  ".to_owned()).await.unwrap();
+}
+
 #[cfg(feature = "unstable-msc4426")]
 #[async_test]
 async fn test_set_status() {
-    use std::collections::BTreeSet;
-
     use ruma::profile::{Status, StatusProfileField};
 
     // Given an account without a status.
-    let server = MatrixMockServer::new().await;
-    server
-        .mock_versions()
-        .with_versions(vec!["v1.16"])
-        .with_profiles_sliding_sync_extension()
-        .ok()
-        .named("versions")
-        .mount()
-        .await;
-    let client = server.client_builder().no_server_versions().build().await;
+    let (server, client) = server_with_profile_sync().await;
     let user_id = client.user_id().unwrap();
     let mut profile_updates = client.subscribe_to_global_profile_updates();
 
@@ -348,28 +461,17 @@ async fn test_set_status() {
         .expect("the status should be set");
     assert_eq!(status.text, "Away");
     assert_eq!(status.emoji, "🌴");
-    assert_eq!(profile_updates.recv().await.unwrap(), BTreeSet::from([user_id.to_owned()]));
+    assert_profile_updated(&mut profile_updates, user_id).await;
 }
 
 #[cfg(feature = "unstable-msc4426")]
 #[async_test]
 async fn test_clear_status() {
-    use std::collections::BTreeSet;
-
     use ruma::profile::Status;
 
     // Given an account that already has a status (locally echoed into the store
     // for this test).
-    let server = MatrixMockServer::new().await;
-    server
-        .mock_versions()
-        .with_versions(vec!["v1.16"])
-        .with_profiles_sliding_sync_extension()
-        .ok()
-        .named("versions")
-        .mount()
-        .await;
-    let client = server.client_builder().no_server_versions().build().await;
+    let (server, client) = server_with_profile_sync().await;
     let user_id = client.user_id().unwrap();
 
     server
@@ -404,7 +506,7 @@ async fn test_clear_status() {
         .unwrap()
         .expect("the profile should still be stored");
     assert_matches!(profile.get_static::<Status>(), Ok(None));
-    assert_eq!(profile_updates.recv().await.unwrap(), BTreeSet::from([user_id.to_owned()]));
+    assert_profile_updated(&mut profile_updates, user_id).await;
 }
 
 #[cfg(feature = "unstable-msc4426")]
