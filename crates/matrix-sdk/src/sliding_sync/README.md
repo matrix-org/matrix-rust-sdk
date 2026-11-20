@@ -71,7 +71,7 @@ are **inclusive**) like so:
 use ruma::{api::client::sync::sync_events::msc4186 as http, assign};
 
 let list_builder = SlidingSyncList::builder("main_list")
-    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))
+    .sync_mode(SlidingSyncMode::new_selective().range(0..=9))
     .filters(Some(assign!(
         http::request::ListFilters::default(), { is_invite: Some(true)}
     )));
@@ -349,7 +349,7 @@ let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)
      ]); // only want to know if the room is encrypted
 
 let active_list = SlidingSyncList::builder(&active_list_name) // the active window
-    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=9))  // sync up the specific range only, first 10 items
+    .sync_mode(SlidingSyncMode::new_selective().range(0..=9))  // sync up the specific range only, first 10 items
     .timeline_limit(5u32) // add the last 5 timeline items for room preview and faster timeline loading
     .required_state(vec![ // we want to know immediately:
         (StateEventType::RoomEncryption, "".to_owned()), // is it encrypted
