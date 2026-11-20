@@ -37,10 +37,25 @@ fn cmp_impl(a: Option<Score>, b: Option<Score>) -> Ordering {
 /// or their [`RoomInfo::recency_stamp`] value. The `Room` with the newest
 /// “recency score” comes first, i.e. newest < oldest.
 ///
+/// A room without a latest event may have a timestamp back-filled from other
+/// rooms (see `RoomListItem::cached_backfilled_timestamp`), which is then used
+/// as its latest event's timestamp. Rooms with the same timestamp are ordered
+/// by their [`RoomInfo::recency_stamp`].
+///
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
 /// [`RoomInfo::latest_event_value`]: matrix_sdk_base::RoomInfo::latest_event_value
 pub fn new_sorter() -> impl Sorter {
-    |left, right| -> Ordering { cmp(extract_scores, left, right) }
+    |left, right| -> Ordering {
+        // A room borrowing a back-filled timestamp ties with the room it
+        // borrowed it from. Breaking the tie by recency stamp keeps them in
+        // the server's order, instead of letting the name decide.
+        cmp(extract_scores, left, right).then_with(|| {
+            cmp_impl(
+                left.cached_recency_stamp.map(Into::into),
+                right.cached_recency_stamp.map(Into::into),
+            )
+        })
+    }
 }
 
 /// The term _score_ is used here to avoid any confusion with a _timestamp_ (a
@@ -86,13 +101,13 @@ fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, 
     // compared to another room, if possible, whatever the room is, otherwise it
     // must return `None`.
 
+    let timestamp = |room: &RoomListItem| {
+        room.cached_latest_event_timestamp.or(room.cached_backfilled_timestamp)
+    };
+
     // Nominal case and case #1.
-    if left.cached_latest_event_timestamp.is_some() || right.cached_latest_event_timestamp.is_some()
-    {
-        (
-            left.cached_latest_event_timestamp.map(|ts| ts.get().into()),
-            right.cached_latest_event_timestamp.map(|ts| ts.get().into()),
-        )
+    if timestamp(left).is_some() || timestamp(right).is_some() {
+        (timestamp(left).map(|ts| ts.get().into()), timestamp(right).map(|ts| ts.get().into()))
     }
     // Case #2.
     else {
@@ -298,6 +313,33 @@ mod tests {
         {
             assert_eq!(cmp(|_left, _right| (None, Some(1)), &room_a, &room_b), Ordering::Greater);
         }
+    }
+
+    #[async_test]
+    async fn test_with_backfilled_timestamp() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let [mut room_a, mut room_b] =
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
+
+        set_recency_stamp(&mut room_a, 2.into()).await;
+        set_recency_stamp(&mut room_b, 1.into()).await;
+        set_latest_event_value(&mut room_a, none()).await;
+        set_latest_event_value(&mut room_b, remote(3)).await;
+
+        // `room_a` has no latest event but a back-filled timestamp: it is used
+        // as its latest event's timestamp.
+        room_a.cached_backfilled_timestamp = Some(MilliSecondsSinceUnixEpoch(4u32.into()));
+
+        assert_eq!(extract_scores(&room_a, &room_b), (Some(4), Some(3)));
+        assert_eq!(new_sorter()(&room_a, &room_b), Ordering::Less);
+
+        // Same timestamp: the recency stamp breaks the tie.
+        room_a.cached_backfilled_timestamp = Some(MilliSecondsSinceUnixEpoch(3u32.into()));
+
+        assert_eq!(extract_scores(&room_a, &room_b), (Some(3), Some(3)));
+        assert_eq!(new_sorter()(&room_a, &room_b), Ordering::Less);
+        assert_eq!(new_sorter()(&room_b, &room_a), Ordering::Greater);
     }
 
     #[async_test]
