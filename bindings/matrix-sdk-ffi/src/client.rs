@@ -1515,26 +1515,27 @@ impl Client {
             .await?)
     }
 
+    #[uniffi::method(default(animated = false))]
     pub async fn get_media_thumbnail(
         &self,
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        animated: bool,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
-        debug!(?source, width, height, "requesting media thumbnail");
+        debug!(?source, width, height, animated, "requesting media thumbnail");
+
+        let mut settings =
+            MediaThumbnailSettings::new(UInt::new(width).unwrap(), UInt::new(height).unwrap());
+        settings.animated = animated;
+
         Ok(self
             .inner
             .media()
             .get_media_content(
-                &MediaRequestParameters {
-                    source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                        UInt::new(width).unwrap(),
-                        UInt::new(height).unwrap(),
-                    )),
-                },
+                &MediaRequestParameters { source, format: MediaFormat::Thumbnail(settings) },
                 true,
             )
             .await?)
