@@ -120,7 +120,7 @@ as_variant.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
 axum = { version = "0.8.9", optional = true }
-bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+bytes = { version = "1.12.2", default-features = false, features = ["std"] }
 bytesize = { version = "2.7.0", default-features = false, features = ["std"] }
 event-listener = "5.4.2"
 eyeball.workspace = true
@@ -195,7 +195,7 @@ tokio = { workspace = true, features = ["macros"] }
 anyhow.workspace = true
 assert-json-diff.workspace = true
 assert_matches.workspace = true
-dirs = "6.0.0"
+dirs = "7.0.0"
 futures-executor.workspace = true
 insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
@@ -208,7 +208,7 @@ serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 strass.workspace = true
 stream_assert.workspace = true
-tokio-test = "0.4.5"
+tokio-test = "0.4.6"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]

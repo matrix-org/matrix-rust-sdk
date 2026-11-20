@@ -26,7 +26,7 @@ uniffi_bindgen.workspace = true
 url.workspace = true
 # Please keep this at 0.2.2 as updates break stdin inheritance which the release
 # subcommand needs.
-xshell = "0.2.2"
+xshell = "0.2.7"
 
 [lints]
 workspace = true
