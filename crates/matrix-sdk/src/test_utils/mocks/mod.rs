@@ -5166,7 +5166,7 @@ impl<'a> MockEndpoint<'a, RefreshEndpoint> {
         self.ok_json(json!({
             "access_token": access_token.into(),
             "refresh_token": refresh_token.into(),
-            "expires_in": 432_000_000,
+            "expires_in_ms": 432_000_000,
         }))
     }
 
@@ -5174,7 +5174,7 @@ impl<'a> MockEndpoint<'a, RefreshEndpoint> {
     pub fn ok_with_access_token<'b>(self, access_token: impl Into<&'b str>) -> MatrixMock<'a> {
         self.ok_json(json!({
             "access_token": access_token.into(),
-            "expires_in": 432_000_000,
+            "expires_in_ms": 432_000_000,
         }))
     }
 }
