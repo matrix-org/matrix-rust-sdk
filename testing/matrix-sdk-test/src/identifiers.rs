@@ -702,6 +702,9 @@ pub enum TestAuthToken {
     /// The default access token, `1234`.
     AccessDefault,
 
+    /// The previous access token, `prev-access-token`.
+    AccessPrev,
+
     /// The first alternate access token, `5678`.
     AccessAlt1,
 
@@ -710,6 +713,9 @@ pub enum TestAuthToken {
 
     /// The default refresh token, `ZYXWV`.
     RefreshDefault,
+
+    /// The previous refresh token, `prev-refresh-token`.
+    RefreshPrev,
 
     /// The first alternate refresh token, `UTSRQ`.
     RefreshAlt1,
@@ -723,9 +729,11 @@ impl TestAuthToken {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AccessDefault => "1234",
+            Self::AccessPrev => "prev-access-token",
             Self::AccessAlt1 => "5678",
             Self::AccessAlt2 => "9999",
             Self::RefreshDefault => "ZYXWV",
+            Self::RefreshPrev => "prev-refresh-token",
             Self::RefreshAlt1 => "UTSRQ",
             Self::RefreshAlt2 => "PONML",
         }
