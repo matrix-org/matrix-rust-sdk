@@ -587,6 +587,14 @@ pub enum ErrorKind {
     /// The desired user name is not valid.
     InvalidUsername,
 
+    /// `M_KEY_TOO_LARGE`
+    ///
+    /// The [profile] key in the request exceeds the maximum allowed length of
+    /// 255 bytes.
+    ///
+    /// [profile]: https://spec.matrix.org/latest/client-server-api/#profiles
+    KeyTooLarge,
+
     /// `M_LIMIT_EXCEEDED`
     ///
     /// The request has been refused due to [rate limiting]: too many requests
@@ -627,6 +635,14 @@ pub enum ErrorKind {
     ///
     /// [`create_mxc_uri`]: crate::media::create_mxc_uri
     NotYetUploaded,
+
+    /// `M_PROFILE_TOO_LARGE`
+    ///
+    /// Storing the value in the request would make the [profile] exceed its
+    /// maximum allowed size of 64 KiB.
+    ///
+    /// [profile]: https://spec.matrix.org/latest/client-server-api/#profiles
+    ProfileTooLarge,
 
     /// `M_RESOURCE_LIMIT_EXCEEDED`
     ///
@@ -841,6 +857,7 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::InvalidParam => Ok(ErrorKind::InvalidParam),
             RumaApiErrorKind::InvalidRoomState => Ok(ErrorKind::InvalidRoomState),
             RumaApiErrorKind::InvalidUsername => Ok(ErrorKind::InvalidUsername),
+            RumaApiErrorKind::KeyTooLarge => Ok(ErrorKind::KeyTooLarge),
             RumaApiErrorKind::LimitExceeded(limit_exceeded) => {
                 let retry_after_ms = match &limit_exceeded.retry_after {
                     Some(RetryAfter::Delay(duration)) => Some(duration.as_millis() as u64),
@@ -859,6 +876,7 @@ impl TryFrom<RumaApiErrorKind> for ErrorKind {
             RumaApiErrorKind::NotFound => Ok(ErrorKind::NotFound),
             RumaApiErrorKind::NotJson => Ok(ErrorKind::NotJson),
             RumaApiErrorKind::NotYetUploaded => Ok(ErrorKind::NotYetUploaded),
+            RumaApiErrorKind::ProfileTooLarge => Ok(ErrorKind::ProfileTooLarge),
             RumaApiErrorKind::ResourceLimitExceeded(resource_limit_exceeded) => {
                 Ok(ErrorKind::ResourceLimitExceeded {
                     admin_contact: resource_limit_exceeded.admin_contact.clone(),
