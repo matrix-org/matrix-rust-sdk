@@ -1594,14 +1594,17 @@ impl MatrixMockServer {
     }
 
     /// Create a prebuilt mock for the endpoint used to refresh an access token,
-    /// expecting the given refresh token.
+    /// expecting the given refresh token, if any.
     pub fn mock_refresh<'b>(
         &self,
-        refresh_token: impl Into<&'b str>,
+        refresh_token: Option<impl Into<&'b str>>,
     ) -> MockEndpoint<'_, RefreshEndpoint> {
-        let mock = Mock::given(method("POST"))
-            .and(path("/_matrix/client/v3/refresh"))
-            .and(body_json(json!({ "refresh_token": refresh_token.into() })));
+        let mut mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/refresh"));
+
+        if let Some(refresh_token) = refresh_token {
+            mock = mock.and(body_json(json!({ "refresh_token": refresh_token.into() })));
+        }
+
         self.mock_endpoint(mock, RefreshEndpoint)
     }
 
