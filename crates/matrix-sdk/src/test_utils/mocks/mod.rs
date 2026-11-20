@@ -1593,6 +1593,18 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, RegisterEndpoint)
     }
 
+    /// Create a prebuilt mock for the endpoint used to refresh an access token,
+    /// expecting the given refresh token.
+    pub fn mock_refresh<'b>(
+        &self,
+        refresh_token: impl Into<&'b str>,
+    ) -> MockEndpoint<'_, RefreshEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/refresh"))
+            .and(body_json(json!({ "refresh_token": refresh_token.into() })));
+        self.mock_endpoint(mock, RefreshEndpoint)
+    }
+
     /// Create a prebuilt mock for the endpoint used to list the devices of a
     /// user.
     pub fn mock_devices(&self) -> MockEndpoint<'_, DevicesEndpoint> {
@@ -2440,6 +2452,21 @@ impl<'a, T> MockEndpoint<'a, T> {
                 "errcode": "M_UNKNOWN_TOKEN",
                 "error": "Unrecognized access token",
                 "soft_logout": soft_logout,
+            }),
+        )
+    }
+
+    /// Returns a mocked endpoint that emulates a rate-limited error.
+    ///
+    /// It responds with a 429 HTTP status code and an `M_LIMIT_EXCEEDED` Matrix
+    /// error code.
+    pub fn error_rate_limited(self) -> MatrixMock<'a> {
+        self.respond_with_code_and_json(
+            429,
+            json!({
+                "errcode": "M_LIMIT_EXCEEDED",
+                "error": "Too many requests",
+                "retry_after_ms": 2000
             }),
         )
     }
@@ -3908,14 +3935,7 @@ impl<'a> MockEndpoint<'a, RoomKeysVersionEndpoint> {
 
     /// Returns an endpoint that 429 errors when we get it
     pub fn error429(self) -> MatrixMock<'a> {
-        self.respond_with_code_and_json(
-            429,
-            json!({
-                "errcode": "M_LIMIT_EXCEEDED",
-                "error": "Too many requests",
-                "retry_after_ms": 2000
-            }),
-        )
+        self.error_rate_limited()
     }
 
     /// Returns an endpoint that 404 errors when we get it
@@ -5102,6 +5122,16 @@ impl<'a> MockEndpoint<'a, RegisterEndpoint> {
         }))
     }
 
+    /// Returns a successful default response including a refresh token.
+    pub fn ok_with_refresh_token(self) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "access_token": TestAuthToken::AccessDefault,
+            "device_id": TestDevice::Default,
+            "user_id": User::Default,
+            "refresh_token": TestAuthToken::RefreshDefault,
+        }))
+    }
+
     /// Returns a `M_FORBIDDEN` error response.
     pub fn error_forbidden(self) -> MatrixMock<'a> {
         self.respond_with_code_and_json(
@@ -5111,6 +5141,38 @@ impl<'a> MockEndpoint<'a, RegisterEndpoint> {
                 "error": "Invalid password",
             }),
         )
+    }
+}
+
+/// A prebuilt mock for the `POST /_matrix/client/v3/refresh` endpoint.
+pub struct RefreshEndpoint;
+
+impl<'a> MockEndpoint<'a, RefreshEndpoint> {
+    /// Returns a successful default response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_with_both_tokens(TestAuthToken::AccessAlt1, TestAuthToken::RefreshAlt1)
+    }
+
+    /// Returns a successful default response including both an access token and
+    /// a refresh token.
+    pub fn ok_with_both_tokens<'b, 'c>(
+        self,
+        access_token: impl Into<&'b str>,
+        refresh_token: impl Into<&'c str>,
+    ) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "access_token": access_token.into(),
+            "refresh_token": refresh_token.into(),
+            "expires_in": 432_000_000,
+        }))
+    }
+
+    /// Returns a successful default response including only an access token.
+    pub fn ok_with_access_token<'b>(self, access_token: impl Into<&'b str>) -> MatrixMock<'a> {
+        self.ok_json(json!({
+            "access_token": access_token.into(),
+            "expires_in": 432_000_000,
+        }))
     }
 }
 
