@@ -2592,6 +2592,50 @@ async fn test_forget_room_keeps_other_rooms() {
 }
 
 #[async_test]
+async fn test_recreate_room_cache_after_forget() {
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("hodlor"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!dodo:saucisse.bzh");
+    let f = EventFactory::new().sender(User::Bob);
+
+    // Sync a room with an event.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").room(room_id).event_id(event_id!("$ev0"))),
+        )
+        .await;
+
+    let event_cache = client.event_cache().unwrap();
+
+    let (room_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+    // Verify that the cache contains the event.
+    let events = room_cache.events().await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_event_id!(events[0], "$ev0");
+
+    // Forget the room.
+    event_cache.forget_room(room_id).await.unwrap();
+
+    // The room's event cache should be recreatable.
+    let (_room_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+}
+
+#[async_test]
 async fn test_sync_while_back_paginate() {
     let server = MatrixMockServer::new().await;
 
