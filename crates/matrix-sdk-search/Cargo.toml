@@ -13,7 +13,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [dependencies]
-aes = { version = "0.9.3", default-features = false }
+aes = { version = "0.9.4", default-features = false }
 ctr = { version = "0.10.1", default-features = false}
 hmac = { workspace = true, features = ["zeroize"] }
 hkdf.workspace = true
