@@ -380,8 +380,8 @@ pub(crate) struct RtcLivekitGetTokenResponse {
     pub(crate) jwt: String,
 }
 
-impl From<rtc::livekit::get_token::msc4195::Response> for RtcLivekitGetTokenResponse {
-    fn from(response: rtc::livekit::get_token::msc4195::Response) -> Self {
+impl From<rtc::livekit::get_token::v1::Response> for RtcLivekitGetTokenResponse {
+    fn from(response: rtc::livekit::get_token::v1::Response) -> Self {
         Self { jwt: response.jwt }
     }
 }
@@ -410,10 +410,10 @@ impl FromMatrixDriverResponse for RtcLivekitGetTokenResponse {
 #[derive(Serialize, Debug)]
 pub(crate) struct RtcLivekitDelegateDelayedLeaveResponse {}
 
-impl From<rtc::livekit::delegate_delayed_leave::msc4195::Response>
+impl From<rtc::livekit::delegate_delayed_leave::v1::Response>
     for RtcLivekitDelegateDelayedLeaveResponse
 {
-    fn from(_: rtc::livekit::delegate_delayed_leave::msc4195::Response) -> Self {
+    fn from(_: rtc::livekit::delegate_delayed_leave::v1::Response) -> Self {
         Self {}
     }
 }
