@@ -142,7 +142,7 @@ async fn test_no_refresh_token() {
     let client = server.client_builder().build().await;
 
     // Refresh token doesn't change.
-    server.mock_refresh(TestAuthToken::RefreshDefault).ok().expect(0).mount().await;
+    server.mock_refresh(Option::<&str>::None).ok().expect(0).mount().await;
 
     let res = client.refresh_access_token().await;
     assert_matches!(res, Err(RefreshTokenError::RefreshTokenRequired));
@@ -179,7 +179,7 @@ async fn test_refresh_token() {
 
     // Refresh token doesn't change.
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .ok_with_access_token(TestAuthToken::AccessAlt1)
         .mock_once()
         .mount()
@@ -194,7 +194,7 @@ async fn test_refresh_token() {
 
     // Refresh token changes.
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .ok_with_both_tokens(TestAuthToken::AccessAlt2, TestAuthToken::RefreshAlt1)
         .expect(1)
         .mount()
@@ -220,7 +220,7 @@ async fn test_refresh_token_not_handled() {
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Option::<&str>::None)
         .ok_with_access_token(TestAuthToken::AccessAlt1)
         .expect(0)
         .mount()
@@ -249,7 +249,7 @@ async fn test_refresh_token_handled_success() {
     let mut session_changes = client.subscribe_to_session_changes();
 
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .ok_with_access_token(TestAuthToken::AccessAlt1)
         .expect(1)
         .named("`POST /refresh`")
@@ -297,7 +297,7 @@ async fn test_refresh_token_handled_failure() {
         let mut session_changes = client.subscribe_to_session_changes();
 
         server
-            .mock_refresh(TestAuthToken::RefreshDefault)
+            .mock_refresh(Some(TestAuthToken::RefreshDefault))
             .error_unknown_token(refresh_soft_logout)
             .expect(1)
             .named("`POST /refresh`")
@@ -349,7 +349,7 @@ async fn test_refresh_token_transient_failure_is_not_a_logout() {
     let mut session_changes = client.subscribe_to_session_changes();
 
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .error500()
         .expect(1)
         .named("`POST /refresh` bad gateway")
@@ -379,7 +379,7 @@ async fn test_refresh_token_rate_limit_preserves_session_and_recovers() {
 
     server.mock_who_am_i().error_unknown_token(true).expect(2).mount().await;
     let limited = server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .error_rate_limited()
         .expect(1)
         .mount_as_scoped()
@@ -390,7 +390,7 @@ async fn test_refresh_token_rate_limit_preserves_session_and_recovers() {
     assert_eq!(client.session_tokens(), Some(session().tokens));
     drop(limited);
 
-    server.mock_refresh(TestAuthToken::RefreshDefault).ok().expect(1).mount().await;
+    server.mock_refresh(Some(TestAuthToken::RefreshDefault)).ok().expect(1).mount().await;
     server
         .mock_who_am_i()
         .expect_access_token(TestAuthToken::AccessAlt1)
@@ -419,7 +419,7 @@ async fn test_refresh_token_handled_multi_success() {
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .with_delay(Duration::from_secs(1))
         .ok()
         .expect(1)
@@ -485,7 +485,7 @@ async fn test_refresh_token_handled_multi_failure() {
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
     server
-        .mock_refresh(TestAuthToken::RefreshDefault)
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
         .with_delay(Duration::from_secs(1))
         .error_unknown_token(true)
         .expect(1)
@@ -550,13 +550,7 @@ async fn test_refresh_token_handled_other_error() {
     let session = session();
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-    server
-        .mock_refresh(TestAuthToken::RefreshDefault)
-        .ok()
-        .expect(0)
-        .named("`POST /refresh`")
-        .mount()
-        .await;
+    server.mock_refresh(Option::<&str>::None).ok().expect(0).named("`POST /refresh`").mount().await;
 
     server.mock_who_am_i().error_unrecognized().expect(1).named("`GET /whoami`").mount().await;
 
