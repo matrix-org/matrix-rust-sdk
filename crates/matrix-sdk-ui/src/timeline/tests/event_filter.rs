@@ -23,19 +23,21 @@ use ruma::{
         AnySyncTimelineEvent, MessageLikeEventType, StateEventType, TimelineEventType,
         room::{
             member::MembershipState,
-            message::{MessageType, RedactedRoomMessageEventContent},
+            message::{MessageType, RedactedRoomMessageEventContent, RoomMessageEventContent},
         },
     },
     mxc_uri,
 };
+use serde_json::json;
 use strass::assert_let;
-use stream_assert::assert_next_matches;
+use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
-    AnyOtherStateEventContentChange, MsgLikeContent, MsgLikeKind, TimelineEventCondition,
-    TimelineEventFilter, TimelineItem, TimelineItemContent, TimelineItemKind,
-    controller::TimelineSettings, event_filter::MembershipChangeFilter, tests::TestTimelineBuilder,
+    AnyOtherStateEventContentChange, DefaultEventFilterOptions, MsgLikeContent, MsgLikeKind,
+    TimelineEventCondition, TimelineEventFilter, TimelineItem, TimelineItemContent,
+    TimelineItemKind, controller::TimelineSettings, default_event_filter_with_options,
+    event_filter::MembershipChangeFilter, tests::TestTimelineBuilder,
 };
 
 #[async_test]
@@ -92,6 +94,91 @@ async fn test_default_filter() {
     // TODO: After adding raw timeline items, check for one here.
 
     assert_eq!(timeline.controller.items().await.len(), 4);
+}
+
+fn custom_msgtype(msgtype: &str, body: &str) -> MessageType {
+    let data = json!({ "custom_field": body });
+    MessageType::new(msgtype, body.to_owned(), data.as_object().unwrap().clone()).unwrap()
+}
+
+#[async_test]
+async fn test_default_filter_hides_custom_msgtypes() {
+    let timeline = TestTimeline::new().await;
+    let f = &timeline.factory;
+
+    timeline
+        .handle_live_event(
+            f.event(RoomMessageEventContent::new(custom_msgtype("org.example.custom", "Hello")))
+                .sender(User::Alice),
+        )
+        .await;
+
+    assert!(timeline.controller.items().await.is_empty());
+}
+
+#[async_test]
+async fn test_default_filter_with_custom_msgtypes() {
+    let options = DefaultEventFilterOptions::default().with_custom_msgtypes(["org.example.custom"]);
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            event_filter: Arc::new(move |event, rules| {
+                default_event_filter_with_options(event, rules, &options)
+            }),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+
+    // A message with an allowed custom msgtype is shown, with its custom data.
+    timeline
+        .handle_live_event(
+            f.event(RoomMessageEventContent::new(custom_msgtype("org.example.custom", "Hello")))
+                .sender(User::Alice),
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
+
+    let event_id = item.as_event().unwrap().event_id().unwrap().to_owned();
+    assert_let!(Some(message) = item.as_event().unwrap().content().as_message());
+    assert_eq!(message.msgtype().msgtype(), "org.example.custom");
+    assert_eq!(message.body(), "Hello");
+    assert_eq!(message.msgtype().data()["custom_field"], "Hello");
+
+    // A message with another custom msgtype is still hidden.
+    timeline
+        .handle_live_event(
+            f.event(RoomMessageEventContent::new(custom_msgtype("org.example.other", "Hidden")))
+                .sender(User::Alice),
+        )
+        .await;
+
+    // An edit of the allowed custom msgtype doesn't get its own item, and is
+    // applied to the original item instead.
+    timeline
+        .handle_live_event(
+            f.event(RoomMessageEventContent::new(custom_msgtype(
+                "org.example.custom",
+                " * Hello, edited",
+            )))
+            .sender(User::Alice)
+            .edit(&event_id, custom_msgtype("org.example.custom", "Hello, edited").into()),
+        )
+        .await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    assert_let!(Some(message) = item.as_event().unwrap().content().as_message());
+    assert_eq!(message.msgtype().msgtype(), "org.example.custom");
+    assert_eq!(message.body(), "Hello, edited");
+    assert_eq!(message.msgtype().data()["custom_field"], "Hello, edited");
+
+    assert_pending!(stream);
+    assert_eq!(timeline.controller.items().await.len(), 2);
 }
 
 #[async_test]
