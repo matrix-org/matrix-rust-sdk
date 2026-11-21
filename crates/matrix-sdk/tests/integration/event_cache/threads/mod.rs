@@ -11,14 +11,15 @@ use matrix_sdk::{
     sleep::sleep,
     test_utils::{
         assert_event_matches_msg,
-        mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+        mocks::{MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate},
     },
 };
 use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedEventId, OwnedRoomId, event_id,
     events::{
-        AnySyncTimelineEvent, Mentions, room::message::RoomMessageEventContentWithoutRelation,
+        AnySyncTimelineEvent, Mentions, relation::RelationType,
+        room::message::RoomMessageEventContentWithoutRelation,
     },
     push::{ConditionalPushRule, Ruleset},
     room_id,
@@ -1193,4 +1194,141 @@ async fn test_reaction_on_thread_root_reaches_thread_timeline() {
     assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
     assert_eq!(new_events.len(), 1);
     assert_eq!(new_events[0].event_id(), Some(reaction_id));
+}
+
+#[async_test]
+async fn test_thread_summary_counts_replies_loaded_by_room_pagination() {
+    // A sync with a gap brings only the latest reply of a thread. The older
+    // replies, and the thread root, are loaded later by paginating the room
+    // backwards. The number of replies must then include them.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let thread_root_id = event_id!("$thread_root");
+    let thread_resp1_id = event_id!("$thread_resp1");
+    let thread_resp2_id = event_id!("$thread_resp2");
+    let thread_resp3_id = event_id!("$thread_resp3");
+
+    let event_cache = client.event_cache().unwrap();
+    server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_events.is_empty());
+
+    // Receive the third reply only: the previous events are behind a gap.
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("Third reply")
+                        .in_thread(thread_root_id, thread_resp2_id)
+                        .event_id(thread_resp3_id),
+                )
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    // Sanity check: a single reply is known so far.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+                room_stream.recv()
+        );
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateThreadSummary { thread_root, thread_summary }) =
+                room_stream.recv()
+        );
+        assert_eq!(thread_root, thread_root_id);
+        assert_eq!(thread_summary.latest_reply.as_deref(), Some(thread_resp3_id));
+        assert_eq!(thread_summary.num_replies, 1);
+    }
+
+    // Paginate the room backwards: the gap is filled with the two other
+    // replies and the thread root.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("Second reply")
+                .in_thread(thread_root_id, thread_resp1_id)
+                .event_id(thread_resp2_id),
+            f.text_msg("First reply")
+                .in_thread(thread_root_id, thread_root_id)
+                .event_id(thread_resp1_id),
+            f.text_msg("Thread root").event_id(thread_root_id),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+    assert_eq!(outcome.events.len(), 3);
+
+    // The three replies are known now.
+    let (_thread_root, replies) = room_event_cache
+        .find_event_with_relations(thread_root_id, Some(vec![RelationType::Thread]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(replies.len(), 3);
+
+    // So the thread has three replies, and the latest one is unchanged.
+    let thread_info = event_cache.thread_info(room_id, thread_root_id).await.unwrap().unwrap();
+    assert_eq!(thread_info.latest_event.as_deref(), Some(thread_resp3_id));
+    assert_eq!(thread_info.number_of_replies, 3);
+}
+
+#[async_test]
+async fn test_room_pagination_does_not_count_replies_of_an_unknown_thread() {
+    // A back-pagination of the room loads a reply of a thread the event cache
+    // has never seen. It must not start counting the replies: the summary
+    // bundled with the thread root knows more than this single reply.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let thread_root_id = event_id!("$thread_root");
+    let thread_resp_id = event_id!("$thread_resp");
+
+    let event_cache = client.event_cache().unwrap();
+
+    // Receive an event which isn't part of the thread, after a gap.
+    let f = EventFactory::new().room(room_id).sender(User::Alice);
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Hello").event_id(event_id!("$hello")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+    // Paginate the room backwards: the gap is filled with a reply of the
+    // thread.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("Thread reply")
+                .in_thread(thread_root_id, thread_root_id)
+                .event_id(thread_resp_id),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+    assert_eq!(outcome.events.len(), 1);
+
+    assert!(event_cache.thread_info(room_id, thread_root_id).await.unwrap().is_none());
 }
