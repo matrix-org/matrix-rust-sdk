@@ -67,7 +67,7 @@ use ruma::{
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
-            presence::set_presence as set_presence_status,
+            presence::{get_presence, set_presence as set_presence_status},
             retention::get_retention_configuration,
             room::create_room,
             rtc::{
@@ -961,6 +961,12 @@ impl Client {
         self.send(request).await?;
 
         Ok(())
+    }
+
+    /// Fetch the presence of a user from the homeserver.
+    pub async fn fetch_presence(&self, user_id: &UserId) -> Result<get_presence::v3::Response> {
+        let request = get_presence::v3::Request::new(user_id.to_owned());
+        Ok(self.send(request).await?)
     }
 
     /// Get the current tokens for this session.
@@ -4659,7 +4665,7 @@ pub(crate) mod tests {
         },
         owned_device_id,
         presence::PresenceState,
-        room_alias_id,
+        room_alias_id, user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -4814,6 +4820,19 @@ pub(crate) mod tests {
             .expect("presence should update");
 
         assert_eq!(client.sync_presence(), PresenceState::Offline);
+    }
+
+    #[async_test]
+    async fn test_fetch_presence_returns_the_users_presence() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let alice = user_id!("@alice:example.org");
+
+        server.mock_get_presence(alice).ok(&PresenceState::Unavailable).expect(1).mount().await;
+
+        let response = client.fetch_presence(alice).await.expect("presence lookup should succeed");
+
+        assert_eq!(response.presence, PresenceState::Unavailable);
     }
 
     #[async_test]
