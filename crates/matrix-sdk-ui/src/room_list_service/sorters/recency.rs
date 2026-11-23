@@ -15,18 +15,19 @@
 use super::Sorter;
 
 /// Create a new sorter that will sort two [`RoomListItem`] by recency, i.e. by
-/// comparing their [`RoomInfo::latest_event_value`]'s timestamp, then their
+/// comparing their timestamp (see `RoomListItem::cached_timestamp`), then their
 /// [`RoomInfo::recency_stamp`]. The most recent `Room` comes first, i.e.
-/// newest < oldest. A room without a latest event comes after every room
-/// having one.
+/// newest < oldest.
+///
+/// A room that copied its timestamp from another room has the same timestamp:
+/// the recency stamp keeps them in the server's order.
 ///
 /// [`RoomListItem`]: super::RoomListItem
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
-/// [`RoomInfo::latest_event_value`]: matrix_sdk_base::RoomInfo::latest_event_value
 pub fn new_sorter() -> impl Sorter {
     |left, right| {
-        (left.cached_latest_event_timestamp, left.cached_recency_stamp)
-            .cmp(&(right.cached_latest_event_timestamp, right.cached_recency_stamp))
+        (left.cached_timestamp, left.cached_recency_stamp)
+            .cmp(&(right.cached_timestamp, right.cached_recency_stamp))
             .reverse()
     }
 }
@@ -48,28 +49,17 @@ mod tests {
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
-        room_a.cached_recency_stamp = 1.into();
-        room_b.cached_recency_stamp = 2.into();
-
-        // No timestamps: the most recent recency stamp comes first.
-        assert_eq!(new_sorter()(&room_a, &room_b), Ordering::Greater);
-        assert_eq!(new_sorter()(&room_b, &room_a), Ordering::Less);
-
-        // Only `room_a` has a timestamp: it comes first.
-        room_a.cached_latest_event_timestamp = Some(MilliSecondsSinceUnixEpoch(3u32.into()));
-
-        assert_eq!(new_sorter()(&room_a, &room_b), Ordering::Less);
-        assert_eq!(new_sorter()(&room_b, &room_a), Ordering::Greater);
-
         // The most recent timestamp comes first.
-        room_a.cached_latest_event_timestamp = Some(MilliSecondsSinceUnixEpoch(4u32.into()));
-        room_b.cached_latest_event_timestamp = Some(MilliSecondsSinceUnixEpoch(3u32.into()));
+        room_a.cached_timestamp = MilliSecondsSinceUnixEpoch(4u32.into());
+        room_b.cached_timestamp = MilliSecondsSinceUnixEpoch(3u32.into());
 
         assert_eq!(new_sorter()(&room_a, &room_b), Ordering::Less);
         assert_eq!(new_sorter()(&room_b, &room_a), Ordering::Greater);
 
         // Same timestamp: the most recent recency stamp comes first.
-        room_a.cached_latest_event_timestamp = room_b.cached_latest_event_timestamp;
+        room_a.cached_timestamp = room_b.cached_timestamp;
+        room_a.cached_recency_stamp = 1.into();
+        room_b.cached_recency_stamp = 2.into();
 
         assert_eq!(new_sorter()(&room_a, &room_b), Ordering::Greater);
         assert_eq!(new_sorter()(&room_b, &room_a), Ordering::Less);
