@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, ops::Not, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Not,
+    sync::Arc,
+};
 
+use aggregator::EphemeralEvents;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -324,29 +329,20 @@ impl Caches {
             avatar_changes,
         } = updates;
 
-        // Filter ephemeral events.
-        let original_ephemeral = original_ephemeral
-            .into_iter()
-            .filter_map(|ephemeral_event| ephemeral_event.deserialize().ok())
-            .collect::<Vec<_>>();
-
-        // Group the read receipts from all users, so that they can be
-        // broadcast to subscribers once the caches have been updated.
-        let read_receipts_to_broadcast =
-            aggregator::group_all_read_receipts_by_thread(&original_ephemeral);
+        // Deserialize ephemeral events and group their read receipts, in a
+        // single pass.
+        let EphemeralEvents {
+            room_read_receipts,
+            own_room_read_receipts,
+            thread_read_receipts,
+            own_thread_read_receipts,
+        } = EphemeralEvents::from_sync(room.own_user_id(), original_ephemeral);
 
         // Room.
         {
-            let (timeline, read_receipts) =
-                aggregator::aggregate_timeline_and_read_receipts_for_room(
-                    room.own_user_id(),
-                    &original_timeline,
-                    &original_ephemeral,
-                );
-
             room.handle_joined_room_update(
-                timeline,
-                read_receipts,
+                original_timeline.clone(),
+                own_room_read_receipts,
                 account_data,
                 ambiguity_changes,
                 avatar_changes,
@@ -355,7 +351,7 @@ impl Caches {
 
             // Broadcast the read receipts unconditionally, after the timeline
             // updates have been sent.
-            if let Some(event) = read_receipts_to_broadcast.room {
+            if let Some(event) = room_read_receipts {
                 room.update_sender()
                     .send(RoomEventCacheUpdate::AddReadReceiptEvent { event }, None);
             }
@@ -375,9 +371,8 @@ impl Caches {
                 let all_states = all_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
-                    room.own_user_id(),
                     &original_timeline,
-                    &original_ephemeral,
+                    own_thread_read_receipts,
                     all_states.threads(),
                     all_states.room(),
                     &internals.room_version_rules.redaction,
@@ -412,10 +407,10 @@ impl Caches {
             // timeline updates have been sent. A thread without a
             // cache has no subscribers, so there is no need to
             // create one.
-            if !read_receipts_to_broadcast.threads.is_empty() {
+            if !thread_read_receipts.is_empty() {
                 let threads = self.threads.read().await;
 
-                for (thread_id, event) in read_receipts_to_broadcast.threads {
+                for (thread_id, event) in thread_read_receipts {
                     if let Some(thread) = threads.get(&thread_id) {
                         thread
                             .update_sender()
@@ -468,14 +463,7 @@ impl Caches {
 
         // Room.
         {
-            let (timeline, _read_receipts) =
-                aggregator::aggregate_timeline_and_read_receipts_for_room(
-                    room.own_user_id(),
-                    &original_timeline,
-                    &[],
-                );
-
-            room.handle_left_room_update(timeline, ambiguity_changes).await?;
+            room.handle_left_room_update(original_timeline.clone(), ambiguity_changes).await?;
         }
 
         // Threads.
@@ -492,9 +480,8 @@ impl Caches {
                 let all_caches_states = all_caches_states_lock.read().await?;
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
-                    room.own_user_id(),
                     &original_timeline,
-                    &[],
+                    BTreeMap::new(),
                     all_caches_states.threads(),
                     all_caches_states.room(),
                     &internals.room_version_rules.redaction,
