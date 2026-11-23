@@ -3377,7 +3377,8 @@ impl Client {
     /// Fetch the server's message retention policy configuration.
     ///
     /// Returns the server-level retention policy limits and any per-room
-    /// overrides defined by the server.
+    /// overrides defined by the server, or `None` if the homeserver doesn't
+    /// implement the endpoint.
     ///
     /// This always makes a request to the homeserver. On success, the
     /// response is stored in the client's cache and persisted in the state
@@ -3390,8 +3391,13 @@ impl Client {
     /// for more info.
     pub async fn fetch_retention_configuration(
         &self,
-    ) -> HttpResult<get_retention_configuration::msc1763::Response> {
-        let response = self.send(get_retention_configuration::msc1763::Request::default()).await?;
+    ) -> HttpResult<Option<get_retention_configuration::msc1763::Response>> {
+        let response =
+            match self.send(get_retention_configuration::msc1763::Request::default()).await {
+                Ok(response) => response,
+                Err(error) if error.is_endpoint_not_implemented() => return Ok(None),
+                Err(error) => return Err(error),
+            };
         let value = TtlValue::new(response.clone());
 
         if let Err(error) = self
@@ -3407,7 +3413,7 @@ impl Client {
 
         self.inner.caches.retention_configuration.set(Some(value));
 
-        Ok(response)
+        Ok(Some(response))
     }
 
     /// Get the server's message retention policy configuration, from the cache
@@ -3418,32 +3424,31 @@ impl Client {
     /// that request fails (e.g. because there is no connectivity) and a stale
     /// value is cached, the stale value is returned instead. The only
     /// exception is when the homeserver doesn't implement the endpoint, in
-    /// which case the error is always returned.
+    /// which case `None` is always returned.
     ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
     pub async fn retention_configuration(
         &self,
-    ) -> HttpResult<get_retention_configuration::msc1763::Response> {
+    ) -> HttpResult<Option<get_retention_configuration::msc1763::Response>> {
         let cached = self.inner.caches.retention_configuration.get();
 
         if let Some(cached) = &cached
             && !cached.has_expired_after(RETENTION_CONFIGURATION_TTL)
         {
-            return Ok(cached.data().clone());
+            return Ok(Some(cached.data().clone()));
         }
 
         match self.fetch_retention_configuration().await {
             Ok(response) => Ok(response),
-            Err(error) if error.is_endpoint_not_implemented() => Err(error),
             Err(error) => match cached {
                 Some(cached) => {
                     warn!(
                         "failed to refresh the retention configuration, using the stale cached \
                          value: {error}"
                     );
-                    Ok(cached.into_data())
+                    Ok(Some(cached.into_data()))
                 }
                 None => Err(error),
             },
@@ -6736,7 +6741,7 @@ pub(crate) mod tests {
 
         let response = client.fetch_retention_configuration().await;
         assert!(response.is_ok());
-        let response = response.unwrap();
+        let response = response.unwrap().unwrap();
         assert!(response.policies.is_empty());
         assert!(response.limits.max_lifetime.is_none());
         assert!(response.limits.min_lifetime.is_none());
@@ -6815,7 +6820,7 @@ pub(crate) mod tests {
             .expect("the retention configuration should have been loaded from the store");
         assert_eq!(cached.data().policies.len(), 1);
 
-        let config = client.retention_configuration().await.unwrap();
+        let config = client.retention_configuration().await.unwrap().unwrap();
         assert_eq!(config.policies.len(), 1);
     }
 
@@ -6861,11 +6866,12 @@ pub(crate) mod tests {
                 .mount_as_scoped()
                 .await;
 
-            let config = client.retention_configuration().await.unwrap();
+            let config = client.retention_configuration().await.unwrap().unwrap();
             assert_eq!(config.policies.len(), 1);
         }
 
-        // The homeserver doesn't implement the endpoint: the error is returned.
+        // The homeserver doesn't implement the endpoint: `None` is returned,
+        // even though a stale value is cached.
         {
             let _guard = server
                 .mock_get_retention_configuration()
@@ -6874,8 +6880,8 @@ pub(crate) mod tests {
                 .mount_as_scoped()
                 .await;
 
-            let error = client.retention_configuration().await.unwrap_err();
-            assert!(error.is_endpoint_not_implemented());
+            let config = client.retention_configuration().await.unwrap();
+            assert!(config.is_none());
         }
     }
 

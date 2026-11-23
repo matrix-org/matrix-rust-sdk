@@ -26,8 +26,8 @@ use anyhow::{Context as _, anyhow};
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 pub use matrix_sdk::sliding_sync::Version as SdkSlidingSyncVersion;
 use matrix_sdk::{
-    Account, AuthApi, AuthSession, Client as MatrixClient, Error, HttpResult, SessionChange,
-    SessionTokens, ToDeviceMessage as SdkToDeviceMessage,
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
+    ToDeviceMessage as SdkToDeviceMessage,
     authentication::oauth::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
@@ -465,19 +465,6 @@ pub struct RetentionLifetimeLimits {
 impl From<get_retention_configuration::msc1763::LifetimeLimits> for RetentionLifetimeLimits {
     fn from(value: get_retention_configuration::msc1763::LifetimeLimits) -> Self {
         Self { min: value.min(), max: value.max() }
-    }
-}
-
-/// Convert the result of a retention configuration request, reporting a
-/// homeserver that doesn't implement the endpoint as `None` instead of an
-/// error.
-fn retention_configuration_or_none(
-    result: HttpResult<get_retention_configuration::msc1763::Response>,
-) -> Result<Option<RetentionConfiguration>, ClientError> {
-    match result {
-        Ok(response) => Ok(Some(response.into())),
-        Err(error) if error.is_endpoint_not_implemented() => Ok(None),
-        Err(error) => Err(error.into()),
     }
 }
 
@@ -2592,7 +2579,7 @@ impl Client {
     pub async fn fetch_retention_configuration(
         &self,
     ) -> Result<Option<RetentionConfiguration>, ClientError> {
-        retention_configuration_or_none(self.inner.fetch_retention_configuration().await)
+        Ok(self.inner.fetch_retention_configuration().await?.map(Into::into))
     }
 
     /// Get the server's message retention policy configuration, from the cache
@@ -2611,7 +2598,7 @@ impl Client {
     pub async fn retention_configuration(
         &self,
     ) -> Result<Option<RetentionConfiguration>, ClientError> {
-        retention_configuration_or_none(self.inner.retention_configuration().await)
+        Ok(self.inner.retention_configuration().await?.map(Into::into))
     }
 
     /// Gets the `max_upload_size` value from the homeserver, which controls the

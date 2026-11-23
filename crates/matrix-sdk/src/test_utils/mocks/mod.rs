@@ -1970,7 +1970,7 @@ impl MatrixMockServer {
     ///     .mount()
     ///     .await;
     ///
-    /// let config = client.fetch_retention_configuration().await?;
+    /// let config = client.fetch_retention_configuration().await?.unwrap();
     /// assert_eq!(config.policies.len(), 1);
     /// assert_eq!(config.limits.max_lifetime.unwrap().max(), Some(one_day * 7));
     /// # anyhow::Ok(()) });
