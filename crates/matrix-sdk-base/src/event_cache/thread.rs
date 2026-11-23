@@ -30,8 +30,11 @@ pub struct ThreadInfo {
     /// - redacted events.
     ///
     /// Thus, it can be zero!
+    ///
+    /// It's `None` until the event cache has seen one of the thread's replies,
+    /// e.g. when the thread info was only created to hold its read receipts.
     #[serde(default)] // For backwards compatibility.
-    pub number_of_replies: u32,
+    pub number_of_replies: Option<u32>,
 
     /// The ID of the latest event in the thread, if any.
     #[serde(default)] // For backwards compatibility.
@@ -44,7 +47,7 @@ pub struct ThreadInfo {
 impl ThreadInfo {
     /// Create a new [`ThreadInfo`].
     pub fn new() -> Self {
-        Self { number_of_replies: 0, latest_event: None, read_receipts: ReadReceipts::default() }
+        Self { number_of_replies: None, latest_event: None, read_receipts: ReadReceipts::default() }
     }
 }
 
