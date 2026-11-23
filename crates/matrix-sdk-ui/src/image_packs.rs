@@ -79,7 +79,8 @@ impl ImagePack {
 /// 3. The packs defined in the state of the joined spaces the room belongs to,
 ///    closest spaces first.
 ///
-/// A pack that would appear more than once is only returned the first time.
+/// The packs of the same room are sorted by state key. A pack that would appear
+/// more than once is only returned the first time.
 /// Packs without images are skipped.
 ///
 /// All the packs are read from the local state of their rooms, which the
@@ -126,24 +127,28 @@ fn image_packs_from(
     room: &Room,
     events: Vec<RawSyncOrStrippedState<RoomImagePackEventContent>>,
 ) -> impl Iterator<Item = ImagePack> {
-    events.into_iter().filter_map(|raw| match raw.deserialize() {
-        // Packs without images have nothing to offer.
-        Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(mut event)))
-            if !event.content.images.is_empty() =>
-        {
-            // Use the room's name and avatar for the pack's missing ones.
-            let meta = &mut event.content.pack;
-            meta.display_name = meta.display_name.take().or_else(|| room.name());
-            meta.avatar_url = meta.avatar_url.take().or_else(|| room.avatar_url());
+    events
+        .into_iter()
+        .filter_map(|raw| match raw.deserialize() {
+            // Packs without images have nothing to offer.
+            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(mut event)))
+                if !event.content.images.is_empty() =>
+            {
+                // Use the room's name and avatar for the pack's missing ones.
+                let meta = &mut event.content.pack;
+                meta.display_name = meta.display_name.take().or_else(|| room.name());
+                meta.avatar_url = meta.avatar_url.take().or_else(|| room.avatar_url());
 
-            Some(ImagePack {
-                room_id: room.room_id().to_owned(),
-                state_key: event.state_key,
-                content: event.content,
-            })
-        }
-        _ => None,
-    })
+                Some(ImagePack {
+                    room_id: room.room_id().to_owned(),
+                    state_key: event.state_key,
+                    content: event.content,
+                })
+            }
+            _ => None,
+        })
+        // The store returns state events in no particular order.
+        .sorted_by(|a, b| a.state_key.cmp(&b.state_key))
 }
 
 #[cfg(test)]
