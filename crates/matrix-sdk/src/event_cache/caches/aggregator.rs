@@ -22,44 +22,26 @@ use matrix_sdk_base::{
     sync::Timeline,
 };
 use ruma::{
-    OwnedEventId, UserId,
+    EventId, OwnedEventId, UserId,
     events::{
         AnySyncEphemeralRoomEvent,
         receipt::{ReceiptEventContent, ReceiptThread},
         relation::RelationType,
     },
     room_version_rules::RedactionRules,
+    serde::Raw,
 };
 
 use super::{
     super::{Result, states::StateLockReadGuard},
-    read_receipts::{MaybeReceiptEventContent, ReadReceiptTuple},
+    read_receipts::MaybeReceiptEventContent,
     room::RoomEventCacheState,
     thread::ThreadEventCacheState,
 };
 
-pub fn aggregate_timeline_and_read_receipts_for_room(
-    own_user_id: &UserId,
-    timeline: &Timeline,
-    ephemeral: &[AnySyncEphemeralRoomEvent],
-) -> (Timeline, MaybeReceiptEventContent) {
-    (
-        timeline.clone(),
-        filter_read_receipts_and_group_by(own_user_id, ephemeral, |receipt_thread| {
-            match receipt_thread {
-                ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
-                _ => None,
-            }
-        })
-        .map(|(_group, read_receipts)| read_receipts)
-        .collect(),
-    )
-}
-
 pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
-    own_user_id: &'sync UserId,
     timeline: &'sync Timeline,
-    ephemeral: &'sync [AnySyncEphemeralRoomEvent],
+    own_read_receipts: BTreeMap<OwnedEventId, MaybeReceiptEventContent>,
     existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
     maybe_room: Option<StateLockReadGuard<'state, RoomEventCacheState>>,
     redaction_rules: &'sync RedactionRules,
@@ -200,23 +182,11 @@ pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
         }
     }
 
-    for (thread_root, read_receipt) in
-        filter_read_receipts_and_group_by(own_user_id, ephemeral, |receipt_thread| {
-            match receipt_thread {
-                ReceiptThread::Thread(thread_id) => Some(thread_id),
-                _ => None,
-            }
-        })
-    {
-        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers
-        //    the update for this thread in `Caches`. This is done by
-        //    `default_entry`.
-        // 2. Accumulate the read receipt event.
-        new_events_by_thread
-            .entry(thread_root.to_owned())
-            .or_insert_with(default_entry)
-            .1
-            .extend(once(read_receipt));
+    for (thread_root, read_receipts) in own_read_receipts {
+        // Create an empty `Timeline` if it doesn't exist so that it triggers
+        // the update for this thread in `Caches`. This is done by
+        // `default_entry`.
+        new_events_by_thread.entry(thread_root).or_insert_with(default_entry).1 = read_receipts;
     }
 
     Ok(new_events_by_thread)
@@ -277,192 +247,228 @@ pub fn aggregate_timeline_for_pinned_events(
     new_timeline
 }
 
-/// Read receipts, from all users, to be broadcast to the room and thread
-/// caches' subscribers.
+/// The ephemeral events of a sync response, as needed by the caches.
 ///
-/// See [`group_all_read_receipts_by_thread`].
-#[derive(Debug, Default)]
-pub struct ReadReceiptsToBroadcast {
-    /// Read receipts for the room, i.e. unthreaded or on the main timeline.
-    pub room: Option<ReceiptEventContent>,
+/// Read receipts are grouped by the room or the thread they belong to. Each
+/// group exists twice:
+///
+/// - with the receipts of all users, to be broadcast to the subscribers,
+/// - with the receipts of the own user only, to compute the unread counts.
+///
+/// See [`Self::from_sync`].
+pub struct EphemeralEvents {
+    /// Read receipts of all users for the room, i.e. unthreaded or on the main
+    /// timeline.
+    pub room_read_receipts: Option<ReceiptEventContent>,
 
-    /// Read receipts for each thread, keyed by thread root.
-    pub threads: BTreeMap<OwnedEventId, ReceiptEventContent>,
+    /// Read receipts of the own user for the room.
+    pub own_room_read_receipts: MaybeReceiptEventContent,
+
+    /// Read receipts of all users for each thread, grouped by thread root.
+    pub thread_read_receipts: BTreeMap<OwnedEventId, ReceiptEventContent>,
+
+    /// Read receipts of the own user for each thread, grouped by thread root.
+    pub own_thread_read_receipts: BTreeMap<OwnedEventId, MaybeReceiptEventContent>,
 }
 
-/// Group all the read receipts found in (deserialised) ephemeral events, for
-/// all users, by the room or the thread they belong to.
-///
-/// Contrary to [`aggregate_timeline_and_read_receipts_for_room`] and
-/// [`aggregate_timeline_and_read_receipts_for_threads`], which only keep the
-/// receipts of the own user (used to compute the unread counts), this keeps
-/// receipts from every user, so that they can be broadcast to subscribers.
-pub fn group_all_read_receipts_by_thread(
-    events: &[AnySyncEphemeralRoomEvent],
-) -> ReadReceiptsToBroadcast {
-    let mut result = ReadReceiptsToBroadcast::default();
+/// The room or thread a read receipt belongs to. This is a helper to be able to
+/// categorize read receipts while using only references.
+#[derive(Clone, Copy)]
+enum ReadReceiptGroup<'a> {
+    Room,
+    Thread(&'a EventId),
+}
 
-    let receipt_contents = events.iter().filter_map(|ephemeral| match ephemeral {
-        AnySyncEphemeralRoomEvent::Receipt(receipt_event) => Some(&receipt_event.content),
-        _ => None,
-    });
+impl<'a> ReadReceiptGroup<'a> {
+    fn new(receipt_thread: &'a ReceiptThread) -> Option<Self> {
+        match receipt_thread {
+            ReceiptThread::Main | ReceiptThread::Unthreaded => Some(Self::Room),
+            ReceiptThread::Thread(thread_root) => Some(Self::Thread(thread_root)),
+            _ => None,
+        }
+    }
+}
 
-    for content in receipt_contents {
-        for (event_id, receipts) in content.iter() {
-            for (receipt_type, user_receipts) in receipts {
-                for (user_id, receipt) in user_receipts {
-                    let target = match &receipt.thread {
-                        ReceiptThread::Main | ReceiptThread::Unthreaded => {
-                            result.room.get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
+impl EphemeralEvents {
+    /// Deserialize the ephemeral events of a sync response, and group their
+    /// read receipts, in a single pass.
+    ///
+    /// Read receipts are moved out of the ephemeral events, not cloned. Only
+    /// the receipts of the own user are cloned, since they live in two groups.
+    pub fn from_sync(own_user_id: &UserId, ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>) -> Self {
+        let mut this = Self {
+            room_read_receipts: None,
+            own_room_read_receipts: MaybeReceiptEventContent::none(),
+            thread_read_receipts: BTreeMap::new(),
+            own_thread_read_receipts: BTreeMap::new(),
+        };
+
+        for event in ephemeral {
+            // Read receipts are the only ephemeral events the caches care
+            // about.
+            let Ok(AnySyncEphemeralRoomEvent::Receipt(receipt_event)) = event.deserialize() else {
+                continue;
+            };
+
+            for (event_id, receipts) in receipt_event.content.0 {
+                for (receipt_type, user_receipts) in receipts {
+                    for (user_id, receipt) in user_receipts {
+                        let Some(group) = ReadReceiptGroup::new(&receipt.thread) else {
+                            continue;
+                        };
+
+                        // The own user's receipts are needed twice: to compute
+                        // the unread counts, and to be broadcast.
+                        if user_id == own_user_id {
+                            this.own_receipts_mut(group).extend(once((
+                                &event_id,
+                                (&receipt_type, (own_user_id, &receipt)),
+                            )));
                         }
-                        ReceiptThread::Thread(thread_root) => result
-                            .threads
-                            .entry(thread_root.clone())
-                            .or_insert_with(|| ReceiptEventContent(BTreeMap::new())),
-                        _ => continue,
-                    };
 
-                    target
-                        .entry(event_id.clone())
-                        .or_default()
-                        .entry(receipt_type.clone())
-                        .or_default()
-                        .insert(user_id.clone(), receipt.clone());
+                        this.all_receipts_mut(group)
+                            .0
+                            .entry(event_id.clone())
+                            .or_default()
+                            .entry(receipt_type.clone())
+                            .or_default()
+                            .insert(user_id, receipt);
+                    }
                 }
             }
         }
+
+        this
     }
 
-    result
-}
+    /// Get the receipts of all users for a group, creating it if needed.
+    fn all_receipts_mut(&mut self, group: ReadReceiptGroup<'_>) -> &mut ReceiptEventContent {
+        match group {
+            ReadReceiptGroup::Room => {
+                self.room_read_receipts.get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
+            }
+            ReadReceiptGroup::Thread(thread_root) => self
+                .thread_read_receipts
+                .entry(thread_root.to_owned())
+                .or_insert_with(|| ReceiptEventContent(BTreeMap::new())),
+        }
+    }
 
-/// Filter (deserialised) ephemeral events to only keep the read receipts
-/// matching a particular predicate and user id.
-///
-/// Read receipts have a deep structure (an entanglement of `BTreeMap`). The
-/// returned iterator returns the tuple `(OwnedEventId, (ReceiptType, (UserId,
-/// Receipt)))`. However, the `predicate` is applied on the `Receipt::thread`
-/// field, the leaf of the read receipt.
-///
-/// Only the receipts matching `user_id` are kept.
-///
-/// The predicate is used with [`Iterator::filter_map`], and thus can return a
-/// group key (it can be anything). This group key is associated to the tuple
-/// mentioned earlier, and should be used to “group” read receipts. This is
-/// useful when one wants to group read receipts by their `ReceiptThread` for
-/// example. The predicate is evaluated for each receipt, so the receipts (of
-/// different types) for the same event can end up in different groups.
-fn filter_read_receipts_and_group_by<'e, F, G>(
-    user_id: &'e UserId,
-    events: &'e [AnySyncEphemeralRoomEvent],
-    predicate: F,
-) -> impl Iterator<Item = (G, ReadReceiptTuple<'e>)>
-where
-    F: Fn(&'e ReceiptThread) -> Option<G>,
-{
-    events
-        .iter()
-        .filter_map(|ephemeral| match ephemeral {
-            AnySyncEphemeralRoomEvent::Receipt(receipt_event) => Some(receipt_event),
-            _ => None,
-        })
-        .flat_map(|receipt_event| receipt_event.content.iter())
-        .flat_map(|(event_id, event_receipts)| {
-            event_receipts.iter().map(move |(receipt_type, user_ids_and_receipts)| {
-                (event_id, (receipt_type, user_ids_and_receipts))
-            })
-        })
-        .flat_map(|(event_id, (receipt_type, user_ids_and_receipts))| {
-            user_ids_and_receipts
-                // Filter by `user_id`.
-                .get(user_id)
-                .into_iter()
-                .map(move |receipt| (event_id, (receipt_type, receipt)))
-        })
-        .filter_map(move |(event_id, (receipt_type, receipt))| {
-            Some((predicate(&receipt.thread)?, (event_id, (receipt_type, (user_id, receipt)))))
-        })
+    /// Get the receipts of the own user for a group, creating it if needed.
+    fn own_receipts_mut(&mut self, group: ReadReceiptGroup<'_>) -> &mut MaybeReceiptEventContent {
+        match group {
+            ReadReceiptGroup::Room => &mut self.own_room_read_receipts,
+            ReadReceiptGroup::Thread(thread_root) => self
+                .own_thread_read_receipts
+                .entry(thread_root.to_owned())
+                .or_insert_with(MaybeReceiptEventContent::none),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_test::async_test;
-    use ruma::{events::receipt::ReceiptType, user_id};
+    use ruma::{event_id, events::receipt::ReceiptType, serde::Raw, user_id};
     use serde_json::json;
-    use strass::assert_let;
 
-    use super::{
-        AnySyncEphemeralRoomEvent, ReceiptThread, aggregate_timeline_and_read_receipts_for_room,
-        filter_read_receipts_and_group_by,
-    };
+    use super::EphemeralEvents;
 
-    fn receipt_event(content: serde_json::Value) -> AnySyncEphemeralRoomEvent {
-        serde_json::from_value(json!({ "type": "m.receipt", "content": content })).unwrap()
+    fn receipt_event(content: serde_json::Value) -> Raw<super::AnySyncEphemeralRoomEvent> {
+        Raw::new(&json!({ "type": "m.receipt", "content": content })).unwrap().cast_unchecked()
     }
 
-    #[async_test]
-    async fn test_filter_read_receipts_only_keeps_own_user_and_groups_per_receipt() {
+    #[test]
+    fn test_ephemeral_events_group_read_receipts() {
         let own = user_id!("@me:server.org");
+        let alice = user_id!("@alice:server.org");
+        let bob = user_id!("@bob:server.org");
+        let thread_root = event_id!("$thread_root");
 
-        // On `$ev`, `@alice` has a threaded receipt, while the own user has an
-        // unthreaded one (read) and a threaded one (private). On `$other`, only
-        // `@bob` has a receipt.
-        let ephemeral = vec![receipt_event(json!({
-            "$ev": {
-                "m.read": {
-                    "@alice:server.org": { "ts": 1, "thread_id": "$thread_root" },
-                    "@me:server.org": { "ts": 2 },
+        let ephemeral = vec![
+            // Not a read receipt: ignored.
+            Raw::new(&json!({ "type": "m.typing", "content": { "user_ids": [] } }))
+                .unwrap()
+                .cast_unchecked(),
+            receipt_event(json!({
+                // Receipts in different groups (split path).
+                "$ev": {
+                    "m.read": {
+                        "@alice:server.org": { "ts": 1, "thread_id": "$thread_root" },
+                        "@me:server.org": { "ts": 2 },
+                    },
+                    "m.read.private": {
+                        "@me:server.org": { "ts": 3, "thread_id": "$thread_root" },
+                    },
                 },
-                "m.read.private": {
-                    "@me:server.org": { "ts": 3, "thread_id": "$thread_root" },
+                // Receipts all in the same group (fast path).
+                "$other": {
+                    "m.read": { "@bob:server.org": { "ts": 4, "thread_id": "$thread_root" } },
                 },
-            },
-            "$other": {
-                "m.read": { "@bob:server.org": { "ts": 4, "thread_id": "$thread_root" } },
-            },
-        }))];
+            })),
+            // Another receipt for `$other`, to be merged.
+            receipt_event(json!({
+                "$other": {
+                    "m.read": { "@alice:server.org": { "ts": 5, "thread_id": "$thread_root" } },
+                },
+            })),
+        ];
 
-        // For a room timeline.
-        let mut iterator =
-            filter_read_receipts_and_group_by(own, &ephemeral, |thread| match thread {
-                ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
-                _ => None,
-            })
-            .map(|(_group, read_receipts)| read_receipts);
+        let EphemeralEvents {
+            room_read_receipts,
+            own_room_read_receipts,
+            thread_read_receipts,
+            own_thread_read_receipts,
+        } = EphemeralEvents::from_sync(own, ephemeral);
 
-        assert_let!(Some((event_id, (receipt_type, (user_id, _receipt)))) = iterator.next());
-        assert_eq!(event_id.as_str(), "$ev");
-        assert_eq!(receipt_type, &ReceiptType::Read);
-        assert_eq!(user_id, own);
+        // Room, all users: only the own unthreaded receipt.
+        let room = room_read_receipts.unwrap();
+        assert_eq!(room.len(), 1);
+        let receipts = &room[event_id!("$ev")];
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[&ReceiptType::Read].keys().collect::<Vec<_>>(), [own]);
 
-        assert!(iterator.next().is_none());
+        // Room, own user: the same.
+        let own_room = own_room_read_receipts.into_inner().unwrap();
+        assert_eq!(own_room.len(), 1);
+        let receipts = &own_room[event_id!("$ev")];
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[&ReceiptType::Read].keys().collect::<Vec<_>>(), [own]);
 
-        // For a thread timeline.
-        let mut iterator =
-            filter_read_receipts_and_group_by(own, &ephemeral, |thread| match thread {
-                ReceiptThread::Thread(thread_id) => Some(thread_id),
-                _ => None,
-            })
-            .map(|(_group, read_receipts)| read_receipts);
+        // Thread, all users.
+        assert_eq!(thread_read_receipts.len(), 1);
+        let thread = &thread_read_receipts[thread_root];
+        assert_eq!(thread.len(), 2);
 
-        assert_let!(Some((event_id, (receipt_type, (user_id, _receipt)))) = iterator.next());
-        assert_eq!(event_id.as_str(), "$ev");
-        assert_eq!(receipt_type, &ReceiptType::ReadPrivate);
-        assert_eq!(user_id, own);
+        let receipts = &thread[event_id!("$ev")];
+        assert_eq!(receipts[&ReceiptType::Read].keys().collect::<Vec<_>>(), [alice]);
+        assert_eq!(receipts[&ReceiptType::ReadPrivate].keys().collect::<Vec<_>>(), [own]);
 
-        assert!(iterator.next().is_none());
+        let receipts = &thread[event_id!("$other")];
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[&ReceiptType::Read].keys().collect::<Vec<_>>(), [alice, bob]);
+
+        // Thread, own user: only the private receipt.
+        assert_eq!(own_thread_read_receipts.len(), 1);
+        let own_thread =
+            own_thread_read_receipts.into_iter().next().unwrap().1.into_inner().unwrap();
+        assert_eq!(own_thread.len(), 1);
+        let receipts = &own_thread[event_id!("$ev")];
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[&ReceiptType::ReadPrivate].keys().collect::<Vec<_>>(), [own]);
     }
 
-    #[async_test]
-    async fn test_room_read_receipts_ignore_other_users() {
+    #[test]
+    fn test_ephemeral_events_without_own_read_receipts() {
         let own = user_id!("@me:server.org");
         let ephemeral = vec![receipt_event(json!({
             "$ev": { "m.read": { "@alice:server.org": { "ts": 1 } } },
         }))];
 
-        let (_, read_receipts) =
-            aggregate_timeline_and_read_receipts_for_room(own, &Default::default(), &ephemeral);
+        let events = EphemeralEvents::from_sync(own, ephemeral);
 
-        assert!(read_receipts.is_none());
+        assert!(events.room_read_receipts.is_some());
+        assert!(events.own_room_read_receipts.is_none());
+        assert!(events.thread_read_receipts.is_empty());
+        assert!(events.own_thread_read_receipts.is_empty());
     }
 }
