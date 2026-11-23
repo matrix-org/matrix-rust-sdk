@@ -618,9 +618,16 @@ mod tests {
         assert!(room.sticky_events().live().is_empty());
 
         let update = subscriber.try_recv().unwrap();
-        assert_matches!(update.removed.as_slice(), [(key, crate::sticky::RemovalReason::RoomLeft)] => {
-            assert_eq!(key.sticky_key, "slot");
-        });
+        assert_matches!(
+            update.removed.as_slice(),
+            [crate::sticky::StickyEventRemoval {
+                key,
+                reason: crate::sticky::RemovalReason::RoomLeft,
+                tombstone: None
+            }] => {
+                assert_eq!(key.sticky_key, "slot");
+            }
+        );
     }
 
     #[cfg(all(feature = "unstable-msc4354", feature = "e2e-encryption"))]

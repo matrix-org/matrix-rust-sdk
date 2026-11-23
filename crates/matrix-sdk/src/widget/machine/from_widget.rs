@@ -15,6 +15,8 @@
 use std::collections::BTreeMap;
 
 use as_variant::as_variant;
+#[cfg(feature = "unstable-msc4354")]
+use ruma::api::client::delayed_events::send_delayed_event;
 use ruma::{
     OwnedEventId, OwnedRoomId,
     api::{
@@ -273,6 +275,13 @@ impl From<delayed_state_event::msc4140::Response> for SendEventResponse {
     }
 }
 
+#[cfg(feature = "unstable-msc4354")]
+impl From<send_delayed_event::msc4140::Response> for SendEventResponse {
+    fn from(val: send_delayed_event::msc4140::Response) -> Self {
+        SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
+    }
+}
+
 /// A wrapper type for the empty okay response from
 /// [`update_delayed_event`](update_delayed_event::unstable_v1::Response)
 /// which derives Serialize. (The response struct from Ruma does not derive
@@ -371,8 +380,8 @@ pub(crate) struct RtcLivekitGetTokenResponse {
     pub(crate) jwt: String,
 }
 
-impl From<rtc::livekit::get_token::msc4195::Response> for RtcLivekitGetTokenResponse {
-    fn from(response: rtc::livekit::get_token::msc4195::Response) -> Self {
+impl From<rtc::livekit::get_token::v1::Response> for RtcLivekitGetTokenResponse {
+    fn from(response: rtc::livekit::get_token::v1::Response) -> Self {
         Self { jwt: response.jwt }
     }
 }
@@ -401,10 +410,10 @@ impl FromMatrixDriverResponse for RtcLivekitGetTokenResponse {
 #[derive(Serialize, Debug)]
 pub(crate) struct RtcLivekitDelegateDelayedLeaveResponse {}
 
-impl From<rtc::livekit::delegate_delayed_leave::msc4195::Response>
+impl From<rtc::livekit::delegate_delayed_leave::v1::Response>
     for RtcLivekitDelegateDelayedLeaveResponse
 {
-    fn from(_: rtc::livekit::delegate_delayed_leave::msc4195::Response) -> Self {
+    fn from(_: rtc::livekit::delegate_delayed_leave::v1::Response) -> Self {
         Self {}
     }
 }

@@ -26,7 +26,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEventKind;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, UInt};
 use tracing::warn;
 
-use super::{RemovalReason, StickyEvent, StickyEventsUpdate, StickyKey};
+use super::{RemovalReason, StickyEvent, StickyEventRemoval, StickyEventsUpdate, StickyKey};
 
 /// The maximum number of entries (live values and tombstones alike) a single
 /// room's map holds.
@@ -149,7 +149,9 @@ impl EphemeralMap {
             match self.insert(now, candidate) {
                 Some(Change::Added(event)) => update.added.push(event),
                 Some(Change::Updated(event)) => update.updated.push(event),
-                Some(Change::Removed(key)) => update.removed.push((key, RemovalReason::Replaced)),
+                Some(Change::Removed { key, tombstone }) => update
+                    .removed
+                    .push(StickyEventRemoval { key, reason: RemovalReason::Replaced, tombstone }),
                 None => {}
             }
         }
@@ -211,7 +213,10 @@ impl EphemeralMap {
         self.expiry_heap.push(Reverse(ExpiryNode { expires_at, seq, key: key.clone() }));
 
         match (was_live, is_tombstone) {
-            (true, true) => Some(Change::Removed(key)),
+            (true, true) => {
+                let tombstone = self.event(&key);
+                Some(Change::Removed { key, tombstone })
+            }
             (true, false) => Some(Change::Updated(self.event(&key)?)),
             (false, false) => Some(Change::Added(self.event(&key)?)),
             // A tombstone replacing nothing visible: nothing to report.
@@ -224,6 +229,15 @@ impl EphemeralMap {
         self.entries
             .iter()
             .filter(move |(_, value)| value.is_live(now))
+            .map(|(key, value)| Self::event_from_entry(key, value))
+    }
+
+    /// The entries that have not expired at `now`, tombstones included, in no
+    /// particular order.
+    pub fn unexpired(&self, now: u64) -> impl Iterator<Item = StickyEvent> + '_ {
+        self.entries
+            .iter()
+            .filter(move |(_, value)| value.expires_at > now)
             .map(|(key, value)| Self::event_from_entry(key, value))
     }
 
@@ -293,7 +307,7 @@ impl EphemeralMap {
 enum Change {
     Added(StickyEvent),
     Updated(StickyEvent),
-    Removed(StickyKey),
+    Removed { key: StickyKey, tombstone: Option<StickyEvent> },
 }
 
 #[cfg(test)]
@@ -307,7 +321,7 @@ mod tests {
     use strass::assert_let;
 
     use super::{Candidate, EphemeralMap, MAX_ENTRIES};
-    use crate::sticky::{RemovalReason, StickyKey};
+    use crate::sticky::{RemovalReason, StickyEventRemoval, StickyKey};
 
     fn key(sticky_key: &str) -> StickyKey {
         StickyKey {
@@ -433,11 +447,24 @@ mod tests {
 
         let update =
             map.apply(0, [tombstone(k.clone(), &owned_event_id!("$b:localhost"), 200, 1000)]);
-        assert_eq!(update.removed, vec![(k, RemovalReason::Replaced)]);
+        assert_let!(
+            [StickyEventRemoval {
+                key,
+                reason: RemovalReason::Replaced,
+                tombstone: Some(tombstone)
+            }] = update.removed.as_slice()
+        );
+        assert_eq!(*key, k);
+        assert_eq!(tombstone.event_id, "$b:localhost");
         assert_eq!(map.live(0).count(), 0);
 
-        // The tombstone stays in the map until it expires, though.
+        // The tombstone stays in the map until it expires, though, and is
+        // reported as unexpired until then.
         assert_eq!(map.len(), 1);
+        let unexpired: Vec<_> = map.unexpired(0).collect();
+        assert_eq!(unexpired.len(), 1);
+        assert_eq!(unexpired[0].event_id, "$b:localhost");
+        assert_eq!(map.unexpired(1000).count(), 0);
     }
 
     #[test]

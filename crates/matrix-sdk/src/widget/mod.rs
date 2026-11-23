@@ -247,8 +247,20 @@ impl WidgetDriver {
                         .await
                         .map(MatrixDriverResponse::StateRead),
 
+                    #[cfg(feature = "unstable-msc4354")]
+                    MatrixDriverRequestData::ReadStickyEvents => {
+                        Ok(MatrixDriverResponse::EventsRead(matrix_driver.read_sticky_events()))
+                    }
+
                     MatrixDriverRequestData::SendEvent(req) => {
-                        let SendEventRequest { event_type, state_key, content, delay } = req;
+                        let SendEventRequest {
+                            event_type,
+                            state_key,
+                            content,
+                            delay,
+                            #[cfg(feature = "unstable-msc4354")]
+                            sticky_duration_ms,
+                        } = req;
                         // The widget api action does not use the unstable
                         // prefix: `org.matrix.msc4140.delay` so we cannot use
                         // the `DelayParameters` here and need to convert
@@ -257,7 +269,14 @@ impl WidgetDriver {
                             timeout: Duration::from_millis(d),
                         });
                         matrix_driver
-                            .send(event_type.into(), state_key, content, delay_event_parameter)
+                            .send(
+                                event_type.into(),
+                                state_key,
+                                content,
+                                delay_event_parameter,
+                                #[cfg(feature = "unstable-msc4354")]
+                                sticky_duration_ms.map(Duration::from_millis),
+                            )
                             .await
                             .map(MatrixDriverResponse::EventSent)
                     }

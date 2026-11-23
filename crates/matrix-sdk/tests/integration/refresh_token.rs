@@ -5,9 +5,8 @@ use std::{
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
-    HttpError, RefreshTokenError, SessionChange, SessionTokens,
+    HttpError, RefreshTokenError, SessionChange,
     authentication::{matrix::MatrixSession, oauth::OAuthError},
-    config::RequestConfig,
     executor::spawn,
     store::RoomLoadSettings,
     test_utils::{
@@ -15,36 +14,24 @@ use matrix_sdk::{
             mock_prev_session_tokens_with_refresh, mock_session_meta,
             mock_session_tokens_with_refresh, oauth::mock_session,
         },
-        logged_in_client_with_server,
         mocks::{LoginResponseTemplate200, MatrixMockServer},
-        no_retry_test_client_with_server, test_client_builder_with_server,
     },
 };
-use matrix_sdk_test::{async_test, test_json};
+use matrix_sdk_test::{TestAuthToken, async_test};
 use ruma::{
     api::{
         MatrixVersion,
         client::account::register,
         error::{ErrorKind, UnknownTokenErrorData},
     },
-    assign, owned_device_id, owned_user_id,
+    assign,
 };
 use serde_json::json;
-use strass::assert_let;
+use strass::{assert_let, assert_variant_eq};
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{body_partial_json, header, method, path},
-};
 
 fn session() -> MatrixSession {
-    MatrixSession {
-        meta: mock_session_meta(),
-        tokens: SessionTokens {
-            access_token: "1234".to_owned(),
-            refresh_token: Some("abcd".to_owned()),
-        },
-    }
+    MatrixSession { meta: mock_session_meta(), tokens: mock_session_tokens_with_refresh() }
 }
 
 #[async_test]
@@ -54,14 +41,11 @@ async fn test_login_username_refresh_token() {
         .mock_login()
         .body_matches_partial_json(json!({"refresh_token": true}))
         .ok_with(
-            LoginResponseTemplate200::new(
-                "abc123",
-                owned_device_id!("GHTYAJCE"),
-                owned_user_id!("@cheeky_monkey:matrix.org"),
-            )
-            .expires_in(Duration::from_millis(432000000))
-            .refresh_token("zyx987"),
+            LoginResponseTemplate200::with_default_fields()
+                .expires_in(Duration::from_millis(432000000))
+                .refresh_token(TestAuthToken::RefreshDefault),
         )
+        .expect(1)
         .mount()
         .await;
 
@@ -82,17 +66,19 @@ async fn test_login_username_refresh_token() {
 #[async_test]
 #[cfg(feature = "sso-login")]
 async fn test_login_sso_refresh_token() {
-    let (client, server) = no_retry_test_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().unlogged().build().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/login"))
-        .and(body_partial_json(json!({
-            "refresh_token": true,
-        })))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
+    server
+        .mock_login()
+        .body_matches_partial_json(json!({"refresh_token": true}))
+        .ok_with(
+            LoginResponseTemplate200::with_default_fields()
+                .expires_in(Duration::from_millis(432000000))
+                .refresh_token(TestAuthToken::RefreshDefault),
         )
-        .mount(&server)
+        .expect(1)
+        .mount()
         .await;
 
     let idp = ruma::api::client::session::get_login_types::v3::IdentityProvider::new(
@@ -125,19 +111,17 @@ async fn test_login_sso_refresh_token() {
 
 #[async_test]
 async fn test_register_refresh_token() {
-    let (client, server) = no_retry_test_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().unlogged().build().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/register"))
-        .and(body_partial_json(json!({
+    server
+        .mock_register()
+        .body_matches_partial_json(json!({
             "refresh_token": true,
-        })))
-        .respond_with(
-            // Successful registration response is the same as for login, if
-            // `inhibit_login` is `false`.
-            ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
-        )
-        .mount(&server)
+        }))
+        .ok_with_refresh_token()
+        .expect(1)
+        .mount()
         .await;
 
     let req = assign!(register::v3::Request::new(), {
@@ -154,15 +138,11 @@ async fn test_register_refresh_token() {
 
 #[async_test]
 async fn test_no_refresh_token() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Refresh token doesn't change.
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
-        .expect(0)
-        .mount(&server)
-        .await;
+    server.mock_refresh(Option::<&str>::None).ok().expect(0).mount().await;
 
     let res = client.refresh_access_token().await;
     assert_matches!(res, Err(RefreshTokenError::RefreshTokenRequired));
@@ -170,13 +150,8 @@ async fn test_no_refresh_token() {
 
 #[async_test]
 async fn test_refresh_token() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .build()
-        .await
-        .unwrap();
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().unlogged().build().await;
     let auth = client.matrix_auth();
 
     let num_save_session_callback_calls = Arc::new(Mutex::new(0));
@@ -199,43 +174,36 @@ async fn test_refresh_token() {
     assert_eq!(session_changes.try_recv(), Err(TryRecvError::Empty));
 
     let tokens = client.session_tokens().unwrap();
-    assert_eq!(tokens.access_token, "1234");
-    assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
+    assert_eq!(tokens.access_token, TestAuthToken::AccessDefault);
+    assert_variant_eq!(tokens.refresh_token, Some(TestAuthToken::RefreshDefault));
 
     // Refresh token doesn't change.
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .and(body_partial_json(json!({
-            "refresh_token": "abcd",
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
-        .up_to_n_times(1)
-        .mount(&server)
+    server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .ok_with_access_token(TestAuthToken::AccessAlt1)
+        .mock_once()
+        .mount()
         .await;
 
     auth.refresh_access_token().await.unwrap();
     let tokens = client.session_tokens().unwrap();
-    assert_eq!(tokens.access_token, "5678");
-    assert_eq!(tokens.refresh_token.as_deref(), Some("abcd"));
+    assert_eq!(tokens.access_token, TestAuthToken::AccessAlt1);
+    assert_variant_eq!(tokens.refresh_token, Some(TestAuthToken::RefreshDefault));
     assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 1);
     assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
 
     // Refresh token changes.
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .and(body_partial_json(json!({
-            "refresh_token": "abcd",
-        })))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN_WITH_REFRESH_TOKEN),
-        )
-        .mount(&server)
+    server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .ok_with_both_tokens(TestAuthToken::AccessAlt2, TestAuthToken::RefreshAlt1)
+        .expect(1)
+        .mount()
         .await;
 
     auth.refresh_access_token().await.unwrap();
     let tokens = client.session_tokens().unwrap();
-    assert_eq!(tokens.access_token, "9012");
-    assert_eq!(tokens.refresh_token.as_deref(), Some("wxyz"));
+    assert_eq!(tokens.access_token, TestAuthToken::AccessAlt2);
+    assert_variant_eq!(tokens.refresh_token, Some(TestAuthToken::RefreshAlt1));
     assert_eq!(*num_save_session_callback_calls.lock().unwrap(), 2);
     assert_eq!(session_changes.try_recv(), Ok(SessionChange::TokensRefreshed));
 
@@ -244,33 +212,21 @@ async fn test_refresh_token() {
 
 #[async_test]
 async fn test_refresh_token_not_handled() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .build()
-        .await
-        .unwrap();
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().unlogged().build().await;
     let auth = client.matrix_auth();
 
     let session = session();
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
+    server
+        .mock_refresh(Option::<&str>::None)
+        .ok_with_access_token(TestAuthToken::AccessAlt1)
         .expect(0)
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
-        .mount(&server)
-        .await;
+    server.mock_who_am_i().error_unknown_token(true).expect(1..).mount().await;
 
     let res = client.whoami().await.unwrap_err();
     assert_matches!(res.client_api_error_kind(), Some(ErrorKind::UnknownToken { .. }));
@@ -278,14 +234,13 @@ async fn test_refresh_token_not_handled() {
 
 #[async_test]
 async fn test_refresh_token_handled_success() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
-        .await
-        .unwrap();
+        .await;
     let auth = client.matrix_auth();
 
     let session = session();
@@ -293,32 +248,29 @@ async fn test_refresh_token_handled_success() {
 
     let mut session_changes = client.subscribe_to_session_changes();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
+    server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .ok_with_access_token(TestAuthToken::AccessAlt1)
         .expect(1)
         .named("`POST /refresh`")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
+    server
+        .mock_who_am_i()
+        .error_unknown_token(true)
         .expect(1)
         .named("`GET /whoami` wrong token")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+    server
+        .mock_who_am_i()
+        .expect_access_token(TestAuthToken::AccessAlt1)
+        .ok()
         .expect(1)
         .named("`GET /whoami` good token")
-        .mount(&server)
+        .mount()
         .await;
 
     client.whoami().await.unwrap();
@@ -330,14 +282,13 @@ async fn test_refresh_token_handled_success() {
 #[async_test]
 async fn test_refresh_token_handled_failure() {
     for (access_soft_logout, refresh_soft_logout) in [(false, true), (true, false)] {
-        let (builder, server) = test_client_builder_with_server().await;
-        let client = builder
-            .request_config(RequestConfig::new().disable_retry())
-            .server_versions([MatrixVersion::V1_3])
-            .handle_refresh_tokens()
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .unlogged()
+            .on_builder(|builder| builder.handle_refresh_tokens())
             .build()
-            .await
-            .unwrap();
+            .await;
         let auth = client.matrix_auth();
 
         let session = session();
@@ -345,35 +296,29 @@ async fn test_refresh_token_handled_failure() {
 
         let mut session_changes = client.subscribe_to_session_changes();
 
-        Mock::given(method("POST"))
-            .and(path("/_matrix/client/v3/refresh"))
-            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
-                "errcode": "M_UNKNOWN_TOKEN", "error": "rejected",
-                "soft_logout": refresh_soft_logout
-            })))
+        server
+            .mock_refresh(Some(TestAuthToken::RefreshDefault))
+            .error_unknown_token(refresh_soft_logout)
             .expect(1)
             .named("`POST /refresh`")
-            .mount(&server)
+            .mount()
             .await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/v3/account/whoami"))
-            .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
-                "errcode": "M_UNKNOWN_TOKEN", "error": "expired", "soft_logout": access_soft_logout
-            })))
+        server
+            .mock_who_am_i()
+            .error_unknown_token(access_soft_logout)
             .expect(1)
             .named("`GET /whoami` wrong token")
-            .mount(&server)
+            .mount()
             .await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/v3/account/whoami"))
-            .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+        server
+            .mock_who_am_i()
+            .expect_access_token(TestAuthToken::AccessAlt1)
+            .ok()
             .expect(0)
             .named("`GET /whoami` good token")
-            .mount(&server)
+            .mount()
             .await;
 
         let res = client.whoami().await;
@@ -389,14 +334,13 @@ async fn test_refresh_token_handled_failure() {
 
 #[async_test]
 async fn test_refresh_token_transient_failure_is_not_a_logout() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
-        .await
-        .unwrap();
+        .await;
     let auth = client.matrix_auth();
 
     let session = session();
@@ -404,23 +348,15 @@ async fn test_refresh_token_transient_failure_is_not_a_logout() {
 
     let mut session_changes = client.subscribe_to_session_changes();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(502))
+    server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .error500()
         .expect(1)
         .named("`POST /refresh` bad gateway")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
-        .expect(1)
-        .named("`GET /whoami`")
-        .mount(&server)
-        .await;
+    server.mock_who_am_i().error_unknown_token(true).expect(1).named("`GET /whoami`").mount().await;
 
     let res = client.whoami().await;
     assert_let!(Err(HttpError::RefreshToken(RefreshTokenError::MatrixAuth(_))) = res);
@@ -431,33 +367,22 @@ async fn test_refresh_token_transient_failure_is_not_a_logout() {
 
 #[async_test]
 async fn test_refresh_token_rate_limit_preserves_session_and_recovers() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
-        .await
-        .unwrap();
+        .await;
     client.matrix_auth().restore_session(session(), RoomLoadSettings::default()).await.unwrap();
     let mut changes = client.subscribe_to_session_changes();
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
-        .expect(2)
-        .mount(&server)
-        .await;
-    let limited = Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
-            "errcode": "M_LIMIT_EXCEEDED", "error": "try later"
-        })))
+    server.mock_who_am_i().error_unknown_token(true).expect(2).mount().await;
+    let limited = server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .error_rate_limited()
         .expect(1)
-        .mount_as_scoped(&server)
+        .mount_as_scoped()
         .await;
 
     assert_matches!(client.whoami().await, Err(HttpError::RefreshToken(_)));
@@ -465,18 +390,13 @@ async fn test_refresh_token_rate_limit_preserves_session_and_recovers() {
     assert_eq!(client.session_tokens(), Some(session().tokens));
     drop(limited);
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
+    server.mock_refresh(Some(TestAuthToken::RefreshDefault)).ok().expect(1).mount().await;
+    server
+        .mock_who_am_i()
+        .expect_access_token(TestAuthToken::AccessAlt1)
+        .ok()
         .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
-        .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     client.whoami().await.unwrap();
@@ -486,49 +406,42 @@ async fn test_refresh_token_rate_limit_preserves_session_and_recovers() {
 
 #[async_test]
 async fn test_refresh_token_handled_multi_success() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
-        .await
-        .unwrap();
+        .await;
     let auth = client.matrix_auth();
 
     let session = session();
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&*test_json::REFRESH_TOKEN)
-                .set_delay(Duration::from_secs(1)),
-        )
+    server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .with_delay(Duration::from_secs(1))
+        .ok()
         .expect(1)
         .named("`POST /refresh`")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
+    server
+        .mock_who_am_i()
+        .error_unknown_token(true)
         .expect(3)
         .named("`GET /whoami` wrong token")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+    server
+        .mock_who_am_i()
+        .expect_access_token(TestAuthToken::AccessAlt1)
+        .ok()
         .expect(3)
         .named("`GET /whoami` good token")
-        .mount(&server)
+        .mount()
         .await;
 
     let (sender, mut receiver) = mpsc::channel::<()>(3);
@@ -559,49 +472,42 @@ async fn test_refresh_token_handled_multi_success() {
 
 #[async_test]
 async fn test_refresh_token_handled_multi_failure() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
-        .await
-        .unwrap();
+        .await;
     let auth = client.matrix_auth();
 
     let session = session();
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(
-            ResponseTemplate::new(401)
-                .set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT)
-                .set_delay(Duration::from_secs(1)),
-        )
+    server
+        .mock_refresh(Some(TestAuthToken::RefreshDefault))
+        .with_delay(Duration::from_secs(1))
+        .error_unknown_token(true)
         .expect(1)
         .named("`POST /refresh`")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(&*test_json::UNKNOWN_TOKEN_SOFT_LOGOUT),
-        )
+    server
+        .mock_who_am_i()
+        .error_unknown_token(true)
         .expect(3)
         .named("`GET /whoami` wrong token")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .and(header(http::header::AUTHORIZATION, "Bearer 5678"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::WHOAMI))
+    server
+        .mock_who_am_i()
+        .expect_access_token(TestAuthToken::AccessAlt1)
+        .ok()
         .expect(0)
         .named("`GET /whoami` good token")
-        .mount(&server)
+        .mount()
         .await;
 
     let (sender, mut receiver) = mpsc::channel::<()>(3);
@@ -632,34 +538,21 @@ async fn test_refresh_token_handled_multi_failure() {
 
 #[async_test]
 async fn test_refresh_token_handled_other_error() {
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .server_versions([MatrixVersion::V1_3])
-        .handle_refresh_tokens()
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .unlogged()
+        .on_builder(|builder| builder.handle_refresh_tokens())
         .build()
-        .await
-        .unwrap();
+        .await;
     let auth = client.matrix_auth();
 
     let session = session();
     auth.restore_session(session, RoomLoadSettings::default()).await.unwrap();
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/v3/refresh"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::REFRESH_TOKEN))
-        .expect(0)
-        .named("`POST /refresh`")
-        .mount(&server)
-        .await;
+    server.mock_refresh(Option::<&str>::None).ok().expect(0).named("`POST /refresh`").mount().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v3/account/whoami"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(&*test_json::NOT_FOUND))
-        .expect(1)
-        .named("`GET /whoami`")
-        .mount(&server)
-        .await;
+    server.mock_who_am_i().error_unrecognized().expect(1).named("`GET /whoami`").mount().await;
 
     client.whoami().await.unwrap_err();
 }
@@ -670,7 +563,7 @@ async fn test_oauth_refresh_token_handled_success() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
@@ -721,7 +614,7 @@ async fn test_oauth_refresh_token_handled_failure() {
     // Return an error first so the token is refreshed.
     server
         .mock_who_am_i()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .expect(1)
         .named("whoami_unknown_token")
@@ -856,7 +749,7 @@ async fn test_oauth_handle_refresh_tokens_without_versions() {
     // token has expired.
     server
         .mock_versions()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .expect(1..)
         .named("versions with expired token")
@@ -917,7 +810,7 @@ async fn test_supported_versions_handle_refresh_token() {
     // Request with the expired access token returns an unknown token error.
     server
         .mock_versions()
-        .expect_access_token("prev-access-token")
+        .expect_access_token(TestAuthToken::AccessPrev)
         .error_unknown_token(true)
         .named("versions with expired access token")
         .expect(1)
@@ -979,7 +872,7 @@ async fn test_supported_versions_handle_refresh_token() {
     // The result was cached.
     assert_matches!(client.supported_versions_cached().await, Ok(Some(_)));
     // The access token was refreshed.
-    assert_eq!(client.access_token().as_deref(), Some("1234"));
+    assert_variant_eq!(client.access_token(), Some(TestAuthToken::AccessDefault));
 
     // This call hits the cache.
     assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));

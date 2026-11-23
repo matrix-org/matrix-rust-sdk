@@ -96,6 +96,7 @@ use ruma::{
     api::client::keys::get_keys,
     events::{
         GlobalAccountDataEventType,
+        key_backup::KeyBackupEventContent,
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
         secret_storage::{default_key::SecretStorageDefaultKeyEvent, secret::SecretEventContent},
     },
@@ -119,7 +120,7 @@ mod types;
 pub use self::types::{EnableProgress, RecoveryError, RecoveryState, Result};
 use self::{
     futures::{Enable, RecoverAndReset, Reset},
-    types::{BackupDisabledContent, KeyBackupContent, SecretStorageDisabledContent},
+    types::{BackupDisabledContent, SecretStorageDisabledContent},
 };
 use crate::encryption::{AuthData, CrossSigningResetAuthType, CrossSigningResetHandle};
 
@@ -324,8 +325,8 @@ impl Recovery {
         // Now let's "delete" the actual `m.secret.storage.default_key` event.
         self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;
         // Make sure that we don't re-enable backups automatically.
-        self.client.account().set_account_data(KeyBackupContent { enabled: false }).await?;
-        // (Unstable prefix version of KeyBackupContent)
+        self.client.account().set_account_data(KeyBackupEventContent::new(false)).await?;
+        // (Unstable prefix version of `m.key_backup`)
         self.client.account().set_account_data(BackupDisabledContent { disabled: true }).await?;
         // Finally, "delete" all the known secrets we have in the account data.
         self.delete_all_known_secrets().await?;
@@ -651,7 +652,7 @@ impl Recovery {
     /// the account level.
     async fn are_backups_marked_as_disabled(&self) -> Result<bool> {
         if let Some(key_backup_content) =
-            self.client.account().fetch_account_data_static::<KeyBackupContent>().await?
+            self.client.account().fetch_account_data_static::<KeyBackupEventContent>().await?
         {
             Ok(key_backup_content.deserialize().map(|event| !event.enabled).unwrap_or(false))
         } else {
@@ -666,7 +667,7 @@ impl Recovery {
     }
 
     async fn mark_backup_as_enabled(&self) -> Result<()> {
-        self.client.account().set_account_data(KeyBackupContent { enabled: true }).await?;
+        self.client.account().set_account_data(KeyBackupEventContent::new(true)).await?;
 
         // Unstable prefix: will be removed when sufficient time has passed for
         // clients to use the stable prefix.

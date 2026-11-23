@@ -41,7 +41,7 @@ of Sliding Sync, and must be provided when getting a builder:
 # let client = Client::new(homeserver).await?;
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .version(Version::Native);
+    .version(Version::Unstable);
 
 # anyhow::Ok(())
 # };
@@ -333,13 +333,13 @@ let full_sync_list_name = "full-sync".to_owned();
 let active_list_name = "active-list".to_owned();
 let sliding_sync_builder = client
     .sliding_sync("main-sync")?
-    .version(Version::Native)
+    .version(Version::Unstable)
     .with_account_data_extension(
         assign!(http::request::AccountData::default(), { enabled: Some(true) }),
     ) // we enable the account-data extension
-    .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) })) // and the e2ee extension
+    .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true })) // and the e2ee extension
     .with_to_device_extension(
-        assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
+        assign!(http::request::ToDevice::default(), { enabled: true }),
     ); // and the to-device extension
 
 let full_sync_list = SlidingSyncList::builder(&full_sync_list_name)

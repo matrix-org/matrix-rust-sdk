@@ -32,7 +32,7 @@ base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 bitflags = { version = "2.13.2", default-features = false }
 byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "help", "usage"] }
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
+jiff = { version = "1.0.1", default-features = false, features = ["std", "tz-system"] }
 ctor = "1.0.13"
 dirs = { version = "7.0.0", default-features = false }
 eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }
@@ -68,7 +68,7 @@ rcgen = { version = "0.14.10", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-perl"] }
 reqwest = { version = "0.13.5", default-features = false }
 rmp-serde = { version = "1.3.1", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "5133d4ec2846884b1d80a3769004524c34273c02", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "c514595056812f45753b2ec1a823c33bafce6b7f", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",

@@ -1,6 +1,5 @@
 use std::{collections::BTreeMap, default::Default};
 
-use insta::{assert_json_snapshot, with_settings};
 use ruma::{
     CanonicalJsonValue, CrossSigningKeyId, CrossSigningOrDeviceSignatures,
     CrossSigningOrDeviceSigningKeyId, DeviceId, OwnedBase64PublicKey,
@@ -17,7 +16,7 @@ use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519SecretKey, Ed25519
 
 use super::keys_query::{KeysQueryUser, keys_query, master_keys};
 use crate::{
-    ruma_response_from_json, ruma_response_to_json,
+    ruma_response_from_json,
     test_json::keys_query::{device_keys_payload, self_signing_keys},
 };
 
@@ -359,14 +358,7 @@ impl KeyDistributionTestData {
                 Self::me_private_user_signing_key(),
             );
 
-        let response = builder.build_response();
-        with_settings!({sort_maps => true}, {
-            assert_json_snapshot!(
-                "KeyDistributionTestData__me_keys_query_response",
-                ruma_response_to_json(response.clone()),
-            );
-        });
-        response
+        builder.build_response()
     }
 
     /// Dan's (base64-encoded) private master cross-signing key.
@@ -386,14 +378,7 @@ impl KeyDistributionTestData {
     ///
     /// `@dan`'s identity is signed by `@me`'s identity (Alice trusts Dan).
     pub fn dan_keys_query_response() -> KeyQueryResponse {
-        let response = Self::dan_keys_query_response_common();
-        with_settings!({sort_maps => true}, {
-            assert_json_snapshot!(
-                "KeyDistributionTestData__dan_keys_query_response",
-                ruma_response_to_json(response.clone()),
-            );
-        });
-        response
+        Self::dan_keys_query_response_common()
     }
 
     /// Same as `dan_keys_query_response` but `FRGNMZVOKA` was removed.
@@ -405,20 +390,13 @@ impl KeyDistributionTestData {
             .unwrap()
             .remove(Self::dan_unsigned_device_id());
 
-        with_settings!({sort_maps => true}, {
-            assert_json_snapshot!(
-                "KeyDistributionTestData__dan_keys_query_response_device_loggedout",
-                ruma_response_to_json(response.clone()),
-            );
-        });
         response
     }
 
     /// Common helper for [`Self::dan_keys_query_response`] and
     /// [`Self::dan_keys_query_response_device_loggedout`].
     ///
-    /// Returns the full response, including both devices, without writing the
-    /// snapshot.
+    /// Returns the full response, including both devices.
     fn dan_keys_query_response_common() -> KeyQueryResponse {
         let builder = KeyQueryResponseTemplate::new(Self::dan_id().to_owned())
             .with_cross_signing_keys(
@@ -757,14 +735,7 @@ impl VerificationViolationTestData {
                 Ed25519SecretKey::from_base64(Self::USER_SIGNING_KEY_PRIVATE_EXPORT).unwrap(),
             );
 
-        let response = builder.build_response();
-        with_settings!({sort_maps => true}, {
-            assert_json_snapshot!(
-                "VerificationViolationTestData__own_keys_query_response_1",
-                ruma_response_to_json(response.clone()),
-            );
-        });
-        response
+        builder.build_response()
     }
 
     /// A second `/keys/query` response for Alice, containing a *different* set
@@ -1492,4 +1463,54 @@ fn sign_cross_signing_key(
         CrossSigningOrDeviceSigningKeyId::from_parts(SigningKeyAlgorithm::Ed25519, &signing_key_id),
         signature.to_base64(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use insta::{assert_json_snapshot, with_settings};
+
+    use super::{KeyDistributionTestData, VerificationViolationTestData};
+    use crate::ruma_response_to_json;
+
+    #[test]
+    fn test_key_distribution_me_keys_query_response() {
+        with_settings!({sort_maps => true, prepend_module_to_snapshot => false}, {
+            assert_json_snapshot!(
+                "KeyDistributionTestData__me_keys_query_response",
+                ruma_response_to_json(KeyDistributionTestData::me_keys_query_response()),
+            );
+        });
+    }
+
+    #[test]
+    fn test_key_distribution_dan_keys_query_response() {
+        with_settings!({sort_maps => true, prepend_module_to_snapshot => false}, {
+            assert_json_snapshot!(
+                "KeyDistributionTestData__dan_keys_query_response",
+                ruma_response_to_json(KeyDistributionTestData::dan_keys_query_response()),
+            );
+        });
+    }
+
+    #[test]
+    fn test_key_distribution_dan_keys_query_response_device_loggedout() {
+        with_settings!({sort_maps => true, prepend_module_to_snapshot => false}, {
+            assert_json_snapshot!(
+                "KeyDistributionTestData__dan_keys_query_response_device_loggedout",
+                ruma_response_to_json(
+                    KeyDistributionTestData::dan_keys_query_response_device_loggedout()
+                ),
+            );
+        });
+    }
+
+    #[test]
+    fn test_verification_violation_own_keys_query_response_1() {
+        with_settings!({sort_maps => true, prepend_module_to_snapshot => false}, {
+            assert_json_snapshot!(
+                "VerificationViolationTestData__own_keys_query_response_1",
+                ruma_response_to_json(VerificationViolationTestData::own_keys_query_response_1()),
+            );
+        });
+    }
 }

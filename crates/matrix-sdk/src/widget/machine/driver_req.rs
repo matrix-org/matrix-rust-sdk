@@ -57,6 +57,12 @@ pub(crate) enum MatrixDriverRequestData {
     /// Read room state entries.
     ReadState(ReadStateRequest),
 
+    /// Read the sticky events (MSC4354) that are currently live in the room.
+    ///
+    /// Must eventually be answered with [`MatrixDriverResponse::EventsRead`].
+    #[cfg(feature = "unstable-msc4354")]
+    ReadStickyEvents,
+
     /// Send Matrix event that corresponds to the given description.
     SendEvent(SendEventRequest),
 
@@ -242,6 +248,29 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     }
 }
 
+/// Ask the client to read the sticky events ([MSC4354]) that are currently
+/// live in the room and return them as a response.
+///
+/// The response is delivered as [`MatrixDriverResponse::EventsRead`], like a
+/// [`ReadEventsRequest`].
+///
+/// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
+#[cfg(feature = "unstable-msc4354")]
+#[derive(Clone, Debug)]
+pub(crate) struct ReadStickyEventsRequest;
+
+#[cfg(feature = "unstable-msc4354")]
+impl From<ReadStickyEventsRequest> for MatrixDriverRequestData {
+    fn from(_: ReadStickyEventsRequest) -> Self {
+        MatrixDriverRequestData::ReadStickyEvents
+    }
+}
+
+#[cfg(feature = "unstable-msc4354")]
+impl MatrixDriverRequest for ReadStickyEventsRequest {
+    type Response = Vec<Raw<AnyTimelineEvent>>;
+}
+
 /// Ask the client to read Matrix room state entries corresponding to the given
 /// description and return a list of state events as a response.
 #[derive(Clone, Debug)]
@@ -299,6 +328,13 @@ pub(crate) struct SendEventRequest {
     /// response will contain a delay_id instead of a event_id. Defined by
     /// [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
     pub(crate) delay: Option<u64>,
+    /// The optional duration (in ms) for which the event stays sticky. If
+    /// provided, the event is sent as a sticky event as per
+    /// [MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354).
+    /// Defined by
+    /// [MSC4407](https://github.com/matrix-org/matrix-spec-proposals/pull/4407).
+    #[cfg(feature = "unstable-msc4354")]
+    pub(crate) sticky_duration_ms: Option<u64>,
 }
 
 impl From<SendEventRequest> for MatrixDriverRequestData {

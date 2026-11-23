@@ -51,6 +51,8 @@ use crate::{
     },
 };
 
+const OFFLINE_MODE_SLEEP_TIME: Duration = Duration::from_secs(1);
+
 /// Current state of the application.
 ///
 /// This is a high-level state indicating what's the status of the underlying
@@ -208,7 +210,7 @@ impl SyncTaskSupervisor {
                 // in the Error case.
                 match client.fetch_server_versions(Some(request_config)).await {
                     Ok(_) => break,
-                    Err(_) => sleep(Duration::from_millis(100)).await,
+                    Err(_) => sleep(OFFLINE_MODE_SLEEP_TIME).await,
                 }
             }
         };
@@ -647,7 +649,8 @@ impl SyncService {
         match inner.state.get() {
             // If we're already running, there's nothing to do.
             State::Running => {}
-            // If we're in the offline mode, first stop the service and then start it again.
+            // If we're in the offline mode, first stop the service and then
+            // start it again.
             State::Offline => {
                 inner
                     .restart(self.room_list_service.clone(), self.encryption_sync_permit.clone())

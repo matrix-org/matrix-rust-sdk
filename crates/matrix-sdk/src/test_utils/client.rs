@@ -15,7 +15,7 @@
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
-use matrix_sdk_test::{TestDevice, User};
+use matrix_sdk_test::{TestAuthToken, TestDevice, User};
 use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion};
 
 use crate::{
@@ -175,7 +175,8 @@ impl AuthState {
                                 device_id: device_id.unwrap_or_else(|| TestDevice::Default.into()),
                             },
                             tokens: SessionTokens {
-                                access_token: token.unwrap_or_else(|| "1234".to_owned()),
+                                access_token: token
+                                    .unwrap_or_else(|| TestAuthToken::AccessDefault.into()),
                                 refresh_token: None,
                             },
                         },
@@ -231,22 +232,33 @@ pub fn mock_session_meta() -> SessionMeta {
 
 /// A [`SessionTokens`] including only an access token, for unit or integration
 /// tests.
+///
+/// This returns a session with [`TestAuthToken::AccessDefault`].
 pub fn mock_session_tokens() -> SessionTokens {
-    SessionTokens { access_token: "1234".to_owned(), refresh_token: None }
+    SessionTokens { access_token: TestAuthToken::AccessDefault.into(), refresh_token: None }
 }
 
 /// A [`SessionTokens`] including an access token and a refresh token, for unit
 /// or integration tests.
+///
+/// This returns a session with [`TestAuthToken::AccessDefault`] and
+/// [`TestAuthToken::RefreshDefault`].
 pub fn mock_session_tokens_with_refresh() -> SessionTokens {
-    SessionTokens { access_token: "1234".to_owned(), refresh_token: Some("ZYXWV".to_owned()) }
+    SessionTokens {
+        access_token: TestAuthToken::AccessDefault.into(),
+        refresh_token: Some(TestAuthToken::RefreshDefault.into()),
+    }
 }
 
 /// Different session tokens than the ones returned by
 /// [`mock_session_tokens_with_refresh()`].
+///
+/// This returns a session with [`TestAuthToken::AccessPrev`] and
+/// [`TestAuthToken::RefreshPrev`].
 pub fn mock_prev_session_tokens_with_refresh() -> SessionTokens {
     SessionTokens {
-        access_token: "prev-access-token".to_owned(),
-        refresh_token: Some("prev-refresh-token".to_owned()),
+        access_token: TestAuthToken::AccessPrev.into(),
+        refresh_token: Some(TestAuthToken::RefreshPrev.into()),
     }
 }
 

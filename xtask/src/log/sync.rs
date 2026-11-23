@@ -2,13 +2,12 @@ use std::{
     collections::BTreeMap,
     fs,
     io::{self, BufRead, Write},
-    ops::Sub,
     path,
     time::Duration,
 };
 
-use chrono::{DateTime, FixedOffset, TimeDelta};
 use indexmap::{IndexMap, map::Entry};
+use jiff::{SignedDuration, Timestamp};
 use regex::RegexBuilder;
 use url::{Position as UrlPosition, Url};
 
@@ -81,10 +80,12 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         if let Some(captures) = find_sync.captures(&line) {
             number_of_matched_lines += 1;
 
-            let date_time = DateTime::parse_from_rfc3339(
-                captures.name("datetime").expect("Failed to capture `datetime`").as_str(),
-            )
-            .expect("Failed to parse `datetime`");
+            let date_time = captures
+                .name("datetime")
+                .expect("Failed to capture `datetime`")
+                .as_str()
+                .parse::<Timestamp>()
+                .expect("Failed to parse `datetime`");
             let connection_id =
                 captures.name("connection_id").expect("Failed to capture `connection_id`").as_str();
             let pos = captures.name("pos").map(|pos| pos.as_str());
@@ -134,7 +135,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                         request_size: request_size.map(ToOwned::to_owned),
                         response_size: response_size.map(ToOwned::to_owned),
                         start_at: date_time,
-                        duration: TimeDelta::zero(),
+                        duration: SignedDuration::ZERO,
                         request_log_line: line_nth,
                         response_log_line: None,
                     });
@@ -146,7 +147,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                         span.status = Some(status);
                     }
 
-                    span.duration = date_time.sub(&span.start_at);
+                    span.duration = date_time.duration_since(span.start_at);
 
                     if let Some(request_size) = request_size {
                         span.request_size = Some(request_size.to_owned());
@@ -162,10 +163,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
         }
     }
 
-    let smallest_start_at =
-        smallest_start_at.map(|date_time| date_time.timestamp_millis()).unwrap_or_default();
-    let largest_end_at =
-        largest_end_at.map(|date_time| date_time.timestamp_millis()).unwrap_or_default();
+    let smallest_start_at = smallest_start_at.map(Timestamp::as_millisecond).unwrap_or_default();
+    let largest_end_at = largest_end_at.map(Timestamp::as_millisecond).unwrap_or_default();
     let end_at = largest_end_at.saturating_sub(smallest_start_at).to_string();
     let rows = spans
         .iter()
@@ -188,7 +187,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                     },
                 )| {
                     let uri = Url::parse(uri);
-                    let duration = duration.num_milliseconds().unsigned_abs();
+                    let duration = u64::try_from(duration.as_millis().unsigned_abs()).unwrap_or(u64::MAX);
                     let timeout: Option<u64> = timeout.map(|timeout| timeout.as_millis().try_into().expect("Failed to cast a u128 to u64"));
 
                     format!(
@@ -252,10 +251,10 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                             .clone()
                             .map(|response_size| response_size)
                             .unwrap_or_else(|| "".to_owned()),
-                        date_time = start_at.format("%+"),
-                        time = start_at.format("%H:%M:%S%.3f"),
+                        date_time = start_at,
+                        time = start_at.strftime("%H:%M:%S%.3f"),
                         start_at = start_at
-                            .timestamp_millis()
+                            .as_millisecond()
                             .saturating_sub(smallest_start_at),
                         duration_label = if duration > 0 { format!("{duration}ms") } else { "<em>cancelled</em>".to_owned() },
                         response_log_line = response_log_line.map(|line| line.to_string()).unwrap_or_else(|| "(none)".to_owned()),
@@ -295,8 +294,8 @@ struct Span {
     timeout: Option<Duration>,
     request_size: Option<String>,
     response_size: Option<String>,
-    start_at: DateTime<FixedOffset>,
-    duration: TimeDelta,
+    start_at: Timestamp,
+    duration: SignedDuration,
     request_log_line: usize,
     response_log_line: Option<usize>,
 }

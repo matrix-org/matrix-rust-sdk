@@ -105,19 +105,7 @@ pub enum RecoveryState {
 #[ruma_event(type = "m.secret_storage.default_key", kind = GlobalAccountData)]
 pub(super) struct SecretStorageDisabledContent {}
 
-/// A global account data event which tells us that a new backup should be
-/// automatically created.
-///
-/// This event is defined in [MSC4287].
-///
-/// [MSC4287]: https://github.com/matrix-org/matrix-spec-proposals/pull/4287
-#[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
-#[ruma_event(type = "m.key_backup", kind = GlobalAccountData)]
-pub(super) struct KeyBackupContent {
-    pub enabled: bool,
-}
-
-/// Unstable prefix form of [MSC4287].
+/// Unstable prefix form of the `m.key_backup` event, defined in [MSC4287].
 ///
 /// [MSC4287]: https://github.com/matrix-org/matrix-spec-proposals/pull/4287
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]

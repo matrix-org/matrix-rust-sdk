@@ -595,6 +595,9 @@ impl From<BootstrapCrossSigningError> for Error {
 #[derive(Error, Debug)]
 // This is allowed because key importing isn't enabled under wasm.
 #[allow(dead_code)]
+// Flat error: the wrapped types (JSON, IO, crypto store, key export) cannot
+// cross the FFI boundary, so only variant names and messages are exposed.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
 pub enum RoomKeyImportError {
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]

@@ -24,6 +24,7 @@ use std::{
 use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
+pub use matrix_sdk::sliding_sync::Version as SdkSlidingSyncVersion;
 use matrix_sdk::{
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, HttpResult, SessionChange,
     SessionTokens, ToDeviceMessage as SdkToDeviceMessage,
@@ -57,7 +58,6 @@ use matrix_sdk::{
         },
         serde::Raw,
     },
-    sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
@@ -165,7 +165,7 @@ use crate::{
     sync_v2::{SyncListenerV2, SyncResponseV2, SyncSettingsV2},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
-    utils::AsyncRuntimeDropped,
+    utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -1205,26 +1205,6 @@ impl Client {
             .await;
     }
 
-    /// Allows generic GET requests to be made through the SDK's internal HTTP
-    /// client. This is useful when the caller's native HTTP client wouldn't
-    /// have the same configuration (such as certificates, proxies, etc.) This
-    /// method returns the raw bytes of the response, so that any kind of
-    /// resource can be fetched including images, files, etc.
-    ///
-    /// Note: When an HTTP error occurs, the error response can be found in the
-    /// `ClientError::Generic`'s `details` field.
-    pub async fn get_url(&self, url: String) -> Result<Vec<u8>, ClientError> {
-        let response = self.inner.http_client().get(url).send().await?;
-        if response.status().is_success() {
-            Ok(response.bytes().await?.into())
-        } else {
-            Err(ClientError::Generic {
-                msg: response.status().to_string(),
-                details: response.text().await.ok(),
-            })
-        }
-    }
-
     /// Empty the server version and unstable features cache.
     ///
     /// Since the SDK caches the supported versions, it's possible to have a
@@ -1616,26 +1596,26 @@ impl Client {
             .await?)
     }
 
+    #[uniffi::method(default(animated = false))]
     pub async fn get_media_thumbnail(
         &self,
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        animated: bool,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
-        debug!(?source, width, height, "requesting media thumbnail");
+        debug!(?source, width, height, animated, "requesting media thumbnail");
+
+        let mut settings = MediaThumbnailSettings::new(u64_to_uint(width), u64_to_uint(height));
+        settings.animated = animated;
+
         Ok(self
             .inner
             .media()
             .get_media_content(
-                &MediaRequestParameters {
-                    source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                        UInt::new(width).unwrap(),
-                        UInt::new(height).unwrap(),
-                    )),
-                },
+                &MediaRequestParameters { source, format: MediaFormat::Thumbnail(settings) },
                 true,
             )
             .await?)
@@ -3827,14 +3807,16 @@ impl MediaFileHandle {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersion {
     None,
-    Native,
+    Unstable,
+    Stable,
 }
 
 impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
     fn from(value: SdkSlidingSyncVersion) -> Self {
         match value {
             SdkSlidingSyncVersion::None => Self::None,
-            SdkSlidingSyncVersion::Native => Self::Native,
+            SdkSlidingSyncVersion::Unstable => Self::Unstable,
+            SdkSlidingSyncVersion::Stable => Self::Stable,
         }
     }
 }
@@ -3845,7 +3827,8 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
     fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
         Ok(match value {
             SlidingSyncVersion::None => Self::None,
-            SlidingSyncVersion::Native => Self::Native,
+            SlidingSyncVersion::Unstable => Self::Unstable,
+            SlidingSyncVersion::Stable => Self::Stable,
         })
     }
 }
@@ -4032,18 +4015,26 @@ impl TryFrom<RumaAllowRule> for AllowRule {
 /// Information about a MatrixRTC transport advertised by the homeserver.
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum RtcTransport {
-    /// A LiveKit RTC transport.
-    ///
-    /// This covers both the `m.livekit` transport type and the legacy `livekit`
-    /// type used by implementations of earlier versions of MSC4195.
+    /// A LiveKit RTC transport with the `m.livekit` type, as defined in the
+    /// merged state of MSC4195.
     LiveKit {
         /// The WebSocket URL of the LiveKit SFU.
-        url: Option<String>,
+        url: String,
 
         /// The URL of the LiveKit JWT service.
         ///
         /// Deprecated in favor of `url`. Should only be used when backwards
-        /// compatibility with older versions of MSC4195 is required
+        /// compatibility with older versions of MSC4195 is required.
+        service_url: Option<String>,
+    },
+
+    /// A LiveKit RTC transport with the legacy `livekit` type, used by
+    /// implementations of earlier versions of MSC4195.
+    LegacyLiveKit {
+        /// The WebSocket URL of the LiveKit SFU.
+        url: Option<String>,
+
+        /// The URL of the LiveKit JWT service.
         service_url: Option<String>,
     },
 
@@ -4066,10 +4057,10 @@ impl From<&RumaRtcTransport> for RtcTransport {
     fn from(value: &RumaRtcTransport) -> Self {
         match value {
             RumaRtcTransport::LiveKit(info) => {
-                Self::LiveKit { url: Some(info.url.clone()), service_url: info.service_url.clone() }
+                Self::LiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
             }
             RumaRtcTransport::LegacyLiveKit(info) => {
-                Self::LiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
+                Self::LegacyLiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
             }
             _ => Self::Custom {
                 transport_type: value.transport_type().to_owned(),
@@ -4432,19 +4423,29 @@ mod tests {
         transport.service_url = Some("https://livekit-jwt.example.com".to_owned());
         let livekit = RumaRtcTransport::LiveKit(transport);
         assert_let!(RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&livekit));
-        assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(url, "wss://livekit.example.com");
         assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
 
-        // The legacy `livekit` transport type is also exposed as LiveKit.
+        // The legacy `livekit` transport type keeps its own variant.
         let legacy_livekit =
             RumaRtcTransport::LegacyLiveKit(LegacyLiveKitRtcTransport::with_service_url(
                 "https://livekit-jwt.example.com".to_owned(),
             ));
         assert_let!(
-            RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&legacy_livekit)
+            RtcTransport::LegacyLiveKit { url, service_url } = RtcTransport::from(&legacy_livekit)
         );
         assert_eq!(url, None);
         assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
+
+        // A legacy `livekit` transport naming only its SFU url is still legacy.
+        let legacy_livekit = RumaRtcTransport::LegacyLiveKit(LegacyLiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
+        ));
+        assert_let!(
+            RtcTransport::LegacyLiveKit { url, service_url } = RtcTransport::from(&legacy_livekit)
+        );
+        assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(service_url, None);
 
         let custom = RumaRtcTransport::new(
             "com.example.custom",

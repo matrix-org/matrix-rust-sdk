@@ -604,17 +604,17 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 mod test {
     use std::{assert_matches, sync::Arc};
 
-    use futures_util::StreamExt;
+    use futures_util::{StreamExt, future::join3};
     use matrix_sdk_base::{
         CancellableIntoFutureExt,
         crypto::types::{SecretsBundle, qr_login::QrCodeIntentData},
     };
-    use matrix_sdk_common::executor::spawn;
+    use matrix_sdk_common::executor::{JoinHandle, spawn};
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
     use ruma::{owned_device_id, owned_user_id};
     use strass::assert_let;
-    use tokio::sync::oneshot;
+    use tokio::{sync::oneshot, time::timeout};
     use tracing::debug;
 
     use super::*;
@@ -646,6 +646,40 @@ mod test {
         assert!(!supports_device_authorization_grant(&without_endpoint));
     }
 
+    /// How long Alice and Bob may take in the tests where Alice is cancelled
+    /// on a signal from Bob. They only take this long if one of them is stuck
+    /// waiting for the other, so this is generous to not fail a slow but
+    /// otherwise passing run.
+    const CANCELLED_GRANT_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Wait for Alice, Bob's task and the updates task to finish, in the
+    /// tests where Alice is cancelled on a signal from Bob.
+    ///
+    /// The three are waited for together rather than one after the other, so
+    /// that whichever fails is reported right away, even while the others are
+    /// left waiting for it forever. That includes Alice's result, which is
+    /// passed to `check_result` as soon as Alice finishes. If several failed,
+    /// Alice is reported before Bob and Bob before the updates task, as that
+    /// is the order in which one failure most likely caused the other.
+    ///
+    /// Nothing fails while Alice and Bob are stuck waiting for each other, so
+    /// this also gives up after [`CANCELLED_GRANT_TIMEOUT`].
+    async fn finish_in_time<T>(
+        grant: impl IntoFuture<Output = T>,
+        bob_task: JoinHandle<()>,
+        updates_task: JoinHandle<()>,
+        check_result: impl FnOnce(T),
+    ) {
+        let alice = async { check_result(grant.await) };
+        let bob = async { bob_task.await.expect("Bob's task should finish") };
+        let updates =
+            async { updates_task.await.expect("Alice should run through all progress states") };
+
+        timeout(CANCELLED_GRANT_TIMEOUT, join3(alice, bob, updates))
+            .await
+            .expect("Alice and Bob should finish in time");
+    }
+
     enum BobBehaviour {
         HappyPath,
         UnexpectedMessageInsteadOfLoginProtocol,
@@ -655,6 +689,11 @@ mod test {
         DeviceAlreadyExists,
         DeviceNotCreated,
         InvalidJsonMessage,
+        /// Alice cancels before Bob sends `m.login.protocol`. Bob signals on
+        /// reaching the point of sending it, which is after receiving
+        /// `m.login.protocols` if Alice sends one, and exits without sending
+        /// anything.
+        CancelledBeforeLoginProtocol(oneshot::Sender<()>),
         /// Alice cancels after Bob signals that he received
         /// `m.login.protocol_accepted`.
         CancelledWhileWaitingForAuth(oneshot::Sender<()>),
@@ -718,6 +757,12 @@ mod test {
                 // Send an unexpected message and exit.
                 let message = QrAuthMessage::LoginSuccess;
                 bob.send_json(message).await.unwrap();
+                return;
+            }
+            BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx) => {
+                // Let Alice know it is time to cancel and exit. Alice is
+                // dropped when cancelled, so we won't be told about it.
+                bob_done_tx.send(()).expect("Bob should be able to signal when done");
                 return;
             }
             BobBehaviour::LoginFailureInsteadOfLoginProtocol => {
@@ -1015,7 +1060,7 @@ mod test {
         let message = bob
             .receive_json()
             .await
-            .expect("Bob should receive the LoginProtocolAccepted message from Alice");
+            .expect("Bob should receive the LoginProtocols message from Alice");
 
         let (protocols, alice_homeserver) = if is_using_msc_4388 {
             assert_let!(
@@ -1045,6 +1090,12 @@ mod test {
                 // Send an unexpected message and exit.
                 let message = QrAuthMessage::LoginSuccess;
                 bob.send_json(message).await.unwrap();
+                return;
+            }
+            BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx) => {
+                // Let Alice know it is time to cancel and exit. Alice is
+                // dropped when cancelled, so we won't be told about it.
+                bob_done_tx.send(()).expect("Bob should be able to signal when done");
                 return;
             }
             BobBehaviour::LoginFailureInsteadOfLoginProtocol => {
@@ -1719,6 +1770,7 @@ mod test {
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
+        let (bob_done_tx, bob_done_rx) = oneshot::channel();
 
         // Spawn the updates task.
         let mut updates = grant.subscribe_to_progress();
@@ -1763,6 +1815,10 @@ mod test {
                             .send(checkcode)
                             .await
                             .expect("Alice should be able to forward the checkcode");
+
+                        // Only cancel once Bob is done. Bob doesn't send
+                        // anything, so Alice can't finish in any other way.
+                        bob_done_rx.await.expect("Bob should signal when done");
                         cancel.cancel();
                         break;
                     }
@@ -1778,7 +1834,7 @@ mod test {
         let rendezvous_server_clone = rendezvous_server.clone();
         let bob_task = spawn(async move {
             request_login_with_scanned_qr_code(
-                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx),
                 qr_code_rx,
                 checkcode_tx,
                 None,
@@ -1790,9 +1846,10 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(result, None, "Alice should abort the login by cancelling it");
+        })
+        .await;
     }
 
     #[async_test]
@@ -1849,6 +1906,7 @@ mod test {
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
+        let (bob_done_tx, bob_done_rx) = oneshot::channel();
 
         // Spawn the updates task.
         let mut updates = grant.subscribe_to_progress();
@@ -1871,6 +1929,14 @@ mod test {
                             .expect("The checkcode should only be forwarded once")
                             .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
+
+                        // Only cancel once Bob is done, which is after
+                        // receiving the login protocols. This ensures that
+                        // Alice got to send them, although Alice might still
+                        // be finishing that request rather than waiting for
+                        // Bob's reply. Bob doesn't send one, so Alice can't
+                        // finish in any other way.
+                        bob_done_rx.await.expect("Bob should signal when done");
                         cancel.cancel();
                         break;
                     }
@@ -1886,7 +1952,7 @@ mod test {
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
             request_login_with_generated_qr_code(
-                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx),
                 channel,
                 checkcode_rx,
                 None,
@@ -1899,9 +1965,10 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(result, None, "Alice should abort the login by cancelling it");
+        })
+        .await;
     }
 
     #[async_test]
@@ -4385,13 +4452,16 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
-            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
-            "Alice should abort the login with expected error"
-        );
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(
+                result,
+                Err(QRCodeGrantLoginError::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled
+                }),
+                "Alice should abort the login with expected error"
+            );
+        })
+        .await;
     }
 
     #[async_test]
@@ -4522,12 +4592,15 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
-            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
-            "Alice should abort the login with expected error"
-        );
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(
+                result,
+                Err(QRCodeGrantLoginError::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled
+                }),
+                "Alice should abort the login with expected error"
+            );
+        })
+        .await;
     }
 }

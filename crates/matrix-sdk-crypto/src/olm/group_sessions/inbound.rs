@@ -652,6 +652,19 @@ impl InboundGroupSession {
             decrypted_content.insert("m.relates_to".to_owned(), relation.to_owned());
         }
 
+        // Carry over the sticky marker of MSC4354 from the encrypted envelope
+        // into the plaintext.
+        for sticky_field in ["sticky", "msc4354_sticky"] {
+            match event.other.get(sticky_field) {
+                Some(sticky) => {
+                    decrypted_object.insert(sticky_field.to_owned(), sticky.clone());
+                }
+                None => {
+                    decrypted_object.remove(sticky_field);
+                }
+            }
+        }
+
         Ok((decrypted_object, decrypted.message_index))
     }
 

@@ -221,13 +221,16 @@ impl SizeAndDateRollingWriter {
     /// Returns a timestamp string based on the configured rotation period
     /// (e.g., "2024-01-15-14" for hourly rotation).
     fn format_rotation_timestamp(config: &WriterConfig) -> String {
-        let now = chrono::Local::now();
-        match config.rotation {
-            Rotation::MINUTELY => now.format("%Y-%m-%d-%H-%M").to_string(),
-            Rotation::HOURLY => now.format("%Y-%m-%d-%H").to_string(),
-            Rotation::DAILY => now.format("%Y-%m-%d").to_string(),
-            Rotation::WEEKLY | Rotation::NEVER => now.format("%Y-W%W").to_string(),
-        }
+        let now = jiff::ZonedDateTime::now();
+
+        let format = match config.rotation {
+            Rotation::MINUTELY => "%Y-%m-%d-%H-%M",
+            Rotation::HOURLY => "%Y-%m-%d-%H",
+            Rotation::DAILY => "%Y-%m-%d",
+            Rotation::WEEKLY | Rotation::NEVER => "%Y-W%W",
+        };
+
+        now.strftime(format).to_string()
     }
 
     /// Rotate the log file, creating a new file with a timestamp-based name.

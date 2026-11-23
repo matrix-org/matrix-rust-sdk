@@ -276,7 +276,7 @@ async fn test_sync_service_offline_mode() {
 
     mock_server.mock_versions().ok().expect(1..).mount().await;
 
-    assert_next_matches_with_timeout!(states, 1000, State::Running);
+    assert_next_matches_with_timeout!(states, 2000, State::Running);
 }
 
 #[async_test]

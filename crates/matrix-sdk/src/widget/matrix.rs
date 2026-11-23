@@ -16,14 +16,20 @@
 //! that is relevant for the widget API.
 
 use std::collections::BTreeMap;
+#[cfg(feature = "unstable-msc4354")]
+use std::time::Duration;
 
 use async_stream::stream;
 use futures_core::Stream;
+#[cfg(feature = "unstable-msc4354")]
+use matrix_sdk_base::sticky::StickyEventsUpdate;
 use matrix_sdk_base::{
     deserialized_responses::RawAnySyncOrStrippedState,
     media::{MediaFormat, MediaRequestParameters},
     sync::State,
 };
+#[cfg(feature = "unstable-msc4354")]
+use matrix_sdk_common::executor::{AbortOnDrop, spawn};
 use ruma::{
     EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
     api::client::{
@@ -239,12 +245,17 @@ impl MatrixDriver {
     /// This method allows the widget machine to handle widget requests by
     /// providing a unified, high-level widget-specific API for sending events
     /// to the room.
+    ///
+    /// With a `sticky_duration`, the event is sent as a sticky event as per
+    /// [MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354).
+    /// Only message-like events can be sticky.
     pub(crate) async fn send(
         &self,
         event_type: TimelineEventType,
         state_key: Option<String>,
         content: Box<RawJsonValue>,
         delayed_event_parameters: Option<delayed_events::DelayParameters>,
+        #[cfg(feature = "unstable-msc4354")] sticky_duration: Option<Duration>,
     ) -> Result<SendEventResponse> {
         let type_str = event_type.to_string();
 
@@ -259,15 +270,39 @@ impl MatrixDriver {
         }
 
         Ok(match (state_key, delayed_event_parameters) {
-            (None, None) => SendEventResponse::from_event_id(
-                self.room.send_raw(&type_str, content).await?.response.event_id,
-            ),
+            (None, None) => {
+                let request = self.room.send_raw(&type_str, content);
+                #[cfg(feature = "unstable-msc4354")]
+                let request = match sticky_duration {
+                    Some(duration) => request.with_sticky_duration(duration),
+                    None => request,
+                };
+                SendEventResponse::from_event_id(request.await?.response.event_id)
+            }
 
             (Some(key), None) => SendEventResponse::from_event_id(
                 self.room.send_state_event_raw(&type_str, &key, content).await?.event_id,
             ),
 
             (None, Some(delayed_event_parameters)) => {
+                #[cfg(feature = "unstable-msc4354")]
+                if let Some(sticky_duration) = sticky_duration {
+                    let delayed_events::DelayParameters::Timeout { timeout } =
+                        delayed_event_parameters
+                    else {
+                        return Err(Error::UnknownError(
+                            "Unsupported delay parameters for a sticky event".into(),
+                        ));
+                    };
+                    let response = self
+                        .room
+                        .send_raw(&type_str, content)
+                        .with_sticky_duration(sticky_duration)
+                        .into_delayed(timeout)
+                        .await?;
+                    return Ok(response.into());
+                }
+
                 let r = delayed_events::delayed_message_event::msc4140::Request::new_raw(
                     self.room.room_id().to_owned(),
                     TransactionId::new(),
@@ -305,14 +340,64 @@ impl MatrixDriver {
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
 
+    /// Reads the sticky events ([MSC4354]) that are currently live in the
+    /// room.
+    ///
+    /// [MSC4354]: https://github.com/matrix-org/matrix-spec-proposals/pull/4354
+    #[cfg(feature = "unstable-msc4354")]
+    pub(crate) fn read_sticky_events(&self) -> Vec<Raw<AnyTimelineEvent>> {
+        let room_id = self.room.room_id();
+        self.room
+            .sticky_events()
+            .live()
+            .iter()
+            .map(|event| attach_room_id(event.raw(), room_id))
+            .collect()
+    }
+
     /// Starts forwarding new room events. Once the returned `EventReceiver` is
     /// dropped, forwarding will be stopped.
     pub(crate) fn events(&self) -> EventReceiver<Raw<AnyTimelineEvent>> {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
 
+        #[cfg(feature = "unstable-msc4354")]
+        let sticky_forwarder = {
+            let room = self.room.clone();
+            let mut updates = room.sticky_events().subscribe();
+            let tx = tx.clone();
+
+            AbortOnDrop::new(spawn(async move {
+                loop {
+                    let events = match updates.recv().await {
+                        Ok(StickyEventsUpdate { added, updated, removed }) => added
+                            .into_iter()
+                            .chain(updated)
+                            .chain(removed.into_iter().filter_map(|removal| removal.tombstone))
+                            .collect(),
+                        Err(RecvError::Lagged(_)) => room.sticky_events().unexpired(),
+                        Err(RecvError::Closed) => return,
+                    };
+
+                    for event in events {
+                        if tx.send(attach_room_id(event.raw(), room.room_id())).is_err() {
+                            return;
+                        }
+                    }
+                }
+            }))
+        };
+
         let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(attach_room_id(&raw, &room_id));
+            // The sticky events the map tracks are forwarded from the map.
+            #[cfg(feature = "unstable-msc4354")]
+            let forward = !matrix_sdk_base::sticky::is_tracked(&raw);
+            #[cfg(not(feature = "unstable-msc4354"))]
+            let forward = true;
+
+            if forward {
+                let _ = tx.send(attach_room_id(&raw, &room_id));
+            }
             async {}
         });
         let drop_guard = self.room.client().event_handler_drop_guard(handle);
@@ -320,7 +405,12 @@ impl MatrixDriver {
         // The receiver will get a combination of state and message like events.
         // These always come from the timeline (rather than the state section of
         // the sync).
-        EventReceiver { rx, _drop_guard: drop_guard }
+        EventReceiver {
+            rx,
+            _drop_guard: drop_guard,
+            #[cfg(feature = "unstable-msc4354")]
+            _sticky_forwarder: sticky_forwarder,
+        }
     }
 
     /// Starts forwarding new updates to room state.
@@ -499,6 +589,10 @@ impl MatrixDriver {
 pub(crate) struct EventReceiver<E> {
     rx: UnboundedReceiver<E>,
     _drop_guard: EventHandlerDropGuard,
+    /// The task forwarding the sticky events of the room. Stopped on
+    /// drop.
+    #[cfg(feature = "unstable-msc4354")]
+    _sticky_forwarder: AbortOnDrop<()>,
 }
 
 impl<T> EventReceiver<T> {
@@ -609,5 +703,122 @@ mod tests {
 
         let attached: AnyTimelineEvent = new.deserialize().unwrap();
         assert_eq!(attached.room_id(), room_id);
+    }
+
+    #[cfg(feature = "unstable-msc4354")]
+    #[matrix_sdk_test::async_test]
+    async fn test_sticky_events_are_read_and_forwarded_from_the_map() {
+        use std::time::Duration;
+
+        use matrix_sdk_base::RequestedRequiredStates;
+        use ruma::{
+            OwnedEventId, OwnedRoomId, api::client::sync::sync_events::msc4186 as http,
+            events::AnySyncTimelineEvent,
+        };
+
+        use super::MatrixDriver;
+        use crate::test_utils::logged_in_client;
+
+        fn event(event_id: &str, event_type: &str, content: Value) -> Raw<AnySyncTimelineEvent> {
+            serde_json::from_value(json!({
+                "type": event_type,
+                "sender": "@alice:example.org",
+                "event_id": event_id,
+                "origin_server_ts": 1,
+                "content": content,
+            }))
+            .unwrap()
+        }
+
+        /// A sticky `m.rtc.member` event, sticky for 10 minutes from now.
+        fn sticky_event(event_id: &str, content: Value) -> Raw<AnySyncTimelineEvent> {
+            serde_json::from_value(json!({
+                "type": "m.rtc.member",
+                "sender": "@alice:example.org",
+                "event_id": event_id,
+                "origin_server_ts": 1,
+                "content": content,
+                "msc4354_sticky": { "duration_ms": 600_000 },
+                "unsigned": { "msc4354_sticky_duration_ttl_ms": 600_000 },
+            }))
+            .unwrap()
+        }
+
+        fn response(
+            room_id: &ruma::RoomId,
+            timeline: Vec<Raw<AnySyncTimelineEvent>>,
+        ) -> http::Response {
+            let mut room = http::response::Room::new();
+            room.timeline = timeline;
+            let mut response = http::Response::new("5".to_owned());
+            response.rooms.insert(room_id.to_owned(), room);
+            response
+        }
+
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!room:example.org");
+        let membership = json!({ "msc4354_sticky_key": "slot", "application": "m.call" });
+
+        // A sticky event of the timeline lands in the map of the room.
+        client
+            .process_sliding_sync_test_helper(
+                &response(room_id, vec![sticky_event("$alice", membership.clone())]),
+                &RequestedRequiredStates::default(),
+            )
+            .await
+            .unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+        let driver = MatrixDriver::new(room.clone());
+
+        // The live sticky events are read from the map, with the room ID
+        // attached.
+        let live = driver.read_sticky_events();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].get_field::<OwnedEventId>("event_id").unwrap().unwrap(), "$alice");
+        assert_eq!(live[0].get_field::<OwnedRoomId>("room_id").unwrap().unwrap(), room_id);
+
+        let mut events = driver.events();
+
+        // A regular event, a replacing sticky event and a removal come down the
+        // next sync.
+        client
+            .process_sliding_sync_test_helper(
+                &response(
+                    room_id,
+                    vec![
+                        event(
+                            "$hello",
+                            "m.room.message",
+                            json!({ "body": "hi", "msgtype": "m.text" }),
+                        ),
+                        sticky_event("$alice2", membership),
+                        sticky_event("$alice3", json!({ "msc4354_sticky_key": "slot" })),
+                    ],
+                ),
+                &RequestedRequiredStates::default(),
+            )
+            .await
+            .unwrap();
+
+        // Each one is forwarded exactly once.
+        let mut forwarded = Vec::new();
+        for _ in 0..3 {
+            let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+                .await
+                .expect("an event should be forwarded")
+                .unwrap();
+            forwarded.push(event.get_field::<OwnedEventId>("event_id").unwrap().unwrap());
+        }
+        forwarded.sort();
+        assert_eq!(forwarded, ["$alice2", "$alice3", "$hello"]);
+        assert!(tokio::time::timeout(Duration::from_millis(200), events.recv()).await.is_err());
+
+        // The removal left the map without a live event, only the unexpired
+        // tombstone.
+        assert!(room.sticky_events().live().is_empty());
+        let unexpired = room.sticky_events().unexpired();
+        assert_eq!(unexpired.len(), 1);
+        assert_eq!(unexpired[0].event_id, "$alice3");
     }
 }

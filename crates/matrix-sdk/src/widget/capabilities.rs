@@ -72,6 +72,20 @@ pub struct Capabilities {
     /// This allows the widget to hand the delayed leave event of a MatrixRTC
     /// session over to the homeserver as per MSC4533.
     pub rtc_livekit_delegate_delayed_leave: bool,
+
+    /// This allows the widget to send sticky events (MSC4354) by setting a
+    /// `sticky_duration_ms` on a `send_event` request, as per MSC4407.
+    ///
+    /// The event type must be covered by a `send` filter.
+    #[cfg(feature = "unstable-msc4354")]
+    pub send_sticky_event: bool,
+
+    /// This allows the widget to receive the sticky events (MSC4354) that are
+    /// live when the capabilities are negotiated, as per MSC4407.
+    ///
+    /// Only sticky events whose type is covered by a `read` filter are pushed.
+    #[cfg(feature = "unstable-msc4354")]
+    pub receive_sticky_event: bool,
 }
 
 impl Capabilities {
@@ -136,6 +150,11 @@ pub(super) const RTC_TRANSPORTS: &str = "org.matrix.msc4515.rtc_transports";
 pub(super) const RTC_LIVEKIT_GET_TOKEN: &str = "org.matrix.msc4533.rtc_livekit_get_token";
 pub(super) const RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE: &str =
     "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave";
+
+#[cfg(feature = "unstable-msc4354")]
+pub(super) const SEND_STICKY_EVENT: &str = "org.matrix.msc4407.send.sticky_event";
+#[cfg(feature = "unstable-msc4354")]
+pub(super) const RECEIVE_STICKY_EVENT: &str = "org.matrix.msc4407.receive.sticky_event";
 
 impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -212,6 +231,14 @@ impl Serialize for Capabilities {
         if self.rtc_livekit_delegate_delayed_leave {
             seq.serialize_element(RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE)?;
         }
+        #[cfg(feature = "unstable-msc4354")]
+        if self.send_sticky_event {
+            seq.serialize_element(SEND_STICKY_EVENT)?;
+        }
+        #[cfg(feature = "unstable-msc4354")]
+        if self.receive_sticky_event {
+            seq.serialize_element(RECEIVE_STICKY_EVENT)?;
+        }
         for filter in &self.read {
             let name = match filter {
                 Filter::MessageLike(_) => READ_EVENT,
@@ -246,6 +273,10 @@ impl<'de> Deserialize<'de> for Capabilities {
             RtcTransports,
             RtcLivekitGetToken,
             RtcLivekitDelegateDelayedLeave,
+            #[cfg(feature = "unstable-msc4354")]
+            SendStickyEvent,
+            #[cfg(feature = "unstable-msc4354")]
+            ReceiveStickyEvent,
             Read(Filter),
             Send(Filter),
             Unknown,
@@ -277,6 +308,14 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
                 if s == RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE {
                     return Ok(Self::RtcLivekitDelegateDelayedLeave);
+                }
+                #[cfg(feature = "unstable-msc4354")]
+                if s == SEND_STICKY_EVENT {
+                    return Ok(Self::SendStickyEvent);
+                }
+                #[cfg(feature = "unstable-msc4354")]
+                if s == RECEIVE_STICKY_EVENT {
+                    return Ok(Self::ReceiveStickyEvent);
                 }
 
                 match s.split_once(':') {
@@ -345,6 +384,10 @@ impl<'de> Deserialize<'de> for Capabilities {
                 Permission::RtcLivekitDelegateDelayedLeave => {
                     capabilities.rtc_livekit_delegate_delayed_leave = true
                 }
+                #[cfg(feature = "unstable-msc4354")]
+                Permission::SendStickyEvent => capabilities.send_sticky_event = true,
+                #[cfg(feature = "unstable-msc4354")]
+                Permission::ReceiveStickyEvent => capabilities.receive_sticky_event = true,
             }
         }
 
@@ -386,7 +429,9 @@ mod tests {
             "org.matrix.msc4039.download_file",
             "org.matrix.msc4515.rtc_transports",
             "org.matrix.msc4533.rtc_livekit_get_token",
-            "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave"
+            "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave",
+            "org.matrix.msc4407.send.sticky_event",
+            "org.matrix.msc4407.receive.sticky_event"
         ]"#;
 
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
@@ -420,6 +465,10 @@ mod tests {
             rtc_transports: true,
             rtc_livekit_get_token: true,
             rtc_livekit_delegate_delayed_leave: true,
+            #[cfg(feature = "unstable-msc4354")]
+            send_sticky_event: true,
+            #[cfg(feature = "unstable-msc4354")]
+            receive_sticky_event: true,
         };
 
         assert_eq!(parsed, expected);
@@ -454,6 +503,10 @@ mod tests {
             rtc_transports: true,
             rtc_livekit_get_token: true,
             rtc_livekit_delegate_delayed_leave: false,
+            #[cfg(feature = "unstable-msc4354")]
+            send_sticky_event: true,
+            #[cfg(feature = "unstable-msc4354")]
+            receive_sticky_event: false,
         };
 
         let capabilities_str = serde_json::to_string(&capabilities).unwrap();

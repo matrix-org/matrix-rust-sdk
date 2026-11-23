@@ -3148,6 +3148,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jiff"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed5d126d72eb017f10b302e73bdeca446bea405ee449af4d9e7866d6b082d83e"
+dependencies = [
+ "jiff-core",
+ "jiff-static",
+ "js-sys",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+ "wasm-bindgen",
+ "windows-link 0.2.1",
+]
+
+[[package]]
+name = "jiff-core"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6b46a105a9874634dd96231021526bf24ca04955a5998c59a9c7666e634b7b8"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "jiff-static"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0127e9bde3c6130d6169e7d8d68676e4be69c4bf7573c308b6f960a5089c428"
+dependencies = [
+ "jiff-core",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
+]
+
+[[package]]
 name = "jni"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3815,12 +3853,12 @@ dependencies = [
  "anyhow",
  "async-compat",
  "async-trait",
- "chrono",
  "console_error_panic_hook",
  "extension-trait",
  "eyeball-im",
  "futures-executor",
  "futures-util",
+ "jiff",
  "jni",
  "language-tags",
  "log-panics",
@@ -4085,7 +4123,6 @@ dependencies = [
  "async-stream",
  "async_cell",
  "bitflags 2.13.2",
- "chrono",
  "emojis",
  "eyeball",
  "eyeball-im",
@@ -4097,6 +4134,7 @@ dependencies = [
  "imbl",
  "indexmap",
  "itertools 0.15.0",
+ "jiff",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-common",
@@ -4866,6 +4904,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d20d5497ef88037a52ff98267d066e7f11fcc5e99bbfbd58a42336193aacec3"
 
 [[package]]
+name = "portable-atomic-util"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
+dependencies = [
+ "portable-atomic",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5491,7 +5538,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.17.2"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "assign",
  "js_int",
@@ -5509,7 +5556,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.25.2"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "as_variant",
  "assign",
@@ -5531,7 +5578,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.20.2"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "as_variant",
  "base64 0.23.1",
@@ -5564,7 +5611,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.35.2"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -5588,7 +5635,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.16.1"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "http",
  "http-auth",
@@ -5608,7 +5655,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.9.0"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -5619,7 +5666,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.14.0"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "js_int",
  "thiserror 2.0.20",
@@ -5628,7 +5675,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.20.2"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -5644,7 +5691,7 @@ dependencies = [
 [[package]]
 name = "ruma-signatures"
 version = "0.22.1"
-source = "git+https://github.com/ruma/ruma?rev=5133d4ec2846884b1d80a3769004524c34273c02#5133d4ec2846884b1d80a3769004524c34273c02"
+source = "git+https://github.com/ruma/ruma?rev=c514595056812f45753b2ec1a823c33bafce6b7f#c514595056812f45753b2ec1a823c33bafce6b7f"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -8295,10 +8342,10 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "camino",
- "chrono",
  "clap",
  "fs_extra",
  "indexmap",
+ "jiff",
  "regex",
  "serde",
  "serde_json",
