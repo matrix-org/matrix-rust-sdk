@@ -349,8 +349,8 @@ impl Caches {
             )
             .await?;
 
-            // Broadcast the read receipts unconditionally, after the timeline
-            // updates have been sent.
+            // Broadcast the read receipts, regardless of their user ids. These
+            // will be later handled by other components, like the timeline.
             if let Some(event) = room_read_receipts {
                 room.update_sender()
                     .send(RoomEventCacheUpdate::AddReadReceiptEvent { event }, None);
@@ -383,20 +383,18 @@ impl Caches {
             for (thread_id, (timeline, read_receipts)) in timeline_and_read_receipts_for_threads {
                 // Update the thread summary if and only if there are new
                 // events.
-                let update_thread_summary = timeline.events.is_empty().not();
+                let has_new_timeline_events = timeline.events.is_empty().not();
 
-                if timeline.events.is_empty()
-                    && read_receipts.as_ref().is_none_or(|receipts| receipts.is_empty())
-                {
+                if has_new_timeline_events.not() && read_receipts.is_none() {
                     // There are no timeline or own read receipt updates, so
-                    // there is nothing to do
+                    // there is nothing to do.
                     continue;
                 }
 
                 let thread = self.thread(thread_id).await?;
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
-                if update_thread_summary {
+                if has_new_timeline_events {
                     let new_thread_summary = thread.update_thread_summary().await?;
 
                     room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
