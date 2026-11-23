@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::{future::ready, ops::Deref, pin::pin, sync::Arc};
+use std::{cmp::Reverse, collections::BTreeSet, future::ready, ops::Deref, pin::pin, sync::Arc};
 
 use async_cell::sync::AsyncCell;
 use async_rx::StreamExt as _;
@@ -26,7 +26,7 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskHandle,
 };
 use matrix_sdk_base::RoomInfoNotableUpdate;
-use ruma::MilliSecondsSinceUnixEpoch;
+use ruma::{MilliSecondsSinceUnixEpoch, UInt};
 use tokio::{
     select,
     sync::broadcast::{self, error::RecvError},
@@ -162,7 +162,8 @@ impl RoomList {
                 let filter_fn = filter_fn_cell.take().await;
 
                 let (raw_values, raw_stream) = self.entries();
-                let values = raw_values.into_iter().map(Into::into).collect::<Vector<RoomListItem>>();
+                let mut values = raw_values.into_iter().map(Into::into).collect::<Vector<RoomListItem>>();
+                backfill_timestamps(&mut values);
 
                 // Combine normal stream events with other updates from rooms
                 let stream = merge_stream_and_receiver(values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
@@ -212,13 +213,17 @@ fn merge_stream_and_receiver(
 
                 diffs = raw_stream.next() => {
                     if let Some(diffs) = diffs {
-                        let diffs = diffs.into_iter().map(|diff| diff.map(RoomListItem::from)).collect::<Vec<_>>();
+                        let mut diffs = diffs.into_iter().map(|diff| diff.map(RoomListItem::from)).collect::<Vec<_>>();
 
                         for diff in &diffs {
                             diff.clone().map(|room| {
                                 trace!(room = %room.room_id(), "updated in response");
                                 room
                             }).apply(&mut current_values);
+                        }
+
+                        for index in backfill_timestamps(&mut current_values) {
+                            diffs.push(VectorDiff::Set { index, value: current_values[index].clone() });
                         }
 
                         yield diffs;
@@ -259,17 +264,24 @@ fn merge_stream_and_receiver(
                                 }
                             }
 
-                            // Emit a `VectorDiff::Set` for each updated room.
-                            let mut diffs = Vec::with_capacity(room_ids.len());
+                            // Emit a `VectorDiff::Set` for each updated room,
+                            // and for each room whose back-filled timestamp
+                            // changed as a consequence.
+                            let mut indices = BTreeSet::new();
 
                             for room_id in room_ids {
                                 if let Some(index) = current_values.iter().position(|room| room.room_id() == room_id) {
-                                    let room = &mut current_values[index];
-                                    room.refresh_cached_data();
-
-                                    diffs.push(VectorDiff::Set { index, value: room.clone() });
+                                    current_values[index].refresh_cached_data();
+                                    indices.insert(index);
                                 }
                             }
+
+                            indices.extend(backfill_timestamps(&mut current_values));
+
+                            let diffs = indices
+                                .into_iter()
+                                .map(|index| VectorDiff::Set { index, value: current_values[index].clone() })
+                                .collect::<Vec<_>>();
 
                             if !diffs.is_empty() {
                                 yield diffs;
@@ -290,6 +302,57 @@ fn merge_stream_and_receiver(
             }
         }
     }
+}
+
+/// Compute [`RoomListItem::cached_timestamp`] for every room in `rooms`, and
+/// return the indices of the rooms where it changed.
+///
+/// A room's timestamp is its latest event's timestamp. A room without one (e.g.
+/// right after login, before its latest event is computed) would otherwise be
+/// sorted after every room having one. Instead, the rooms are walked by recency
+/// stamp, from the most recent one, and a room without a latest event
+/// timestamp copies the smallest timestamp among the rooms above it. Rooms
+/// above every room having a timestamp copy the first one. When no room has a
+/// timestamp, they all get 0.
+///
+/// The _smallest_ timestamp is used because recency stamps and timestamps don't
+/// always agree (e.g. a room with a fresh local echo but an old recency stamp):
+/// copying from the nearest room alone could move a room above another one the
+/// server considers more recent.
+fn backfill_timestamps(rooms: &mut Vector<RoomListItem>) -> Vec<usize> {
+    // From the most recent recency stamp to the least recent one. On equal
+    // recency stamps, rooms having a timestamp come first, so that the others
+    // can copy it.
+    let mut indices = (0..rooms.len()).collect::<Vec<_>>();
+    indices.sort_by_key(|&index| {
+        let room = &rooms[index];
+        Reverse((room.cached_recency_stamp, room.cached_latest_event_timestamp.is_some()))
+    });
+
+    let mut copied_timestamp = indices
+        .iter()
+        .find_map(|&index| rooms[index].cached_latest_event_timestamp)
+        .unwrap_or(MilliSecondsSinceUnixEpoch(UInt::MIN));
+    let mut changed = Vec::new();
+
+    for index in indices {
+        let room = &mut rooms[index];
+
+        let timestamp = match room.cached_latest_event_timestamp {
+            Some(timestamp) => {
+                copied_timestamp = copied_timestamp.min(timestamp);
+                timestamp
+            }
+            None => copied_timestamp,
+        };
+
+        if room.cached_timestamp != timestamp {
+            room.cached_timestamp = timestamp;
+            changed.push(index);
+        }
+    }
+
+    changed
 }
 
 /// The loading state of a [`RoomList`].
@@ -417,6 +480,12 @@ pub struct RoomListItem {
     /// Cache of `Room::latest_event_timestamp`.
     pub(super) cached_latest_event_timestamp: Option<MilliSecondsSinceUnixEpoch>,
 
+    /// The timestamp used to sort this room: `cached_latest_event_timestamp`,
+    /// or, when this room has none, a timestamp back-filled from other rooms,
+    /// see `backfill_timestamps` (private function). Not touched by
+    /// [`Self::refresh_cached_data`].
+    pub(super) cached_timestamp: MilliSecondsSinceUnixEpoch,
+
     /// Cache of `Room::latest_event_is_unsent`.
     pub(super) cached_latest_event_is_unsent: bool,
 
@@ -467,6 +536,8 @@ impl From<Room> for RoomListItem {
         Self {
             inner,
             cached_latest_event_timestamp,
+            cached_timestamp: cached_latest_event_timestamp
+                .unwrap_or(MilliSecondsSinceUnixEpoch(UInt::MIN)),
             cached_latest_event_is_unsent,
             cached_recency_stamp,
             cached_display_name,
@@ -481,5 +552,94 @@ impl Deref for RoomListItem {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    use matrix_sdk_test::async_test;
+    use ruma::{OwnedRoomId, RoomId};
+
+    use super::{super::filters::new_rooms, *};
+
+    /// Create rooms with the given `(latest event timestamp, recency stamp)`.
+    async fn rooms<const N: usize>(stamps: [(Option<u32>, u64); N]) -> Vector<RoomListItem> {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_ids: [OwnedRoomId; N] =
+            std::array::from_fn(|nth| RoomId::parse(format!("!{nth}:x.y")).unwrap());
+        let mut rooms = new_rooms(room_ids.each_ref().map(AsRef::as_ref), &client, &server).await;
+
+        for (room, (timestamp, recency_stamp)) in rooms.iter_mut().zip(stamps) {
+            room.cached_latest_event_timestamp =
+                timestamp.map(|ts| MilliSecondsSinceUnixEpoch(UInt::from(ts)));
+            room.cached_timestamp =
+                room.cached_latest_event_timestamp.unwrap_or(MilliSecondsSinceUnixEpoch(UInt::MIN));
+            room.cached_recency_stamp = recency_stamp.into();
+        }
+
+        rooms.into_iter().collect()
+    }
+
+    fn timestamps(rooms: &Vector<RoomListItem>) -> Vec<u64> {
+        rooms.iter().map(|room| room.cached_timestamp.get().into()).collect()
+    }
+
+    #[async_test]
+    async fn test_backfill_timestamps() {
+        let mut rooms = rooms([
+            (Some(300), 30),
+            (None, 40), // above every timestamp: copies the first one, `!0`'s
+            (None, 10), // smallest timestamp above is `!4`'s
+            (None, 25), // smallest timestamp above is `!0`'s
+            (Some(200), 20),
+        ])
+        .await;
+
+        // Indices are reported in recency stamp order.
+        assert_eq!(backfill_timestamps(&mut rooms), vec![1, 3, 2]);
+        assert_eq!(timestamps(&rooms), vec![300, 300, 200, 300, 200]);
+
+        // Nothing changed: nothing to report.
+        assert!(backfill_timestamps(&mut rooms).is_empty());
+
+        // `!2` gets its own timestamp: it replaces the copied one.
+        rooms[2].cached_latest_event_timestamp =
+            Some(MilliSecondsSinceUnixEpoch(UInt::from(100u32)));
+
+        assert_eq!(backfill_timestamps(&mut rooms), vec![2]);
+        assert_eq!(timestamps(&rooms), vec![300, 300, 100, 300, 200]);
+
+        // `!2` loses its own timestamp: it copies one again, instead of being
+        // reset to 0.
+        rooms[2].cached_latest_event_timestamp = None;
+
+        assert_eq!(backfill_timestamps(&mut rooms), vec![2]);
+        assert_eq!(timestamps(&rooms), vec![300, 300, 200, 300, 200]);
+    }
+
+    /// A room with a fresh timestamp but an old recency stamp must not lift the
+    /// rooms below it above a room the server considers more recent.
+    #[async_test]
+    async fn test_backfill_timestamps_takes_the_smallest_timestamp() {
+        let mut rooms = rooms([
+            (Some(500), 100), // recent room
+            (Some(1000), 5),  // fresh timestamp, old recency stamp
+            (None, 4),
+        ])
+        .await;
+
+        backfill_timestamps(&mut rooms);
+
+        assert_eq!(timestamps(&rooms), vec![500, 1000, 500]);
+    }
+
+    #[async_test]
+    async fn test_backfill_timestamps_without_any_timestamp() {
+        let mut rooms = rooms([(None, 2), (None, 1)]).await;
+
+        assert!(backfill_timestamps(&mut rooms).is_empty());
+        assert_eq!(timestamps(&rooms), vec![0, 0]);
     }
 }
