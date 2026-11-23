@@ -96,7 +96,7 @@ fn extract_scores(left: &RoomListItem, right: &RoomListItem) -> (Option<Score>, 
     }
     // Case #2.
     else {
-        (left.cached_recency_stamp.map(Into::into), right.cached_recency_stamp.map(Into::into))
+        (Some(left.cached_recency_stamp.into()), Some(right.cached_recency_stamp.into()))
     }
 }
 

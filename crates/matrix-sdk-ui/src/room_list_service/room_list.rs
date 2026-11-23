@@ -420,8 +420,8 @@ pub struct RoomListItem {
     /// Cache of `Room::latest_event_is_unsent`.
     pub(super) cached_latest_event_is_unsent: bool,
 
-    /// Cache of `Room::recency_stamp`.
-    pub(super) cached_recency_stamp: Option<RoomRecencyStamp>,
+    /// Cache of `Room::recency_stamp`, 0 when the room has none.
+    pub(super) cached_recency_stamp: RoomRecencyStamp,
 
     /// Cache of `Room::cached_display_name`, already as a string.
     pub(super) cached_display_name: Option<String>,
@@ -448,7 +448,7 @@ impl RoomListItem {
     pub(super) fn refresh_cached_data(&mut self) {
         self.cached_latest_event_timestamp = self.inner.latest_event_timestamp();
         self.cached_latest_event_is_unsent = self.inner.latest_event_is_unsent();
-        self.cached_recency_stamp = self.inner.recency_stamp();
+        self.cached_recency_stamp = self.inner.recency_stamp().unwrap_or(0.into());
         self.cached_display_name = self.inner.cached_display_name().map(|name| name.to_string());
         self.cached_is_space = self.inner.is_space();
         self.cached_state = self.inner.state();
@@ -459,7 +459,7 @@ impl From<Room> for RoomListItem {
     fn from(inner: Room) -> Self {
         let cached_latest_event_timestamp = inner.latest_event_timestamp();
         let cached_latest_event_is_unsent = inner.latest_event_is_unsent();
-        let cached_recency_stamp = inner.recency_stamp();
+        let cached_recency_stamp = inner.recency_stamp().unwrap_or(0.into());
         let cached_display_name = inner.cached_display_name().map(|name| name.to_string());
         let cached_is_space = inner.is_space();
         let cached_state = inner.state();
