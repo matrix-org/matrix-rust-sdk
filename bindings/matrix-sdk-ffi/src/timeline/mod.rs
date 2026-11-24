@@ -55,6 +55,7 @@ use ruma::{
         room::message::{
             MessageType, RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
+        sticker::StickerEventContent,
     },
 };
 use tokio::sync::Mutex;
@@ -471,6 +472,34 @@ impl Timeline {
             Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
             Err(err) => {
                 error!("error when sending a message: {err}");
+                Err(err.into())
+            }
+        }
+    }
+
+    /// Sends an already uploaded image as a sticker, such as one of the images
+    /// of an image pack.
+    ///
+    /// In a threaded timeline, the sticker is sent in the thread.
+    ///
+    /// # Arguments
+    ///
+    /// - `body` - A textual description of the sticker.
+    /// - `url` - The `mxc://` URL of the image.
+    /// - `info` - Metadata about the image, if known.
+    pub async fn send_sticker(
+        self: Arc<Self>,
+        body: String,
+        url: String,
+        info: Option<ImageInfo>,
+    ) -> Result<Arc<SendHandle>, ClientError> {
+        let info = info.map(Into::into).unwrap_or_default();
+        let content = StickerEventContent::new(body, info, url.into());
+
+        match self.inner.send(content.into()).await {
+            Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
+            Err(err) => {
+                error!("error when sending a sticker: {err}");
                 Err(err.into())
             }
         }
