@@ -1156,6 +1156,52 @@ impl Account {
         Ok(())
     }
 
+    /// Enable or disable an image pack globally, making it usable in all the
+    /// rooms or only in its own room and the rooms of the spaces it's in.
+    ///
+    /// The pack is the `m.room.image_pack` state event with the given
+    /// `state_key` in the room identified by `room_id`. It's added to or
+    /// removed from the user's `m.image_pack.rooms` account data.
+    pub async fn set_image_pack_enabled_globally(
+        &self,
+        room_id: &RoomId,
+        state_key: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        use ruma::events::image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta};
+
+        // Prevent concurrent calls from trampling on each other's update, like
+        // in `mark_as_dm()`.
+        let _guard = self.client.locks().image_pack_rooms_lock.lock().await;
+
+        // Fetched from the server as `/sync` may not have caught up with a
+        // previous update yet.
+        let mut content =
+            match self.fetch_account_data_static::<ImagePackRoomsEventContent>().await? {
+                // A malformed event is kept rather than overwritten, as it may
+                // hold the packs enabled by another client.
+                Some(raw) => raw.deserialize()?,
+                None => ImagePackRoomsEventContent::new(Default::default()),
+            };
+
+        if enabled {
+            content
+                .rooms
+                .entry(room_id.to_owned())
+                .or_default()
+                .insert(state_key.to_owned(), RoomImagePackMeta::new());
+        } else if let Some(state_keys) = content.rooms.get_mut(room_id) {
+            state_keys.remove(state_key);
+            if state_keys.is_empty() {
+                content.rooms.remove(room_id);
+            }
+        }
+
+        self.set_account_data(content).await?;
+
+        Ok(())
+    }
+
     /// Set the invite permission configuration for this account.
     ///
     /// The configuration determines how the server should handle incoming

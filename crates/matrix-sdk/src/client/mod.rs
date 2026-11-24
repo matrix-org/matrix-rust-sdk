@@ -236,6 +236,12 @@ pub(crate) struct ClientLocks {
     /// explanation.
     pub(crate) mark_as_dm_lock: Mutex<()>,
 
+    /// Lock ensuring that only a single image pack may be enabled or disabled
+    /// globally at once. Look at the
+    /// [`Account::set_image_pack_enabled_globally()`] method for a more
+    /// detailed explanation.
+    pub(crate) image_pack_rooms_lock: Mutex<()>,
+
     /// Lock ensuring that only a single secret store is getting opened at the
     /// same time.
     ///
