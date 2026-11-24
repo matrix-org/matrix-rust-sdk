@@ -191,6 +191,16 @@ impl HttpClient {
     }
 }
 
+/// Interval between two HTTP/2 PING frames sent on a connection, used to
+/// detect connections which became dead, for instance after a network change.
+#[cfg(not(target_family = "wasm"))]
+const HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Time to wait for the acknowledgement of an HTTP/2 PING frame before closing
+/// the connection.
+#[cfg(not(target_family = "wasm"))]
+const HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[cfg(not(target_family = "wasm"))]
 /// Settings used to build the underlying [`reqwest::Client`].
 #[derive(Clone, Debug)]
@@ -244,7 +254,17 @@ impl HttpSettings {
             .user_agent(user_agent)
             // As recommended by BCP 195. See:
             // https://datatracker.ietf.org/doc/bcp195/
-            .min_tls_version(tls::Version::TLS_1_2);
+            .min_tls_version(tls::Version::TLS_1_2)
+            // Send HTTP/2 PING frames so that a connection which became dead
+            // (e.g. after a network change) is detected and removed from the
+            // pool, instead of new requests being multiplexed on it until the
+            // OS times out the socket. Idle connections are pinged too, so the
+            // first request after a network change isn't stuck. This has no
+            // effect on HTTP/1.1 connections. See:
+            // https://github.com/matrix-org/matrix-rust-sdk/issues/7542
+            .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
+            .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
+            .http2_keep_alive_while_idle(true);
 
         if let Some(timeout) = self.timeout {
             http_client = http_client.timeout(timeout);
