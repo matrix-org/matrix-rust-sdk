@@ -204,6 +204,7 @@ jobs:
 
   test-crypto-apple-framework-generation:
     name: Generate Crypto FFI Apple XCFramework
+    needs: xtask
     runs-on: macos-15
     if: github.event_name == 'push' || !github.event.pull_request.draft
 
@@ -239,8 +240,15 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           lookup-only: true
 
-      - name: Run the Build Framework script
-        run: ./bindings/apple/build_crypto_xcframework.sh -i
+      - name: Get xtask
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-macos }}"
+          fail-on-cache-miss: true
+
+      - name: Build Crypto Framework
+        run: target/debug/xtask swift build-crypto-framework --release --target=aarch64-apple-ios
 
       - name: Is XCFramework generated?
         if: ${{ hashFiles('generated/MatrixSDKCryptoFFI.zip') != '' }}
