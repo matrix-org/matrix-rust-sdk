@@ -208,12 +208,25 @@ impl Caches {
             thread::ThreadEventCache,
         >,
     > {
+        // Fast path: the thread cache most likely exists already. Use a read
+        // lock so that we don't have to wait for every other outstanding read
+        // guard to be released, nor block other readers.
+        if let Ok(locked_cache) = OwnedRwLockReadGuard::try_map(
+            self.threads.clone().read_owned().await,
+            |threads| threads.get(&thread_id),
+        ) {
+            return Ok(locked_cache);
+        }
+
+        // Slow path: the thread cache doesn't exist, take a write lock to
+        // create it. Another task may have created it between releasing the
+        // read lock and acquiring the write lock, so check again.
         Ok(
             match OwnedRwLockWriteGuard::try_downgrade_map(
                 self.threads.clone().write_owned().await,
                 |threads| threads.get(&thread_id),
             ) {
-                // Thread exists.
+                // Thread exists (created concurrently).
                 Ok(locked_cache) => locked_cache,
                 // Thread does not exist, let's create it.
                 Err(mut threads) => {
