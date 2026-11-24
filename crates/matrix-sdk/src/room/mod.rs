@@ -4370,11 +4370,7 @@ impl Room {
         can_refresh_global_configuration: bool,
     ) -> Result<Option<RoomRetentionEventContent>> {
         let config = if can_refresh_global_configuration {
-            match self.client.retention_configuration().await {
-                Ok(config) => Some(config),
-                Err(e) if e.is_endpoint_not_implemented() => None,
-                Err(e) => return Err(e.into()),
-            }
+            self.client.retention_configuration().await?
         } else {
             self.client.inner.caches.retention_configuration.get().map(|config| config.into_data())
         };
