@@ -90,6 +90,55 @@ async fn test_notification_client_with_context() {
     });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
+    // Without any power levels, the default ones allow anyone to send messages.
+    assert!(item.can_send_message);
+}
+
+#[async_test]
+async fn test_notification_client_can_send_message_follows_power_levels() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!r0");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    let event_id = event_id!("$example_event_id");
+    let event = f.text_msg("Hello world!").event_id(event_id).server_ts(152049794).into_event();
+
+    // The room requires a power level of 50 to send `m.room.message` events,
+    // and the current user only has the default power level of 0.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_state_event(f.create(sender, RoomVersionId::V1))
+                .add_state_event(
+                    f.power_levels()
+                        .set_users([(sender.to_owned(), 100)])
+                        .set_events([(TimelineEventType::RoomMessage, 50)]),
+                )
+                .add_timeline_event(event.raw().clone()),
+        )
+        .await;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(event))
+        .mock_once()
+        .mount()
+        .await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let item = notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
+
+    assert_let!(NotificationStatus::Event(item) = item);
+    assert!(!item.can_send_message);
 }
 
 #[async_test]
