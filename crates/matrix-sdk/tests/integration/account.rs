@@ -563,3 +563,100 @@ async fn test_fetch_user_profile_call_without_ts() {
     let call = profile.get_static::<Call>().unwrap().unwrap();
     assert_eq!(call.call_joined_ts, None);
 }
+
+#[async_test]
+async fn test_set_image_pack_enabled_globally() {
+    use std::collections::BTreeMap;
+
+    use ruma::{
+        RoomId,
+        events::{
+            GlobalAccountDataEventType,
+            image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
+        },
+        room_id,
+    };
+    use serde_json::json;
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let event_type = GlobalAccountDataEventType::ImagePackRooms;
+    let room_id = room_id!("!room:localhost");
+    let other_room_id = room_id!("!other:localhost");
+
+    let enabled = |rooms: &[(&RoomId, &[&str])]| {
+        ImagePackRoomsEventContent::new(
+            rooms
+                .iter()
+                .map(|(room_id, state_keys)| {
+                    let packs = state_keys
+                        .iter()
+                        .map(|state_key| ((*state_key).to_owned(), RoomImagePackMeta::new()))
+                        .collect::<BTreeMap<_, _>>();
+                    ((*room_id).to_owned(), packs)
+                })
+                .collect(),
+        )
+    };
+
+    // Without any enabled packs yet, enabling one creates the account data.
+    {
+        let _get = server
+            .mock_get_global_account_data(user_id, &event_type)
+            .respond_with_code_and_json(404, json!({ "errcode": "M_NOT_FOUND", "error": "" }))
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+        let _set = server
+            .mock_set_global_account_data(user_id, &event_type)
+            .expect_account_data(enabled(&[(room_id, &["pack"])]))
+            .ok()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        client.account().set_image_pack_enabled_globally(room_id, "pack", true).await.unwrap();
+    }
+
+    // Enabling another pack keeps the ones already enabled.
+    {
+        let _get = server
+            .mock_get_global_account_data(user_id, &event_type)
+            .ok(enabled(&[(room_id, &["pack"]), (other_room_id, &["other"])]))
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+        let _set = server
+            .mock_set_global_account_data(user_id, &event_type)
+            .expect_account_data(enabled(&[
+                (room_id, &["pack", "second"]),
+                (other_room_id, &["other"]),
+            ]))
+            .ok()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        client.account().set_image_pack_enabled_globally(room_id, "second", true).await.unwrap();
+    }
+
+    // Disabling the last enabled pack of a room removes the room.
+    {
+        let _get = server
+            .mock_get_global_account_data(user_id, &event_type)
+            .ok(enabled(&[(room_id, &["pack"]), (other_room_id, &["other"])]))
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+        let _set = server
+            .mock_set_global_account_data(user_id, &event_type)
+            .expect_account_data(enabled(&[(other_room_id, &["other"])]))
+            .ok()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        client.account().set_image_pack_enabled_globally(room_id, "pack", false).await.unwrap();
+    }
+}
