@@ -106,13 +106,9 @@ use std::{
 
 use matrix_sdk_base::{
     read_receipts::{LatestReadReceipt, ReadReceipts},
-    serde_helpers::extract_relation,
     store::DynStateStore,
 };
-use matrix_sdk_common::{
-    deserialized_responses::TimelineEvent, ring_buffer::RingBuffer,
-    serde_helpers::extract_thread_root,
-};
+use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
 use ruma::{
     EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     events::{
@@ -124,6 +120,8 @@ use ruma::{
     },
     serde::Raw,
 };
+use serde::Deserialize;
+use serde_json::value::RawValue;
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
@@ -188,6 +186,15 @@ trait ReadReceiptsExt {
     /// Returns whether a new event triggered a new unread/notification/mention.
     fn process_event(&mut self, event: &TimelineEvent, user_id: &UserId);
 
+    /// Same as [`ReadReceiptsExt::process_event`], with the event's fields
+    /// already extracted.
+    fn process_event_fields(
+        &mut self,
+        event: &TimelineEvent,
+        fields: &EventFields<'_>,
+        user_id: &UserId,
+    );
+
     fn reset(&mut self);
 
     /// Try to find the event to which the receipt attaches to, and if found,
@@ -209,14 +216,24 @@ impl ReadReceiptsExt for ReadReceipts {
     /// Returns whether a new event triggered a new unread/notification/mention.
     #[inline(always)]
     fn process_event(&mut self, event: &TimelineEvent, user_id: &UserId) {
-        if marks_as_unread(event.raw(), user_id) {
+        self.process_event_fields(event, &EventFields::parse(event.raw()), user_id);
+    }
+
+    #[inline(always)]
+    fn process_event_fields(
+        &mut self,
+        event: &TimelineEvent,
+        fields: &EventFields<'_>,
+        user_id: &UserId,
+    ) {
+        if marks_as_unread(fields, user_id) {
             self.num_unread += 1;
         }
 
         // A redacted event keeps the push actions it had when it arrived (e.g.
         // a "notify" for an undecryptable event), but once redacted
         // there's nothing left to be notified about.
-        if is_redacted(event.raw()) {
+        if fields.is_redacted() {
             return;
         }
 
@@ -294,7 +311,7 @@ pub trait EventFilter {
     fn room_id(&self) -> &RoomId;
 
     /// Decide whether an event is a candidate for a read receipt.
-    fn filter(&self, event: &TimelineEvent) -> bool;
+    fn filter(&self, fields: &EventFields<'_>) -> bool;
 
     /// Check whether a given [`ReceiptThread`] is valid, i.e. matches our
     /// expectation of possible `ReceiptThread` for `Self`.
@@ -339,11 +356,11 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
         self.room_id
     }
 
-    fn filter(&self, event: &TimelineEvent) -> bool {
+    fn filter(&self, fields: &EventFields<'_>) -> bool {
         // This type is built from a `RoomEventCacheState`. The room event cache
         // contains all events, including in-thread events. We need to filter
         // them!
-        (self.with_threading_support && extract_thread_root(event.raw()).is_some()).not()
+        (self.with_threading_support && fields.thread_root().is_some()).not()
     }
 
     fn receipt_thread_matches(&self, receipt_thread: &ReceiptThread) -> bool {
@@ -405,7 +422,7 @@ impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
         self.room_id
     }
 
-    fn filter(&self, _event: &TimelineEvent) -> bool {
+    fn filter(&self, _fields: &EventFields<'_>) -> bool {
         // This type is built from a `ThreadEventCacheState`. The thread event
         // cache contains all in-thread events for this particular thread. No
         // need to filter them.
@@ -482,10 +499,10 @@ where
 
     // This loop folds two actions at once:
     //
-    // - try to find the most recent receipt, by looking at the events in
-    //   reverse order (i.e. from the most recent to the least recent),
-    // - try to match stashed receipts against known events in the linked chunk,
-    //   so as to shrink the stash of pending receipts.
+    // - try to find the most recent receipt, by looking at the events in reverse
+    //   order (i.e. from the most recent to the least recent),
+    // - try to match stashed receipts against known events in the linked chunk, so
+    //   as to shrink the stash of pending receipts.
     //
     // We can early exit out of this loop, as soon as there's no more work to
     // do, i.e., we've found a better receipt, _and_ there's no more pending
@@ -493,8 +510,9 @@ where
 
     let mut receipt = None;
 
-    for (event, event_id) in linked_chunk.revents().filter_map(|(_pos, event)| {
-        event_filter.filter(event).then_some((event, event.event_id()?))
+    for (fields, event_id) in linked_chunk.revents().filter_map(|(_pos, event)| {
+        let fields = EventFields::parse(event.raw());
+        event_filter.filter(&fields).then_some((fields, event.event_id()?))
     }) {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent
@@ -507,7 +525,7 @@ where
             }
             // Try to find an implicit read receipt (i.e. an event sent by the
             // current user).
-            else if event.sender().as_deref() == Some(user_id) {
+            else if fields.sender().as_deref() == Some(user_id) {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 receipt = Some(event_id.to_owned());
             }
@@ -630,9 +648,9 @@ pub(crate) async fn compute_unread_counts<T>(
         read_receipts.find_and_process_events(
             &event_id,
             user_id,
-            linked_chunk
-                .revents()
-                .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event)),
+            linked_chunk.revents().filter_map(|(_pos, event)| {
+                event_filter.filter(&EventFields::parse(event.raw())).then_some(event)
+            }),
         );
 
         debug!(?read_receipts, "after finding a better receipt");
@@ -661,29 +679,31 @@ pub(crate) async fn compute_unread_counts<T>(
     // events. Reset the number of unreads, and recount them all.
     read_receipts.reset();
 
-    for event in linked_chunk
-        .events()
-        .filter_map(|(_pos, event)| event_filter.filter(event).then_some(event))
-    {
-        read_receipts.process_event(event, user_id);
+    // Extract each event's fields once, for both the filter and the counts:
+    // this loop visits all the loaded events, so it must be cheap.
+    for (_pos, event) in linked_chunk.events() {
+        let fields = EventFields::parse(event.raw());
+
+        if event_filter.filter(&fields) {
+            read_receipts.process_event_fields(event, &fields, user_id);
+        }
     }
 
     debug!(?read_receipts, "no better receipt");
 }
 
 /// Is the event worth marking a timeline as unread?
-fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
-    // Parse the sender from the raw event.
-    if event.get_field::<OwnedUserId>("sender").ok().flatten().as_deref() == Some(user_id) {
-        tracing::trace!("not interesting because sent by the current user");
+///
+/// This function is called for every loaded event when the unread counts are
+/// recomputed, so it deliberately doesn't log anything per event.
+fn marks_as_unread(fields: &EventFields<'_>, user_id: &UserId) -> bool {
+    // Not interesting because sent by the current user.
+    if fields.sender().as_deref() == Some(user_id) {
         return false;
     }
 
-    let Some(event_type) = event.get_field::<MessageLikeEventType>("type").ok().flatten() else {
-        tracing::trace!(
-            "failed to parse event type for event with id {:?}, skipping it",
-            event.get_field::<OwnedEventId>("event_id").ok().flatten()
-        );
+    // Not interesting if the type can't be parsed.
+    let Some(event_type) = fields.event_type() else {
         return false;
     };
 
@@ -697,38 +717,103 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
         | MessageLikeEventType::RoomMessage
         | MessageLikeEventType::Sticker => {}
 
-        _ => {
-            tracing::trace!("not interesting because not an interesting message-like");
-            return false;
-        }
+        // Not an interesting message-like.
+        _ => return false,
     }
 
     // Filter out edits.
-    if let Some((RelationType::Replacement, _)) = extract_relation(event) {
-        tracing::trace!("not interesting because edited");
+    if let Some((RelationType::Replacement, _)) = fields.relation() {
         return false;
     }
 
     // Filter out redacted events.
-    if is_redacted(event) {
-        tracing::trace!("not interesting because redacted");
+    if fields.is_redacted() {
         return false;
     }
 
     true
 }
 
-/// Has the event been redacted?
-fn is_redacted(event: &Raw<AnySyncTimelineEvent>) -> bool {
-    #[derive(serde::Deserialize)]
-    struct UnsignedContent {
-        redacted_because: Option<Raw<AnySyncTimelineEvent>>,
+/// The fields of an event needed to compute the unread counts.
+///
+/// The event's JSON is scanned once, keeping the needed fields as raw JSON.
+/// Each field is then parsed on demand and independently from the others,
+/// so that a malformed field doesn't prevent reading the others, like with
+/// [`Raw::get_field`]. Calling `get_field` once per field instead would scan
+/// the whole event's JSON every time.
+#[derive(Default, Deserialize)]
+pub(super) struct EventFields<'a> {
+    #[serde(borrow)]
+    sender: Option<&'a RawValue>,
+
+    #[serde(borrow, rename = "type")]
+    event_type: Option<&'a RawValue>,
+
+    #[serde(borrow)]
+    content: Option<&'a RawValue>,
+
+    #[serde(borrow)]
+    unsigned: Option<&'a RawValue>,
+}
+
+impl<'a> EventFields<'a> {
+    /// Extract the fields of `event`. If the event isn't a JSON object, all
+    /// fields are missing.
+    fn parse(event: &'a Raw<AnySyncTimelineEvent>) -> Self {
+        serde_json::from_str(event.json().get()).unwrap_or_default()
     }
 
-    matches!(
-        event.get_field::<UnsignedContent>("unsigned"),
-        Ok(Some(UnsignedContent { redacted_because: Some(_) }))
-    )
+    /// The sender of the event.
+    fn sender(&self) -> Option<OwnedUserId> {
+        serde_json::from_str(self.sender?.get()).ok()
+    }
+
+    /// The type of the event.
+    fn event_type(&self) -> Option<MessageLikeEventType> {
+        serde_json::from_str(self.event_type?.get()).ok()
+    }
+
+    /// The type and target of the relation of the event, if any.
+    fn relation(&self) -> Option<(RelationType, OwnedEventId)> {
+        #[derive(Deserialize)]
+        struct Content {
+            #[serde(rename = "m.relates_to")]
+            relates_to: Option<RelatesTo>,
+        }
+
+        #[derive(Deserialize)]
+        struct RelatesTo {
+            rel_type: RelationType,
+            event_id: Option<OwnedEventId>,
+        }
+
+        let relates_to = serde_json::from_str::<Content>(self.content?.get()).ok()?.relates_to?;
+        Some((relates_to.rel_type, relates_to.event_id?))
+    }
+
+    /// The root of the thread the event belongs to, if any.
+    fn thread_root(&self) -> Option<OwnedEventId> {
+        match self.relation()? {
+            (RelationType::Thread, thread_root) => Some(thread_root),
+            _ => None,
+        }
+    }
+
+    /// Has the event been redacted?
+    fn is_redacted(&self) -> bool {
+        #[derive(Deserialize)]
+        struct Unsigned<'a> {
+            #[serde(borrow)]
+            redacted_because: Option<&'a RawValue>,
+        }
+
+        self.unsigned.is_some_and(|unsigned| {
+            matches!(
+                serde_json::from_str::<Unsigned<'_>>(unsigned.get()),
+                Ok(Unsigned { redacted_because: Some(_) })
+            )
+        })
+    }
 }
 
 /// An inline read receipt, as a tuple.
@@ -821,8 +906,8 @@ mod tests {
     };
 
     use super::{
-        EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _, RoomReadReceiptEventFilter,
-        marks_as_unread, select_best_receipt, stop_on_event_ids,
+        EventFields, EventFilter, MaybeReceiptEventContent, ReadReceiptsExt as _,
+        RoomReadReceiptEventFilter, marks_as_unread, select_best_receipt, stop_on_event_ids,
     };
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk, pagination::BackPaginationOutcome,
@@ -855,6 +940,37 @@ mod tests {
     }
 
     #[test]
+    fn test_event_fields_are_parsed_independently() {
+        // A malformed field doesn't prevent reading the other ones.
+        let ev = ruma::serde::Raw::<ruma::events::AnySyncTimelineEvent>::from_json_string(
+            r#"{
+                "sender": 42,
+                "type": "m.room.message",
+                "content": { "m.relates_to": { "rel_type": "m.thread", "event_id": "$root" } },
+                "unsigned": { "redacted_because": {} }
+            }"#
+            .to_owned(),
+        )
+        .unwrap();
+        let fields = EventFields::parse(&ev);
+
+        assert_eq!(fields.sender(), None);
+        assert_eq!(fields.event_type(), Some(ruma::events::MessageLikeEventType::RoomMessage));
+        assert_eq!(fields.thread_root(), Some(owned_event_id!("$root")));
+        assert!(fields.is_redacted());
+
+        // An event that isn't a JSON object has no fields.
+        let ev = ruma::serde::Raw::<ruma::events::AnySyncTimelineEvent>::from_json_string(
+            "[]".to_owned(),
+        )
+        .unwrap();
+        let fields = EventFields::parse(&ev);
+
+        assert_eq!(fields.event_type(), None);
+        assert!(fields.is_redacted().not());
+    }
+
+    #[test]
     fn test_room_message_marks_as_unread() {
         let user_id = user_id!("@alice:example.org");
         let other_user_id = user_id!("@bob:example.org");
@@ -863,11 +979,11 @@ mod tests {
 
         // A message from somebody else marks the room as unread...
         let ev = f.text_msg("A").event_id(event_id!("$ida")).sender(other_user_id).into_raw_sync();
-        assert!(marks_as_unread(&ev, user_id));
+        assert!(marks_as_unread(&EventFields::parse(&ev), user_id));
 
         // ... but a message from ourselves doesn't.
         let ev = f.text_msg("A").event_id(event_id!("$ida")).sender(user_id).into_raw_sync();
-        assert!(marks_as_unread(&ev, user_id).not());
+        assert!(marks_as_unread(&EventFields::parse(&ev), user_id).not());
     }
 
     #[test]
@@ -887,7 +1003,7 @@ mod tests {
             .sender(other_user_id)
             .into_raw_sync();
 
-        assert!(marks_as_unread(&ev, user_id).not());
+        assert!(marks_as_unread(&EventFields::parse(&ev), user_id).not());
     }
 
     #[test]
@@ -903,7 +1019,7 @@ mod tests {
             .event_id(event_id!("$151957878228ssqrJ:localhost"))
             .into_raw_sync();
 
-        assert!(marks_as_unread(&ev, user_id).not());
+        assert!(marks_as_unread(&EventFields::parse(&ev), user_id).not());
     }
 
     #[test]
@@ -919,7 +1035,7 @@ mod tests {
             .event_id(event_id!("$15275047031IXQRi:localhost"))
             .into_raw_sync();
 
-        assert!(marks_as_unread(&ev, user_id).not());
+        assert!(marks_as_unread(&EventFields::parse(&ev), user_id).not());
     }
 
     #[test]
@@ -933,10 +1049,10 @@ mod tests {
             .display_name("Alice")
             .event_id(event_id)
             .into_raw_sync();
-        assert!(marks_as_unread(&ev, user_id).not());
+        assert!(marks_as_unread(&EventFields::parse(&ev), user_id).not());
 
         let other_user_id = user_id!("@bob:example.org");
-        assert!(marks_as_unread(&ev, other_user_id).not());
+        assert!(marks_as_unread(&EventFields::parse(&ev), other_user_id).not());
     }
 
     #[test]
@@ -1201,7 +1317,7 @@ mod tests {
             make_in_thread_event(bob, room_id, event_id!("$some_other_thread_root")),
         ]
         .into_iter()
-        .filter(|event| event_filter.filter(event))
+        .filter(|event| event_filter.filter(&EventFields::parse(event.raw())))
         {
             receipts.process_event(&event, own_alice);
         }
@@ -1218,7 +1334,7 @@ mod tests {
             .event_id(event_id!("$ida"))
             .into_event()]
         .into_iter()
-        .filter(|event| event_filter.filter(event))
+        .filter(|event| event_filter.filter(&EventFields::parse(event.raw())))
         {
             receipts.process_event(&event, own_alice);
         }
