@@ -119,7 +119,7 @@ unicode-normalization = { version = "0.1.25", default-features = false }
 unicode-segmentation = { version = "1.13.3", default-features = false }
 uniffi = { version = "0.32.1", default-features = false, features = ["cargo-metadata"] }
 uniffi_bindgen = { version = "0.32.1", default-features = false, features = ["cargo-metadata"] }
-url = { version = "2.5.8", default-features = false }
+url = { version = "2.5.9", default-features = false }
 uuid = { version = "1.26.1", default-features = false }
 vergen-gitcl = { version = "10.0.3", default-features = false }
 vodozemac = { version = "0.11.2", features = ["insecure-pk-encryption", "experimental-session-config"] }
