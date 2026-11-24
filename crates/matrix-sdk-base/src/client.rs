@@ -739,6 +739,8 @@ impl BaseClient {
 
         let global_account_data_processor =
             processors::account_data::global(&response.account_data.events);
+        #[cfg(feature = "unstable-msc4563")]
+        global_account_data_processor.collect_direct_rooms(&mut context);
 
         let push_rules = self.get_push_rules(&global_account_data_processor).await?;
 

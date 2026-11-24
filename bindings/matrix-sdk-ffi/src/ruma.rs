@@ -33,7 +33,7 @@ use ruma::{
         ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
         invite_permission_config::InvitePermissionAction as RumaInvitePermissionAction,
         location::AssetType as RumaAssetType,
-        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        marked_unread::MarkedUnreadEventContent,
         media_preview_config::{
             InviteAvatars as RumaInviteAvatars, MediaPreviewConfigEventContent,
             MediaPreviews as RumaMediaPreviews,
@@ -1840,11 +1840,6 @@ pub enum RoomAccountDataEvent {
     },
     /// m.tag
     Tag { tags: HashMap<TagName, TagInfo> },
-    /// com.famedly.marked_unread
-    UnstableMarkedUnread {
-        /// The current unread state.
-        unread: bool,
-    },
 }
 
 /// The name of a tag.
@@ -1928,12 +1923,6 @@ impl TryFrom<RumaRoomAccountDataEvent<TagEventContent>> for RoomAccountDataEvent
                 .map(|(name, info)| name.try_into().map(|name| (name, info.into())))
                 .collect::<Result<HashMap<TagName, _>, _>>()?,
         })
-    }
-}
-
-impl From<RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>> for RoomAccountDataEvent {
-    fn from(value: RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>) -> Self {
-        Self::UnstableMarkedUnread { unread: value.content.unread }
     }
 }
 

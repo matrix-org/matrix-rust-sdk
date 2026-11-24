@@ -3731,6 +3731,11 @@ impl Room {
             power_levels,
         });
 
+        #[cfg(feature = "unstable-msc4563")]
+        {
+            ctx.is_direct = self.direct_targets_length() != 0;
+        }
+
         if with_threads_subscriptions {
             let this = self.clone();
             ctx = ctx.with_has_thread_subscription_fn(move |event_id: &EventId| {
