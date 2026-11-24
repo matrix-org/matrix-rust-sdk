@@ -2051,7 +2051,7 @@ mod tests {
         let client = logged_in_client(Some(server.uri())).await;
         let sliding_sync = client
             .sliding_sync("e2ee")?
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true}))
             .build()
             .await?;
 
