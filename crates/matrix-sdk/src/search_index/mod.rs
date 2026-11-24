@@ -17,7 +17,7 @@
 //! multiple [`RoomIndex`].
 
 use std::{
-    collections::hash_map::HashMap,
+    collections::hash_map::{Entry, HashMap},
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
@@ -204,6 +204,12 @@ impl SearchIndex {
     /// Same as [`SearchIndexGuard::bulk_handle_timeline_event`], but only
     /// locks the index once the events are parsed: parsing waits on the event
     /// cache, and searches need the lock meanwhile.
+    ///
+    /// Executing the operations (creating the index and committing it) is
+    /// blocking and can take hundreds of milliseconds, so it runs on the
+    /// blocking thread pool instead of an async worker thread: otherwise it
+    /// would stall every other task scheduled on that worker (e.g. the sync
+    /// loop, which may have just been woken up by this task).
     pub(crate) async fn bulk_handle_timeline_event<T>(
         &self,
         events: T,
@@ -215,7 +221,29 @@ impl SearchIndex {
         T: Iterator<Item = TimelineEvent>,
     {
         let operations = parse_timeline_events(events, room_cache, redaction_rules).await;
-        self.lock().await.bulk_execute(operations, room_id)
+
+        // Don't create an index (which is costly) nor spawn a task for nothing.
+        if operations.is_empty() {
+            return Ok(());
+        }
+
+        let mut room_indexes = self.room_indexes.clone().lock_owned().await;
+        let search_index_store_kind = self.search_index_store_kind.clone();
+        let room_id = room_id.to_owned();
+
+        spawn_blocking(move || {
+            let index = match room_indexes.entry(room_id) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    let index = create_index(&search_index_store_kind, entry.key())?;
+                    entry.insert(index)
+                }
+            };
+
+            index.bulk_execute(operations)
+        })
+        .await
+        .expect("Task join error")
     }
 }
 
