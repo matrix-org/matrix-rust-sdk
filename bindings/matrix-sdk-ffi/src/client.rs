@@ -1620,6 +1620,50 @@ impl Client {
             .await?)
     }
 
+    /// Get a media file's content from the cache only, without fetching it from
+    /// the network.
+    ///
+    /// Returns `None` if it isn't cached.
+    pub async fn get_cached_media_content(
+        &self,
+        media_source: Arc<MediaSource>,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
+        let source = (*media_source).clone().media_source;
+
+        Ok(self
+            .inner
+            .media()
+            .get_cached_media_content(&MediaRequestParameters { source, format: MediaFormat::File })
+            .await?)
+    }
+
+    /// Get a media thumbnail from the cache only, without fetching it from the
+    /// network.
+    ///
+    /// Returns `None` if it isn't cached.
+    #[uniffi::method(default(animated = false))]
+    pub async fn get_cached_media_thumbnail(
+        &self,
+        media_source: Arc<MediaSource>,
+        width: u64,
+        height: u64,
+        animated: bool,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
+        let source = (*media_source).clone().media_source;
+
+        let mut settings = MediaThumbnailSettings::new(u64_to_uint(width), u64_to_uint(height));
+        settings.animated = animated;
+
+        Ok(self
+            .inner
+            .media()
+            .get_cached_media_content(&MediaRequestParameters {
+                source,
+                format: MediaFormat::Thumbnail(settings),
+            })
+            .await?)
+    }
+
     /// Get the homeserver-generated preview for a URL, as OpenGraph JSON.
     ///
     /// # Arguments

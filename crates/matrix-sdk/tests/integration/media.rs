@@ -92,6 +92,66 @@ async fn test_get_media_content_no_auth() {
 }
 
 #[async_test]
+async fn test_get_cached_media_content() {
+    // Given a client with an empty media cache.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+    let expected_content = b"Hello, World!";
+
+    server.mock_versions().with_versions(vec!["v1.1"]).ok().named("versions").mount().await;
+
+    let media = client.media();
+
+    let source = MediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile"));
+    let request = MediaRequestParameters { source: source.clone(), format: MediaFormat::File };
+
+    {
+        let _mock_guard = server
+            .mock_media_download()
+            .ok_plain_text()
+            .named("get_file_not_cached")
+            .expect(0)
+            .mount_as_scoped()
+            .await;
+
+        // When getting the cached media content.
+        let content = media.get_cached_media_content(&request).await.unwrap();
+
+        // Then nothing is returned, and the server isn't contacted.
+        assert!(content.is_none());
+    }
+
+    // Simulate the media content being cached.
+    {
+        let _mock_guard = server
+            .mock_media_download()
+            .ok_plain_text()
+            .named("get_file_fill_cache")
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        media.get_media_content(&request, true).await.unwrap();
+    }
+
+    // When getting the cached media content.
+    let content = media.get_cached_media_content(&request).await.unwrap();
+
+    // Then the cached content is returned.
+    assert_eq!(content.unwrap(), expected_content);
+
+    // When getting the cached content for a thumbnail of the same source.
+    let thumbnail_request = MediaRequestParameters {
+        source,
+        format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(uint!(100), uint!(100))),
+    };
+    let content = media.get_cached_media_content(&thumbnail_request).await.unwrap();
+
+    // Then nothing is returned, as only the file has been cached.
+    assert!(content.is_none());
+}
+
+#[async_test]
 async fn test_get_media_file() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().no_server_versions().build().await;
