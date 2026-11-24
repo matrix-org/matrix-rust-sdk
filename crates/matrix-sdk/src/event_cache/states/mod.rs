@@ -284,6 +284,44 @@ impl StateLock {
         Ok(())
     }
 
+    /// Clear all stored events and remove the cached state for a single room.
+    ///
+    /// The `caches_for_all_rooms_exclusive_lock_guard` argument ensures an
+    /// exclusive lock over all the caches has been acquired. This is required
+    /// to ensure safety for this method.
+    #[instrument(skip_all)]
+    pub(super) async fn clear_and_remove(
+        &self,
+        _caches_for_all_rooms_exclusive_lock_guard: &RwLockWriteGuard<'_, CachesByRoom>,
+        room_id: &RoomId,
+    ) -> Result<()> {
+        let tracing_timer = timer!("`clear_and_remove` lock");
+
+        let state_guard = self.inner.locked_state.write().await;
+
+        let mut guard = match state_guard.store.lock().await? {
+            EventCacheStoreLockState::Clean(store_guard)
+            | EventCacheStoreLockState::Dirty(store_guard) => ReloadableStateLockWriteGuard {
+                state: state_guard,
+                store: store_guard,
+                tracing_timer,
+            },
+        };
+
+        // Clear all the events.
+        guard.store.clear_all_events(Some(room_id)).await?;
+
+        // Remove the state.
+        guard.state.by_room.remove(room_id);
+
+        if EventCacheStoreLockGuard::is_dirty(&guard.store) {
+            // All good because everything has been removed.
+            EventCacheStoreLockGuard::clear_dirty(&guard.store);
+        }
+
+        Ok(())
+    }
+
     /// Insert a new cache state at location `cache_state_selector` if none
     /// exists.
     ///
