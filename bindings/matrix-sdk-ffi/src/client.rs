@@ -526,7 +526,7 @@ impl Client {
     /// The [`HttpClient`] used by this client, sharing its HTTP settings,
     /// request config and concurrency limits.
     pub fn http_client(&self) -> Arc<HttpClient> {
-        Arc::new(HttpClient { inner: self.inner.matrix_http_client().clone() })
+        Arc::new(HttpClient { inner: self.inner.http_client().clone() })
     }
 }
 

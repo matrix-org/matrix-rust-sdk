@@ -671,14 +671,11 @@ impl Client {
         &self.inner.base_client
     }
 
-    /// The underlying HTTP client.
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.inner.http_client.inner
-    }
-
     /// The [`HttpClient`] used by this client, with its [`RequestConfig`]
     /// retry and concurrency limits.
-    pub fn matrix_http_client(&self) -> &HttpClient {
+    ///
+    /// Use [`HttpClient::raw()`] to get the underlying [`reqwest::Client`].
+    pub fn http_client(&self) -> &HttpClient {
         &self.inner.http_client
     }
 

@@ -96,6 +96,11 @@ impl HttpClient {
         }
     }
 
+    /// The underlying [`reqwest::Client`].
+    pub fn raw(&self) -> &reqwest::Client {
+        &self.inner
+    }
+
     fn get_request_id(&self) -> String {
         let request_id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
         format!("REQ-{request_id}")
