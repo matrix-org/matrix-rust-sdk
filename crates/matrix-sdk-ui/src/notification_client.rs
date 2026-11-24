@@ -34,8 +34,8 @@ use ruma::{
     assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContentChange,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, StateEventContentChange, StateEventType,
-        TimelineEventType,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
+        StateEventContentChange, StateEventType, TimelineEventType,
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent,
             join_rules::JoinRule,
@@ -1167,6 +1167,13 @@ pub struct NotificationItem {
 
     /// Whether the room this notification is from is a DM or not.
     pub room_is_dm: bool,
+
+    /// Whether the current user is allowed to send an `m.room.message` event
+    /// in the room, according to the room's power levels.
+    ///
+    /// Useful to decide whether to offer a quick reply action from the
+    /// notification.
+    pub can_send_message: bool,
 }
 
 impl NotificationItem {
@@ -1274,6 +1281,10 @@ impl NotificationItem {
             thread_id,
             actions: push_actions.map(|actions| actions.to_vec()),
             room_is_dm: room.compute_is_dm().await?,
+            can_send_message: room
+                .power_levels_or_default()
+                .await
+                .user_can_send_message(room.own_user_id(), MessageLikeEventType::RoomMessage),
         };
 
         Ok(item)

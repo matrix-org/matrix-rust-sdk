@@ -56,6 +56,9 @@ pub struct NotificationRoomInfo {
     pub is_direct: bool,
     pub is_space: bool,
     pub is_dm: bool,
+    /// Whether the current user is allowed to send an `m.room.message` event
+    /// in the room, according to the room's power levels.
+    pub can_send_message: bool,
 }
 
 #[derive(uniffi::Record)]
@@ -116,6 +119,7 @@ impl NotificationItem {
                 is_direct: item.is_direct_message_room,
                 is_space: item.is_space,
                 is_dm: item.room_is_dm,
+                can_send_message: item.can_send_message,
             },
             is_noisy: item.is_noisy,
             has_mention: item.has_mention,

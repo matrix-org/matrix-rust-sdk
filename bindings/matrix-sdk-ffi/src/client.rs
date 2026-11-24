@@ -2953,6 +2953,10 @@ async fn notification_handler(
         is_direct,
         is_space: room.is_space(),
         is_dm: room.compute_is_dm().await.ok().unwrap_or_default(),
+        can_send_message: room.power_levels_or_default().await.user_can_send_message(
+            room.own_user_id(),
+            ruma::events::MessageLikeEventType::RoomMessage,
+        ),
     };
 
     listener.on_notification(
