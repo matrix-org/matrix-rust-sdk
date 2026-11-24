@@ -676,6 +676,12 @@ impl Client {
         &self.inner.http_client.inner
     }
 
+    /// The [`HttpClient`] used by this client, with its [`RequestConfig`]
+    /// retry and concurrency limits.
+    pub fn matrix_http_client(&self) -> &HttpClient {
+        &self.inner.http_client
+    }
+
     pub(crate) fn locks(&self) -> &ClientLocks {
         &self.inner.locks
     }

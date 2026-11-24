@@ -135,6 +135,8 @@ use super::{
     room::{RequestConfigOverride, Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
+#[cfg(not(target_family = "wasm"))]
+use crate::http_client::HttpClient;
 use crate::{
     ClientError,
     authentication::{
@@ -515,6 +517,16 @@ impl Client {
         }
 
         Ok(client)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// The [`HttpClient`] used by this client, sharing its HTTP settings,
+    /// request config and concurrency limits.
+    pub fn http_client(&self) -> Arc<HttpClient> {
+        Arc::new(HttpClient { inner: self.inner.matrix_http_client().clone() })
     }
 }
 
