@@ -451,31 +451,16 @@ impl Media {
         // This is a local media. Force to read the media's content from the
         // store: it cannot exist somewhere else!
         if Self::is_local_uri(&request.source) {
-            // Local medias are always cached with `MediaFormat::File`, be it
-            // the file itself or its thumbnail (see
-            // `RoomSendQueue::cache_media`), so ignore the requested format.
-            let request = &MediaRequestParameters {
-                source: request.source.clone(),
-                format: MediaFormat::File,
-            };
-
-            if let Some(content) =
-                self.client.media_store().lock().await?.get_media_content(request).await?
-            {
-                return Ok(content);
-            } else {
-                return Err(Error::MediaStore(Box::new(store::MediaStoreError::InvalidData {
+            return self.get_cached_media_content(request).await?.ok_or_else(|| {
+                Error::MediaStore(Box::new(store::MediaStoreError::InvalidData {
                     details: format!("Media does not exist: `{request:?}`"),
-                })));
-            }
+                }))
+            });
         }
 
         // Read from the cache: if it doesn't exist, the execution continues by
         // reading the media from the network.
-        if use_cache
-            && let Some(content) =
-                self.client.media_store().lock().await?.get_media_content(request).await?
-        {
+        if use_cache && let Some(content) = self.get_cached_media_content(request).await? {
             return Ok(content);
         }
 
@@ -498,6 +483,30 @@ impl Media {
         }
 
         Ok(content)
+    }
+
+    /// Get a media file's content from the cache only, without fetching it
+    /// from the network.
+    ///
+    /// Returns `None` if the content isn't in the media store.
+    ///
+    /// # Arguments
+    ///
+    /// - `request` - The `MediaRequest` of the content.
+    pub async fn get_cached_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<Option<Vec<u8>>> {
+        // Local medias are always cached with `MediaFormat::File`, be it the
+        // file itself or its thumbnail (see `RoomSendQueue::cache_media`), so
+        // ignore the requested format.
+        let request = if Self::is_local_uri(&request.source) {
+            &MediaRequestParameters { source: request.source.clone(), format: MediaFormat::File }
+        } else {
+            request
+        };
+
+        Ok(self.client.media_store().lock().await?.get_media_content(request).await?)
     }
 
     /// Remove a media file's content from the store.
