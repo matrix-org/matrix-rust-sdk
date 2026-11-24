@@ -21,15 +21,15 @@ use std::{
     sync::Arc,
 };
 
-use itertools::Either;
 use matrix_sdk_base::{
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
+    locks::Mutex as SyncMutex,
     timer,
     tracing_timer::TracingTimer,
 };
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
-    Mutex, OwnedRwLockMappedWriteGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
+    OwnedRwLockMappedWriteGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     RwLockReadGuard, RwLockWriteGuard,
 };
 use tracing::{instrument, trace};
@@ -53,17 +53,47 @@ pub(in super::super) mod selectors;
 /// [`RoomStateLock`].
 pub struct State {
     store: EventCacheStoreLock,
-    by_room: HashMap<OwnedRoomId, RoomStateLock>,
+
+    /// The states of each room.
+    ///
+    /// This map is behind a synchronous mutex so that a room can be added while
+    /// holding the lock over [`State`] in shared mode. The mutex is only held
+    /// to look up or insert a room, never across an `.await` point.
+    by_room: SyncMutex<HashMap<OwnedRoomId, RoomStateLock>>,
+}
+
+impl State {
+    /// Get the lock of the states of a room, if it exists.
+    fn room(&self, room_id: &RoomId) -> Option<RoomStateLock> {
+        self.by_room.lock().get(room_id).cloned()
+    }
+
+    /// Get the lock of the states of a room, creating empty states for it if
+    /// it doesn't exist.
+    fn room_or_default(&self, room_id: &RoomId) -> RoomStateLock {
+        self.by_room.lock().entry(room_id.to_owned()).or_default().clone()
+    }
 }
 
 /// The lock around all the states of a single room.
 ///
-/// For the moment, a room lock is always acquired while holding the lock over
-/// the full [`State`], in the same mode (shared or exclusive), so that
-/// operations on different rooms are still serialized like before. The room
-/// lock is thus never contended. Operations that work on a single room will be
-/// allowed to only hold the lock over [`State`] in shared mode in the future,
-/// so that operations on different rooms can run concurrently.
+/// ## Locking
+///
+/// Operations on the states of a room acquire, in this order:
+///
+/// 1. the lock over the full [`State`] in **shared** mode,
+/// 2. the lock of the room, in shared or exclusive mode,
+/// 3. the cross-process lock over the store.
+///
+/// Operations on different rooms thus run concurrently. The lock over the
+/// full [`State`] is only acquired in exclusive mode to reload or clear the
+/// states of all rooms, see [`StateLock::write`]. Because every room guard is
+/// paired with a shared guard over [`State`], an exclusive guard over [`State`]
+/// guarantees that no room lock is held: a room lock is then never contended.
+///
+/// No task must acquire a lock it already holds: Tokio's `RwLock` is
+/// write-preferring, so a task holding a read guard and acquiring another read
+/// guard on the same lock deadlocks as soon as a writer is queued in between.
 ///
 /// It is an `Arc` so that its guard can outlive the borrow of [`State`].
 type RoomStateLock = Arc<RwLock<StateForRoom>>;
@@ -90,12 +120,20 @@ pub struct StateLock {
 struct StateLockInner {
     /// The per-process lock around the real state.
     locked_state: RwLock<State>,
+}
 
-    /// A lock taken to avoid multiple attempts to upgrade from a read lock to a
-    /// write lock.
-    ///
-    /// Please see inline comment of [`Self::read`] to understand why it exists.
-    state_lock_upgrade_mutex: Mutex<()>,
+/// Get the guard out of a [`EventCacheStoreLockState`].
+///
+/// Whether the cross-process lock is dirty must be checked with
+/// [`EventCacheStoreLockGuard::is_dirty`] and not with the
+/// [`EventCacheStoreLockState`] variant: when a guard is created while other
+/// guards are alive, it is always [`EventCacheStoreLockState::Clean`], even if
+/// the states haven't been reloaded yet since the lock has been dirtied.
+fn into_store_guard(state: EventCacheStoreLockState) -> EventCacheStoreLockGuard {
+    match state {
+        EventCacheStoreLockState::Clean(store_guard)
+        | EventCacheStoreLockState::Dirty(store_guard) => store_guard,
+    }
 }
 
 impl StateLock {
@@ -103,8 +141,7 @@ impl StateLock {
     pub fn new(store: EventCacheStoreLock) -> Self {
         Self {
             inner: Arc::new(StateLockInner {
-                locked_state: RwLock::new(State { store, by_room: HashMap::new() }),
-                state_lock_upgrade_mutex: Mutex::new(()),
+                locked_state: RwLock::new(State { store, by_room: Default::default() }),
             }),
         }
     }
@@ -116,147 +153,225 @@ impl StateLock {
     /// drop the read access to the state and to the store when dropped.
     ///
     /// If the cross-process lock over the store is dirty (see
-    /// [`EventCacheStoreLockState`]), the state is reloaded.
+    /// [`EventCacheStoreLockState`]), the state is reloaded first.
     #[instrument(skip_all)]
     pub(super) async fn read<'state>(&'state self) -> Result<AllStatesReadGuard<'state>> {
         trace!("Acquiring the lock");
         let tracing_timer = timer!("`read` lock");
 
-        // Only one call at a time to `read` is allowed.
-        //
-        // Why? Because in case the cross-process lock over the store is dirty,
-        // we need to upgrade the read lock over the state to a write lock.
-        //
-        // ## Upgradable read lock
-        //
-        // One may argue that this upgrades can be done with an
-        // _upgradable read lock_ [^1] [^2]. We don't want to use this solution:
-        // an upgradable read lock is basically a mutex because we are losing
-        // the shared access property, i.e. having multiple read locks at the
-        // same time. This is an important property to hold for performance
-        // concerns.
-        //
-        // ## Downgradable write lock
-        //
-        // One may also argue we could first obtain a write lock over the state
-        // from the beginning, thus removing the need to upgrade the read lock
-        // to a write lock. The write lock is then downgraded to a read lock
-        // once the dirty is cleaned up. It can potentially create a deadlock in
-        // the following situation:
-        //
-        // - `read` is called once, it takes a write lock, then downgrades it to a read
-        //   lock: the guard is kept alive somewhere,
-        // - `read` is called again, and waits to obtain the write lock, which is
-        //   impossible as long as the guard from the previous call is not dropped.
-        //
-        // ## “Atomic” read and write
-        //
-        // One may finally argue to first obtain a read lock over the state,
-        // then drop it if the cross-process lock over the store is dirty, and
-        // immediately obtain a write lock (which can later be downgraded to a
-        // read lock). The problem is that this write lock is async: anything
-        // can happen between the drop and the new lock acquisition, and it's
-        // not possible to pause the runtime in the meantime.
-        //
-        // ## Semaphore with 1 permit, aka a mutex
-        //
-        // The chosen idea is to allow only one execution at a time of this
-        // method: it becomes a critical section. That way we are free to
-        // “upgrade” the read lock by dropping it and obtaining a new write
-        // lock. All callers to this method are waiting, so nothing can happen
-        // in the meantime.
-        //
-        // Note that it doesn't conflict with the `write` method because this
-        // latter immediately obtains a write lock, which avoids any conflict
-        // with this method.
-        //
-        // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
-        // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
-        let _state_lock_upgrade_guard = self.inner.state_lock_upgrade_mutex.lock().await;
+        loop {
+            let state_guard = self.inner.locked_state.read().await;
+            let store_guard = into_store_guard(state_guard.store.lock().await?);
 
-        // Obtain a read lock.
-        let state_guard = self.inner.locked_state.read().await;
-
-        Ok(match state_guard.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard) => {
-                trace!("Lock acquired (from clean)");
-
-                AllStatesReadGuard {
-                    state: state_guard,
-                    store: store_guard,
-                    tracing_timer: Some(tracing_timer),
-                }
-            }
-            EventCacheStoreLockState::Dirty(store_guard) => {
-                // Drop the read lock, and take a write lock to modify the
-                // state. This is safe because only one reader at a time (see
-                // `Self::state_lock_upgrade_mutex`) is allowed.
+            if EventCacheStoreLockGuard::is_dirty(&store_guard) {
+                // Release everything, reload, and try again. See
+                // `Self::reload_if_dirty` to learn why.
+                drop(store_guard);
                 drop(state_guard);
 
-                let mut guard = ReloadableStateLockWriteGuard {
-                    state: self.inner.locked_state.write().await,
-                    store: store_guard,
-                    tracing_timer,
-                };
+                self.reload_if_dirty().await?;
 
-                // Reload the state.
-                guard.reload(ReloadPreprocessing::None, None).await?;
-
-                // All good now, mark the cross-process lock as non-dirty.
-                EventCacheStoreLockGuard::clear_dirty(&guard.store);
-
-                trace!("Lock acquired (from dirty)");
-
-                // Downgrade the write guard to a read guard, and map it into a
-                // cache state.
-                guard.downgrade()
+                continue;
             }
-        })
+
+            trace!("Lock acquired");
+
+            return Ok(AllStatesReadGuard {
+                _state: state_guard,
+                store: store_guard,
+                _tracing_timer: Some(tracing_timer),
+            });
+        }
     }
 
-    /// Lock this [`StateLock`] with exclusive per-thread write access.
+    /// Lock the state selected by `cache_state_selector` with per-thread shared
+    /// access.
+    ///
+    /// The lock over the full [`State`] is acquired in shared mode, then the
+    /// lock of the room in shared mode, and then the cross-process lock over
+    /// the store. See [`RoomStateLock`] to learn more.
+    ///
+    /// If the cross-process lock over the store is dirty (see
+    /// [`EventCacheStoreLockState`]), the state is reloaded first.
+    #[instrument(skip_all)]
+    async fn read_cache_state<'state, 'selector, Selector>(
+        &'state self,
+        cache_state_selector: &'selector Selector,
+    ) -> Result<StateLockReadGuard<'state, Selector::Item>>
+    where
+        Selector: selectors::CacheState,
+        Selector::Item: 'state,
+        EventCacheError: From<&'selector Selector>,
+    {
+        trace!("Acquiring the lock");
+        let tracing_timer = timer!("`read` lock");
+
+        loop {
+            let state_guard = self.inner.locked_state.read().await;
+
+            let room_state = state_guard
+                .room(cache_state_selector.room_id())
+                .ok_or_else(|| EventCacheError::from(cache_state_selector))?;
+            let room_guard = room_state.read_owned().await;
+
+            let store_guard = into_store_guard(state_guard.store.lock().await?);
+
+            if EventCacheStoreLockGuard::is_dirty(&store_guard) {
+                // Release everything, reload, and try again. See
+                // `Self::reload_if_dirty` to learn why.
+                drop(store_guard);
+                drop(room_guard);
+                drop(state_guard);
+
+                self.reload_if_dirty().await?;
+
+                continue;
+            }
+
+            let room_guard = OwnedRwLockReadGuard::try_map(room_guard, |room_state| {
+                cache_state_selector.select(room_state)
+            })
+            .map_err(|_| EventCacheError::from(cache_state_selector))?;
+
+            trace!("Lock acquired");
+
+            return Ok(StateLockReadGuard {
+                state: StateLockReadGuardKind::Owned(room_guard),
+                store: store_guard,
+                _all_states: Some(state_guard),
+                _tracing_timer: Some(tracing_timer),
+            });
+        }
+    }
+
+    /// Lock the state selected by `cache_state_selector` with per-thread
+    /// exclusive access.
+    ///
+    /// The lock over the full [`State`] is acquired in shared mode, then the
+    /// lock of the room in exclusive mode, and then the cross-process lock over
+    /// the store. See [`RoomStateLock`] to learn more.
+    ///
+    /// If the cross-process lock over the store is dirty (see
+    /// [`EventCacheStoreLockState`]), the state is reloaded first.
+    #[instrument(skip_all)]
+    async fn write_cache_state<'state, 'selector, Selector>(
+        &'state self,
+        cache_state_selector: &'selector Selector,
+    ) -> Result<StateLockWriteGuard<'state, Selector::Item>>
+    where
+        Selector: selectors::CacheState,
+        Selector::Item: 'state,
+        EventCacheError: From<&'selector Selector>,
+    {
+        trace!("Acquiring lock");
+        let tracing_timer = timer!("`write` lock");
+
+        loop {
+            let state_guard = self.inner.locked_state.read().await;
+
+            let room_state = state_guard
+                .room(cache_state_selector.room_id())
+                .ok_or_else(|| EventCacheError::from(cache_state_selector))?;
+            let room_guard = room_state.write_owned().await;
+
+            let store_guard = into_store_guard(state_guard.store.lock().await?);
+
+            if EventCacheStoreLockGuard::is_dirty(&store_guard) {
+                // Release everything, reload, and try again. See
+                // `Self::reload_if_dirty` to learn why.
+                drop(store_guard);
+                drop(room_guard);
+                drop(state_guard);
+
+                self.reload_if_dirty().await?;
+
+                continue;
+            }
+
+            let room_guard = OwnedRwLockWriteGuard::try_map(room_guard, |room_state| {
+                cache_state_selector.select_mut(room_state)
+            })
+            .map_err(|_| EventCacheError::from(cache_state_selector))?;
+
+            trace!("Lock acquired");
+
+            return Ok(StateLockWriteGuard {
+                state: StateLockWriteGuardKind::Owned(room_guard),
+                store: store_guard,
+                _all_states: Some(state_guard),
+                _tracing_timer: Some(tracing_timer),
+            });
+        }
+    }
+
+    /// Reload the states of all rooms if the cross-process lock over the store
+    /// is dirty.
+    ///
+    /// When another process has taken the cross-process lock over the store, it
+    /// may have modified the store: the cross-process lock is then marked as
+    /// dirty, and all the in-memory states must be reloaded before being used.
+    ///
+    /// A task that finds the cross-process lock dirty while holding the lock
+    /// over [`State`] in shared mode can't reload the states: it would need an
+    /// exclusive access, and upgrading a shared lock isn't possible. Instead,
+    /// it releases all its locks, calls this method, and tries again. This
+    /// method acquires the lock over [`State`] in exclusive mode, which
+    /// guarantees that no room lock is held, and checks again whether the
+    /// cross-process lock is dirty, since another task may have reloaded
+    /// the states in the meantime.
+    async fn reload_if_dirty(&self) -> Result<()> {
+        // `Self::write` reloads the states if the cross-process lock is dirty.
+        drop(self.write().await?);
+
+        Ok(())
+    }
+
+    /// Lock this [`StateLock`] with per-thread exclusive write access.
     ///
     /// This method locks the per-thread lock over the state, and then locks the
     /// cross-process lock over the store. It returns an RAII guard which will
     /// drop the write access to the state and to the store when dropped.
     ///
+    /// Because it waits for all the room locks to be released, and prevents
+    /// any room lock from being acquired, it must only be used for operations
+    /// on all rooms.
+    ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded automatically.
     #[instrument(skip_all)]
     async fn write<'state>(&'state self) -> Result<ReloadableStateLockWriteGuard<'state>> {
-        trace!("Acquiring lock");
-        let tracing_timer = timer!("`write` lock");
+        trace!("Acquiring the exclusive lock");
+        let tracing_timer = timer!("exclusive `write` lock");
 
         let state_guard = self.inner.locked_state.write().await;
+        let store_guard = into_store_guard(state_guard.store.lock().await?);
 
-        Ok(match state_guard.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard) => {
-                trace!("Lock acquired (from clean)");
+        let mut guard = ReloadableStateLockWriteGuard {
+            state: state_guard,
+            store: store_guard,
+            _tracing_timer: tracing_timer,
+        };
 
-                ReloadableStateLockWriteGuard {
-                    state: state_guard,
-                    store: store_guard,
-                    tracing_timer,
-                }
-            }
-            EventCacheStoreLockState::Dirty(store_guard) => {
-                let mut guard = ReloadableStateLockWriteGuard {
-                    state: state_guard,
-                    store: store_guard,
-                    tracing_timer,
-                };
+        if EventCacheStoreLockGuard::is_dirty(&guard.store) {
+            // Reload the state.
+            guard.reload(ReloadPreprocessing::None, None).await?;
 
-                // Reload the state.
-                guard.reload(ReloadPreprocessing::None, None).await?;
+            // All good now, mark the cross-process lock as non-dirty.
+            EventCacheStoreLockGuard::clear_dirty(&guard.store);
 
-                // All good now, mark the cross-process lock as non-dirty.
-                EventCacheStoreLockGuard::clear_dirty(&guard.store);
+            trace!("Exclusive lock acquired (from dirty)");
+        } else {
+            trace!("Exclusive lock acquired (from clean)");
+        }
 
-                trace!("Lock acquired (from dirty)");
+        Ok(guard)
+    }
 
-                guard
-            }
-        })
+    /// Lock this [`StateLock`] with exclusive access, which blocks all the
+    /// operations on all the rooms until the returned guard is dropped.
+    #[cfg(test)]
+    pub(super) async fn write_for_tests(&self) -> Result<impl Sized + '_> {
+        self.write().await
     }
 
     /// Clear and reload all states —in-memory and in-store— for all rooms if
@@ -274,14 +389,12 @@ impl StateLock {
         let tracing_timer = timer!("`clear_and_reload` lock");
 
         let state_guard = self.inner.locked_state.write().await;
+        let store_guard = into_store_guard(state_guard.store.lock().await?);
 
-        let mut guard = match state_guard.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard)
-            | EventCacheStoreLockState::Dirty(store_guard) => ReloadableStateLockWriteGuard {
-                state: state_guard,
-                store: store_guard,
-                tracing_timer,
-            },
+        let mut guard = ReloadableStateLockWriteGuard {
+            state: state_guard,
+            store: store_guard,
+            _tracing_timer: tracing_timer,
         };
 
         // Clear all the events.
@@ -304,8 +417,9 @@ impl StateLock {
     /// Insert a new cache state at location `cache_state_selector` if none
     /// exists.
     ///
-    /// This method calls [`Self::write`] to acquire an exclusive access to the
-    /// [`State`] in order to insert the cache.
+    /// The lock over the full [`State`] is acquired in shared mode, and the
+    /// lock of the room in exclusive mode: creating a state only blocks the
+    /// operations on the same room.
     #[instrument(skip_all)]
     pub(super) async fn try_insert_once_with<Selector, Constructor>(
         &self,
@@ -316,23 +430,40 @@ impl StateLock {
         Selector: selectors::CacheState,
         Constructor: AsyncFnOnce(EventCacheStoreLockGuard) -> Result<Selector::Item>,
     {
-        let mut state = self.write().await?;
-        let cache_state = cache_constructor(state.store).await?;
+        let _tracing_timer = timer!("`try_insert_once_with` lock");
 
-        // The lock over the full `State` is exclusive: nobody can hold the room
-        // lock meanwhile, it's not contended.
-        let room_state = state
-            .state
-            .by_room
-            .entry(cache_state_selector.room_id().to_owned())
-            .or_default()
-            .clone();
-        let mut room_state = room_state.write().await;
+        loop {
+            let state_guard = self.inner.locked_state.read().await;
 
-        cache_state_selector
-            .insert_once(&mut room_state, cache_state)
-            .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
-            .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
+            let room_state = state_guard.room_or_default(cache_state_selector.room_id());
+            let mut room_guard = room_state.write_owned().await;
+
+            let store_guard = into_store_guard(state_guard.store.lock().await?);
+
+            if EventCacheStoreLockGuard::is_dirty(&store_guard) {
+                // Release everything, reload, and try again. See
+                // `Self::reload_if_dirty` to learn why.
+                drop(store_guard);
+                drop(room_guard);
+                drop(state_guard);
+
+                self.reload_if_dirty().await?;
+
+                continue;
+            }
+
+            // Don't load the state if it already exists.
+            if cache_state_selector.select(&room_guard).is_some() {
+                return Err(EventCacheError::CacheStateAlreadyExists);
+            }
+
+            let cache_state = cache_constructor(store_guard).await?;
+
+            return cache_state_selector
+                .insert_once(&mut room_guard, cache_state)
+                .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
+                .ok_or_else(|| EventCacheError::CacheStateAlreadyExists);
+        }
     }
 }
 
@@ -345,55 +476,16 @@ impl fmt::Debug for StateLock {
 /// The read lock guard over the full [`State`] returned by
 /// [`StateLock::read`].
 ///
-/// This type aims at being transient: it maps to a [`StateLockReadGuard`]
-/// with [`Self::try_map_into_cache_state`].
+/// It gives access to the store, but not to the states.
 pub(super) struct AllStatesReadGuard<'state> {
     /// The per-thread read lock guard over the full state.
-    state: RwLockReadGuard<'state, State>,
+    _state: RwLockReadGuard<'state, State>,
 
     /// The cross-process lock guard over the store.
     pub store: EventCacheStoreLockGuard,
 
     /// The [`timer!`] value, used to compute the time the lock is live.
-    tracing_timer: Option<TracingTimer>,
-}
-
-impl<'state> AllStatesReadGuard<'state> {
-    /// Try to map this read lock guard over a [`State`] to over a
-    /// [`selectors::CacheState::Item`], by acquiring the read lock over the
-    /// state of the selected room.
-    ///
-    /// In other words, it returns a subset of the state, selected by
-    /// `cache_state_selector`.
-    async fn try_map_into_cache_state<'selector, Selector>(
-        self,
-        cache_state_selector: &'selector Selector,
-    ) -> Result<StateLockReadGuard<'state, Selector::Item>>
-    where
-        Selector: selectors::CacheState,
-        Selector::Item: 'state,
-        EventCacheError: From<&'selector Selector>,
-    {
-        let room_state = self
-            .state
-            .by_room
-            .get(cache_state_selector.room_id())
-            .cloned()
-            .ok_or_else(|| EventCacheError::from(cache_state_selector))?;
-
-        let room_state =
-            OwnedRwLockReadGuard::try_map(room_state.read_owned().await, |room_state| {
-                cache_state_selector.select(room_state)
-            })
-            .map_err(|_| EventCacheError::from(cache_state_selector))?;
-
-        Ok(StateLockReadGuard {
-            state: StateLockReadGuardKind::Owned(room_state),
-            store: self.store,
-            _all_states: Some(self.state),
-            _tracing_timer: self.tracing_timer,
-        })
-    }
+    _tracing_timer: Option<TracingTimer>,
 }
 
 /// The read lock guard returned by [`CacheStateLock::read`].
@@ -487,78 +579,23 @@ impl<'state, S> Deref for StateLockReadGuardKind<'state, S> {
     }
 }
 
-/// Private type to hold a “reloadable” write lock guard around the state and
-/// the store.
+/// Private type to hold a “reloadable” exclusive write lock guard around the
+/// full state and the store.
 ///
-/// This type aims at being transient: either it maps to a
-/// [`StateLockReadGuard`] with [`Self::downgrade`], or it maps to a
-/// [`StateLockWriteGuard`] with [`Self::try_map_into_cache_state`]. Its main
-/// goal remains to provide the [`Self::reload`] method to reload all the state
-/// of the Event Cache.
+/// Its main goal is to provide the [`Self::reload`] method to reload all the
+/// state of the Event Cache.
 struct ReloadableStateLockWriteGuard<'state> {
-    /// The per-thread read lock guard over the state `S`.
+    /// The per-thread write lock guard over the full state.
     state: RwLockWriteGuard<'state, State>,
 
     /// The cross-process lock guard over the store.
     store: EventCacheStoreLockGuard,
 
     /// The [`timer!`] value, used to compute the time the lock is live.
-    tracing_timer: TracingTimer,
+    _tracing_timer: TracingTimer,
 }
 
 impl<'state> ReloadableStateLockWriteGuard<'state> {
-    /// Try to map this write lock guard over a [`State`] to over a
-    /// [`selectors::CacheState::Item`].
-    ///
-    /// In other words, it returns a subset of the state, selected by
-    /// `cache_state_selector`.
-    async fn try_map_into_cache_state<'selector, Selector>(
-        self,
-        cache_state_selector: &'selector Selector,
-    ) -> Result<StateLockWriteGuard<'state, Selector::Item>>
-    where
-        Selector: selectors::CacheState,
-        Selector::Item: 'state,
-        EventCacheError: From<&'selector Selector>,
-    {
-        let room_state = self
-            .state
-            .by_room
-            .get(cache_state_selector.room_id())
-            .cloned()
-            .ok_or_else(|| EventCacheError::from(cache_state_selector))?;
-
-        // The lock over the full `State` is exclusive: nobody can hold the room
-        // lock meanwhile, it's not contended.
-        let room_state =
-            OwnedRwLockWriteGuard::try_map(room_state.write_owned().await, |room_state| {
-                cache_state_selector.select_mut(room_state)
-            })
-            .map_err(|_| EventCacheError::from(cache_state_selector))?;
-
-        Ok(StateLockWriteGuard {
-            state: StateLockWriteGuardKind::Owned(room_state),
-            store: self.store,
-            _all_states: Some(self.state),
-            _tracing_timer: Some(self.tracing_timer),
-        })
-    }
-
-    /// Synchronously downgrades a write lock into a read lock.
-    ///
-    /// The per-thread/state lock is downgraded atomically, without allowing any
-    /// writers to take exclusive access of the lock in the meantime.
-    ///
-    /// It returns an RAII guard which will drop the read access to the state
-    /// and to the store when dropped.
-    fn downgrade(self) -> AllStatesReadGuard<'state> {
-        AllStatesReadGuard {
-            state: self.state.downgrade(),
-            store: self.store,
-            tracing_timer: Some(self.tracing_timer),
-        }
-    }
-
     async fn reload(
         &mut self,
         preprocessing: ReloadPreprocessing,
@@ -566,17 +603,28 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
     ) -> Result<()> {
         trace!("Reloading the state");
 
-        let rooms = if let Some(room_id) = room_id {
-            Either::Left(
-                self.state.by_room.get(room_id).into_iter().map(move |state| (room_id, state)),
-            )
-        } else {
-            Either::Right(
-                self.state.by_room.iter().map(|(room_id, state)| (room_id.as_ref(), state)),
-            )
+        // Collect the rooms first, to not hold the synchronous mutex across
+        // `.await` points.
+        let rooms: Vec<(OwnedRoomId, RoomStateLock)> = {
+            let by_room = self.state.by_room.lock();
+
+            if let Some(room_id) = room_id {
+                by_room
+                    .get(room_id)
+                    .map(|room_state| (room_id.to_owned(), room_state.clone()))
+                    .into_iter()
+                    .collect()
+            } else {
+                by_room
+                    .iter()
+                    .map(|(room_id, room_state)| (room_id.clone(), room_state.clone()))
+                    .collect()
+            }
         };
 
         for (room_id, room_state) in rooms {
+            let room_id: &RoomId = &room_id;
+
             // The lock over the full `State` is exclusive: nobody can hold the
             // room lock meanwhile, it's not contended.
             let mut room_state = room_state.write().await;
@@ -669,11 +717,11 @@ pub struct StateLockWriteGuard<'state, S> {
     /// The cross-process lock guard over the store.
     pub store: EventCacheStoreLockGuard,
 
-    /// The per-thread write lock guard over the full state, if this guard owns
+    /// The per-thread read lock guard over the full state, if this guard owns
     /// it, i.e. if it's not a projection of another guard.
     ///
     /// Declared after `state`, so that it's released after it.
-    _all_states: Option<RwLockWriteGuard<'state, State>>,
+    _all_states: Option<RwLockReadGuard<'state, State>>,
 
     /// The [`timer!`] value, used to compute the time the lock is live.
     _tracing_timer: Option<TracingTimer>,
@@ -760,7 +808,7 @@ where
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.
     pub async fn read(&self) -> Result<StateLockReadGuard<'_, Selector::Item>> {
-        self.state_lock.read().await?.try_map_into_cache_state(&self.cache_state_selector).await
+        self.state_lock.read_cache_state(&self.cache_state_selector).await
     }
 
     /// Lock this [`CacheStateLock`] by locking the full [`State`] with
@@ -773,7 +821,7 @@ where
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.
     pub async fn write(&self) -> Result<StateLockWriteGuard<'_, Selector::Item>> {
-        self.state_lock.write().await?.try_map_into_cache_state(&self.cache_state_selector).await
+        self.state_lock.write_cache_state(&self.cache_state_selector).await
     }
 
     /// Shortcut to reload (with no preprocessing) the state cache just for

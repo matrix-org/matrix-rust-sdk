@@ -1172,6 +1172,55 @@ mod tests {
         );
     }
 
+    /// Operations on a room must not wait on operations on another room.
+    #[async_test]
+    async fn test_rooms_are_locked_independently() {
+        let client = logged_in_client(None).await;
+        let room_id_a = room_id!("!a:saucisse.bzh");
+        let room_id_b = room_id!("!b:saucisse.bzh");
+
+        client.base_client().get_or_create_room(room_id_a, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id_b, RoomState::Joined);
+
+        let event_cache = client.event_cache().unwrap();
+        let (room_a, _drop_handles) = event_cache.room(room_id_a).await.unwrap();
+
+        // Hold room A exclusively, for as long as the test runs.
+        let _guard = room_a.state().write().await.unwrap();
+
+        // Room A can't be locked meanwhile.
+        assert!(room_a.state().read().now_or_never().is_none());
+
+        // Room B can be created, read and written meanwhile.
+        let (room_b, _drop_handles) =
+            tokio::time::timeout(Duration::from_secs(1), event_cache.room(room_id_b))
+                .await
+                .expect("creating room B must not wait on room A")
+                .unwrap();
+
+        drop(
+            tokio::time::timeout(Duration::from_secs(1), room_b.state().read())
+                .await
+                .expect("reading room B must not wait on room A")
+                .unwrap(),
+        );
+        drop(
+            tokio::time::timeout(Duration::from_secs(1), room_b.state().write())
+                .await
+                .expect("writing room B must not wait on room A")
+                .unwrap(),
+        );
+
+        // A thread of room B can be created meanwhile.
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            event_cache.thread(room_id_b, event_id!("$thread_root")),
+        )
+        .await
+        .expect("creating a thread in room B must not wait on room A")
+        .unwrap();
+    }
+
     /// Dropping the future creating a room's caches must not leave the room
     /// state half-created, which would make every later attempt fail.
     #[async_test]
@@ -1187,9 +1236,9 @@ mod tests {
 
         let (room_a, _drop_handles) = event_cache.room(room_id_a).await.unwrap();
 
-        // Hold the state write lock so that creating room B's caches waits on
-        // it.
-        let guard = room_a.state().write().await.unwrap();
+        // Hold the full state exclusively, so that creating room B's caches
+        // waits on it. Locking room A only wouldn't block room B.
+        let guard = event_cache.inner.state.write_for_tests().await.unwrap();
 
         let mut create_b = Box::pin(event_cache.room(room_id_b));
         assert!(create_b.as_mut().now_or_never().is_none());
