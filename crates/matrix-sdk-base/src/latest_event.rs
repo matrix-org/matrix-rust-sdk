@@ -22,9 +22,6 @@ pub enum LatestEventValue {
         /// The ID of the invite event.
         event_id: Option<OwnedEventId>,
 
-        /// The timestamp of the invite event.
-        timestamp: MilliSecondsSinceUnixEpoch,
-
         /// The user ID of the inviter.
         inviter: Option<OwnedUserId>,
     },
@@ -50,10 +47,9 @@ pub enum LatestEventValue {
 impl LatestEventValue {
     /// Get the timestamp of the [`LatestEventValue`].
     ///
-    /// - If it's [`None`], it returns `None`.
+    /// - If it's [`None`] or [`RemoteInvite`], it returns `None`. An invite is
+    ///   made of stripped state events, which carry no `origin_server_ts`.
     /// - If it's [`Remote`], it returns the [`TimelineEvent::timestamp`].
-    /// - If it's [`RemoteInvite`], it returns the
-    ///   [`SyncOrStrippedState::timestamp`].
     /// - If it's [`LocalIsSending`],[`LocalHasBeenSent`] or
     ///   [`LocalCannotBeSent`], it returns the
     ///   [`LocalLatestEventValue::timestamp`] value.
@@ -64,12 +60,10 @@ impl LatestEventValue {
     /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
     /// [`LocalHasBeenSent`]: LatestEventValue::LocalHasBeenSent
     /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
-    /// [`SyncOrStrippedState::timestamp`]: crate::deserialized_responses::SyncOrStrippedState::timestamp
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
-            Self::None => None,
+            Self::None | Self::RemoteInvite { .. } => None,
             Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
-            Self::RemoteInvite { timestamp, .. } => Some(*timestamp),
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
             | Self::LocalHasBeenSent { value: LocalLatestEventValue { timestamp, .. }, .. }
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),

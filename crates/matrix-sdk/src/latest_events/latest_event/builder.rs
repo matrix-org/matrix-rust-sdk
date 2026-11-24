@@ -166,7 +166,7 @@ impl Builder {
     }
 
     pub async fn new_remote_for_invite(room: &Room) -> LatestEventValue {
-        let (event_id, timestamp, inviter_id) = room
+        let (event_id, inviter_id) = room
             .invite_details()
             .await
             .map(|Invite { invitee, inviter_id, .. }| {
@@ -176,25 +176,12 @@ impl Builder {
                     // If the event is a stripped state event, it has no event
                     // ID. This is acceptable.
                     event.event_id().map(ToOwned::to_owned),
-                    // If the event is a stripped state event, it has no
-                    // timestamp (no `origin_server_ts`). If, in any case, it
-                    // has one (it could happen depending of the server
-                    // implementation), let's use it.
-                    event.timestamp().map(MilliSecondsSinceUnixEpoch),
                     Some(inviter_id),
                 )
             })
-            .unwrap_or_else(|_| (None, None, None));
+            .unwrap_or_else(|_| (None, None));
 
-        LatestEventValue::RemoteInvite {
-            event_id,
-            // If the event is a stripped state event, it should not have a
-            // timestamp. Let's use `now()` as a fallback so that the
-            // `LatestEventValue` can be used to sort rooms in a room list for
-            // example.
-            timestamp: timestamp.unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
-            inviter: inviter_id,
-        }
+        LatestEventValue::RemoteInvite { event_id, inviter: inviter_id }
     }
 
     /// Create a new [`LatestEventValue::LocalIsSending`] or
