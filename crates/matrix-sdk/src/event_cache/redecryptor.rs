@@ -1049,11 +1049,17 @@ async fn send_report_and_retry_memory_events(
 ///
 /// For more info see the [module level docs](self).
 pub(crate) struct Redecryptor {
-    _main_task: BackgroundTaskHandle,
-    _collator_task: BackgroundTaskHandle,
+    main_task: BackgroundTaskHandle,
+    collator_task: BackgroundTaskHandle,
 }
 
 impl Redecryptor {
+    /// Stop the redecryption tasks for good.
+    pub(super) fn abort(&self) {
+        self.main_task.abort();
+        self.collator_task.abort();
+    }
+
     /// Create a new [`Redecryptor`].
     ///
     /// This creates a task that listens to various streams and attempts to
@@ -1109,7 +1115,7 @@ impl Redecryptor {
             })
             .abort_on_drop();
 
-        Self { _main_task: main_task, _collator_task: collator_task }
+        Self { main_task, collator_task }
     }
 
     /// (Re)-subscribe to the room key stream from the [`OlmMachine`].

@@ -1921,6 +1921,10 @@ impl Client {
 
     /// Log out the current session using the proper authentication API.
     ///
+    /// Once the session is logged out, the background work of the
+    /// [`EventCache`] (automatic back-paginations, redecryption of UTDs, search
+    /// indexing…) is stopped, since it can't make any request anymore.
+    ///
     /// # Errors
     ///
     /// Returns an error if the session is not authenticated or if an error
@@ -1930,10 +1934,15 @@ impl Client {
         match auth_api {
             AuthApi::Matrix(matrix_auth) => {
                 matrix_auth.logout().await?;
-                Ok(())
             }
-            AuthApi::OAuth(oauth) => Ok(oauth.logout().await?),
+            AuthApi::OAuth(oauth) => oauth.logout().await?,
         }
+
+        if let Some(event_cache) = self.event_cache() {
+            event_cache.shut_down();
+        }
+
+        Ok(())
     }
 
     /// Get or upload a sync filter.
