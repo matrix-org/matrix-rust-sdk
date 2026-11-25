@@ -27,6 +27,7 @@ use matrix_sdk_base::{
     read_receipts::ReadReceipts,
     sync::Timeline,
 };
+use matrix_sdk_common::timer;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
     room_version_rules::RoomVersionRules,
@@ -272,6 +273,10 @@ impl ThreadEventCache {
         timeline: Timeline,
         read_receipts: MaybeReceiptEventContent,
     ) -> Result<()> {
+        let _timer = timer!(
+            tracing::Level::TRACE,
+            format!("handle_thread_timeline_{}_{}", self.inner.room_id, self.inner.thread_id)
+        );
         if timeline.events.is_empty() && timeline.prev_batch.is_none() && read_receipts.is_none() {
             return Ok(());
         }

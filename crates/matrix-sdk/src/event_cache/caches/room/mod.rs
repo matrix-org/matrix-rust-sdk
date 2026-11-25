@@ -24,6 +24,7 @@ use matrix_sdk_base::{
     event_cache::Event,
     sync::Timeline,
 };
+use matrix_sdk_common::timer;
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId,
     events::{AnyRoomAccountDataEvent, relation::RelationType},
@@ -423,6 +424,8 @@ impl RoomEventCacheInner {
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
         avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     ) -> Result<()> {
+        let _timer =
+            timer!(tracing::Level::TRACE, format!("handle_room_timeline_{}", self.room_id));
         self.handle_timeline_inner(
             self.state.write().await?,
             timeline,

@@ -27,6 +27,7 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
+use matrix_sdk_common::timer;
 use ruma::{OwnedEventId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
@@ -208,13 +209,17 @@ impl Caches {
             thread::ThreadEventCache,
         >,
     > {
+        let _timer =
+            timer!(tracing::Level::TRACE, format!("get_thread_cache_with_id_{}", thread_id));
+
         // Fast path: the thread cache most likely exists already. Use a read
         // lock so that we don't have to wait for every other outstanding read
         // guard to be released, nor block other readers.
-        if let Ok(locked_cache) = OwnedRwLockReadGuard::try_map(
-            self.threads.clone().read_owned().await,
-            |threads| threads.get(&thread_id),
-        ) {
+        if let Ok(locked_cache) =
+            OwnedRwLockReadGuard::try_map(self.threads.clone().read_owned().await, |threads| {
+                threads.get(&thread_id)
+            })
+        {
             return Ok(locked_cache);
         }
 
@@ -383,6 +388,10 @@ impl Caches {
                 );
                 let all_states = all_states_lock.read().await?;
 
+                let _timer = timer!(
+                    tracing::Level::TRACE,
+                    "aggregate_timeline_and_read_receipts_for_threads"
+                );
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
                     &original_timeline,
                     own_thread_read_receipts,
@@ -404,10 +413,17 @@ impl Caches {
                     continue;
                 }
 
-                let thread = self.thread(thread_id).await?;
+                let _thread_cache_timer =
+                    timer!(tracing::Level::TRACE, format!("get_thread_cache_{}", thread_id));
+                let thread = self.thread(thread_id.clone()).await?;
+                drop(_thread_cache_timer);
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
                 if has_new_timeline_events {
+                    let _update_summary_timer = timer!(
+                        tracing::Level::TRACE,
+                        format!("update_thread_summary_{}", thread_id)
+                    );
                     let new_thread_summary = thread.update_thread_summary().await?;
 
                     room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
@@ -419,6 +435,7 @@ impl Caches {
             // cache has no subscribers, so there is no need to
             // create one.
             if !thread_read_receipts.is_empty() {
+                let _timer = timer!(tracing::Level::TRACE, "emit_thread_read_receipts");
                 let threads = self.threads.read().await;
 
                 for (thread_id, event) in thread_read_receipts {
