@@ -27,6 +27,8 @@ mod capabilities;
 mod error;
 mod openid;
 mod send_event;
+#[cfg(feature = "unstable-msc4354")]
+mod sticky_events;
 
 const WIDGET_ID: &str = "test-widget";
 

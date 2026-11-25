@@ -37,7 +37,8 @@ use matrix_sdk_base::crypto::x509::{RawX509Signer, RawX509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{
-    BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig, ttl::TtlValue,
+    BaseClient, DmRoomDefinition, StateStoreDataKey, StateStoreDataValue, ThreadingSupport,
+    store::StoreConfig, ttl::TtlValue,
 };
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
@@ -53,7 +54,7 @@ use thiserror::Error;
 #[cfg(feature = "experimental-search")]
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
-use tracing::{Span, debug, field::debug, instrument};
+use tracing::{Span, debug, field::debug, instrument, warn};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
@@ -155,7 +156,7 @@ impl ClientBuilder {
     pub(crate) fn new() -> Self {
         Self {
             homeserver_cfg: None,
-            sliding_sync_version_builder: SlidingSyncVersionBuilder::Native,
+            sliding_sync_version_builder: SlidingSyncVersionBuilder::Unstable,
             http_cfg: None,
             store_config: BuilderStoreConfig::Custom(StoreConfig::new(
                 CrossProcessLockConfig::multi_process(
@@ -707,7 +708,7 @@ impl ClientBuilder {
             match self.http_cfg.unwrap_or_default() {
                 #[cfg(not(target_family = "wasm"))]
                 HttpConfig::Settings(mut settings) => {
-                    settings.timeout = self.request_config.timeout;
+                    settings.apply_timeouts(&self.request_config);
                     settings.make_client()?
                 }
                 HttpConfig::Custom(c) => c,
@@ -755,6 +756,22 @@ impl ClientBuilder {
             None => NotSet,
         };
 
+        // Load the persisted retention configuration, so it's available even
+        // without connectivity.
+        let retention_configuration = match base_client
+            .state_store()
+            .get_kv_data(StateStoreDataKey::RetentionConfiguration)
+            .await
+        {
+            Ok(value) => value
+                .and_then(StateStoreDataValue::into_retention_configuration)
+                .map(|value| value.map(Into::into)),
+            Err(error) => {
+                warn!("error when loading the persisted retention configuration: {error}");
+                None
+            }
+        };
+
         let thread_subscriptions_catchup = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
@@ -771,6 +788,7 @@ impl ClientBuilder {
             base_client,
             supported_versions,
             well_known,
+            retention_configuration,
             self.respect_login_well_known,
             self.well_known_lookup_disabled,
             self.enable_automatic_back_pagination,
@@ -1103,8 +1121,8 @@ pub(crate) mod tests {
         builder = builder.server_name_or_homeserver_url(homeserver.uri());
         let _client = builder.build().await.unwrap();
 
-        // Then a client should be built with native support for sliding sync.
-        assert!(_client.sliding_sync_version().is_native());
+        // Then a client should be built with unstable support for sliding sync.
+        assert!(_client.sliding_sync_version().is_unstable());
     }
 
     #[async_test]
@@ -1151,10 +1169,10 @@ pub(crate) mod tests {
         builder = builder.server_name_or_homeserver_url(server.uri());
         let client = builder.build().await.unwrap();
 
-        // Then a client should be built with native support for sliding sync.
-        // It's native support because it's the default. Nothing is checked
+        // Then a client should be built with unstable support for sliding sync.
+        // It's unstable support because it's the default. Nothing is checked
         // here.
-        assert!(client.sliding_sync_version().is_native());
+        assert!(client.sliding_sync_version().is_unstable());
     }
 
     #[async_test]
@@ -1267,21 +1285,21 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_sliding_sync_discover_native() {
+    async fn test_sliding_sync_discover_unstable() {
         // Given a homeserver with a `/versions` file.
         let homeserver = make_mock_homeserver().await;
         let mut builder = ClientBuilder::new();
 
         // When building the client with sliding sync to auto-discover the
-        // native version.
+        // unstable version.
         builder = builder
             .server_name_or_homeserver_url(homeserver.uri())
-            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverNative);
+            .sliding_sync_version_builder(SlidingSyncVersionBuilder::DiscoverUnstable);
 
         let client = builder.build().await.unwrap();
 
-        // Then, sliding sync has the correct native version.
-        assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Native);
+        // Then, sliding sync has the correct unstable version.
+        assert_matches!(client.sliding_sync_version(), SlidingSyncVersion::Unstable);
     }
 
     #[async_test]

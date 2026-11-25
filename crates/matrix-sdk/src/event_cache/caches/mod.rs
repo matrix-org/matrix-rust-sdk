@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, ops::Not, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Not,
+    sync::Arc,
+};
 
+use aggregator::EphemeralEvents;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -27,7 +32,9 @@ use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
 
-use self::subscriber::AutoShrinkMessage;
+use self::{
+    room::RoomEventCacheUpdate, subscriber::AutoShrinkMessage, thread::ThreadEventCacheUpdate,
+};
 use super::{
     EventCacheError, EventsOrigin, Result, back_pagination_queue::BackPaginationQueue, states,
 };
@@ -77,7 +84,7 @@ pub(super) struct Caches {
 struct CachesInternals {
     state: states::StateLock,
     auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
-    linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: room::LinkedChunkUpdateSender,
     room_version_rules: RoomVersionRules,
 }
 
@@ -87,7 +94,7 @@ impl Caches {
         weak_client: &WeakClient,
         room_id: &RoomId,
         generic_update_sender: Sender<room::RoomEventCacheGenericUpdate>,
-        linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: room::LinkedChunkUpdateSender,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         state: &states::StateLock,
         back_pagination_queue: Option<BackPaginationQueue>,
@@ -322,28 +329,32 @@ impl Caches {
             avatar_changes,
         } = updates;
 
-        // Filter ephemeral events.
-        let original_ephemeral = original_ephemeral
-            .into_iter()
-            .filter_map(|ephemeral_event| ephemeral_event.deserialize().ok())
-            .collect::<Vec<_>>();
+        // Deserialize ephemeral events and group their read receipts, in a
+        // single pass.
+        let EphemeralEvents {
+            room_read_receipts,
+            own_room_read_receipts,
+            thread_read_receipts,
+            own_thread_read_receipts,
+        } = EphemeralEvents::from_sync(room.own_user_id(), original_ephemeral);
 
         // Room.
         {
-            let (timeline, read_receipts) =
-                aggregator::aggregate_timeline_and_read_receipts_for_room(
-                    &original_timeline,
-                    &original_ephemeral,
-                );
-
             room.handle_joined_room_update(
-                timeline,
-                read_receipts,
+                original_timeline.clone(),
+                own_room_read_receipts,
                 account_data,
                 ambiguity_changes,
                 avatar_changes,
             )
             .await?;
+
+            // Broadcast the read receipts, regardless of their user ids. These
+            // will be later handled by other components, like the timeline.
+            if let Some(event) = room_read_receipts {
+                room.update_sender()
+                    .send(RoomEventCacheUpdate::AddReadReceiptEvent { event }, None);
+            }
         }
 
         // Threads.
@@ -361,7 +372,7 @@ impl Caches {
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
                     &original_timeline,
-                    &original_ephemeral,
+                    own_thread_read_receipts,
                     all_states.threads(),
                     all_states.room(),
                     &internals.room_version_rules.redaction,
@@ -372,15 +383,37 @@ impl Caches {
             for (thread_id, (timeline, read_receipts)) in timeline_and_read_receipts_for_threads {
                 // Update the thread summary if and only if there are new
                 // events.
-                let update_thread_summary = timeline.events.is_empty().not();
+                let has_new_timeline_events = timeline.events.is_empty().not();
+
+                if has_new_timeline_events.not() && read_receipts.is_none() {
+                    // There are no timeline or own read receipt updates, so
+                    // there is nothing to do.
+                    continue;
+                }
 
                 let thread = self.thread(thread_id).await?;
                 thread.handle_joined_room_update(timeline, read_receipts).await?;
 
-                if update_thread_summary {
+                if has_new_timeline_events {
                     let new_thread_summary = thread.update_thread_summary().await?;
 
                     room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
+                }
+            }
+
+            // Broadcast the thread read receipts unconditionally, after the
+            // timeline updates have been sent. A thread without a
+            // cache has no subscribers, so there is no need to
+            // create one.
+            if !thread_read_receipts.is_empty() {
+                let threads = self.threads.read().await;
+
+                for (thread_id, event) in thread_read_receipts {
+                    if let Some(thread) = threads.get(&thread_id) {
+                        thread
+                            .update_sender()
+                            .send(ThreadEventCacheUpdate::AddReadReceiptEvent { event }, None);
+                    }
                 }
             }
         }
@@ -428,10 +461,7 @@ impl Caches {
 
         // Room.
         {
-            let (timeline, _read_receipts) =
-                aggregator::aggregate_timeline_and_read_receipts_for_room(&original_timeline, &[]);
-
-            room.handle_left_room_update(timeline, ambiguity_changes).await?;
+            room.handle_left_room_update(original_timeline.clone(), ambiguity_changes).await?;
         }
 
         // Threads.
@@ -449,7 +479,7 @@ impl Caches {
 
                 aggregator::aggregate_timeline_and_read_receipts_for_threads(
                     &original_timeline,
-                    &[],
+                    BTreeMap::new(),
                     all_caches_states.threads(),
                     all_caches_states.room(),
                     &internals.room_version_rules.redaction,

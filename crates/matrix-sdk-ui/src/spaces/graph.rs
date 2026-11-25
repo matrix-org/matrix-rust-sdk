@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use ruma::{OwnedRoomId, RoomId};
 
@@ -83,6 +83,23 @@ impl SpaceGraph {
     /// Returns whether a node exists in the graph.
     pub(super) fn has_node(&self, node_id: &RoomId) -> bool {
         self.nodes.contains_key(node_id)
+    }
+
+    /// Returns all the ancestors of the given node, closest first: its
+    /// parents, then their parents, and so on.
+    pub(super) fn ancestors_of(&self, node_id: &RoomId) -> Vec<OwnedRoomId> {
+        let mut queue = VecDeque::from([node_id.to_owned()]);
+        let mut visited = HashSet::from([node_id.to_owned()]);
+        let mut ancestors = Vec::new();
+        while let Some(current) = queue.pop_front() {
+            for parent in self.parents_of(&current) {
+                if visited.insert(parent.to_owned()) {
+                    ancestors.push(parent.to_owned());
+                    queue.push_back(parent.to_owned());
+                }
+            }
+        }
+        ancestors
     }
 
     /// Adds a directed edge from `parent_id` to `child_id`, creating nodes if

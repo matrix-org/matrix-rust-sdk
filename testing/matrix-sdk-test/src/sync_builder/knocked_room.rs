@@ -15,8 +15,8 @@ impl KnockedRoomBuilder {
     ///
     /// If the room ID matches [`TestRoom::Default`],
     /// [`KnockedRoomBuilder::default()`] can be used instead.
-    pub fn new(room_id: &RoomId) -> Self {
-        Self { room_id: room_id.to_owned(), inner: Default::default() }
+    pub fn new(room_id: impl Into<OwnedRoomId>) -> Self {
+        Self { room_id: room_id.into(), inner: Default::default() }
     }
 
     /// Get the room ID of this [`KnockedRoomBuilder`].
@@ -42,6 +42,6 @@ impl KnockedRoomBuilder {
 
 impl Default for KnockedRoomBuilder {
     fn default() -> Self {
-        Self::new(TestRoom::Default.into())
+        Self::new(TestRoom::Default)
     }
 }

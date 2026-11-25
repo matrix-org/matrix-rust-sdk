@@ -1251,3 +1251,21 @@ async fn test_importing_secrets_bundle_verifies_the_device() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_has_encrypted_rooms() -> Result<()> {
+    let alice = TestClientBuilder::new("alice_import_secrets_test").build().await?;
+
+    // A new user should not have any encrypted rooms.
+    assert!(!alice.has_encrypted_rooms(Duration::from_secs(10)).await.unwrap());
+
+    let request = CreateRoomRequest::new();
+
+    let alice_room = alice.create_room(request).await?;
+    alice_room.enable_encryption().await?;
+
+    // After creating an encrypted room, the user should have an encrypted room.
+    assert!(alice.has_encrypted_rooms(Duration::from_secs(10)).await.unwrap());
+
+    Ok(())
+}

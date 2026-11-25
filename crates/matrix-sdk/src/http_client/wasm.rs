@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
-
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
-use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
+use ruma::api::{IncomingResponse, IncomingResponseExt as _, error::FromHttpResponseError};
 
 use super::{HttpClient, TransmissionProgress, response_to_http_response};
 use crate::{config::RequestConfig, error::HttpError};
@@ -28,9 +26,9 @@ impl HttpClient {
         request: http::Request<Bytes>,
         _config: RequestConfig,
         _send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> Result<R, HttpError>
     where
-        R: OutgoingRequest + Debug,
+        R: IncomingResponse,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         tracing::debug!("Sending request");
@@ -52,6 +50,6 @@ impl HttpClient {
 
         let (parts, body) = response.into_parts();
         let response: http::Response<&[u8]> = http::Response::from_parts(parts, &body);
-        Ok(R::IncomingResponse::try_from_http_response(response)?)
+        Ok(R::try_from_http_response(response)?)
     }
 }

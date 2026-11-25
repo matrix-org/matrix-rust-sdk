@@ -4,10 +4,8 @@ use std::{
 };
 
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::{
-    OwnedUserId, events::rtc::notification::NotificationType, owned_event_id, room_id, user_id,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use ruma::{OwnedUserId, events::rtc::notification::NotificationType, owned_event_id};
 use tokio::spawn;
 
 #[async_test]
@@ -16,25 +14,21 @@ async fn test_subscribe_to_decline_call_events() {
     let client = server.client_builder().build().await;
 
     let decliners_sequences: Arc<Mutex<Vec<OwnedUserId>>> = Arc::new(Mutex::new(Vec::new()));
-    let asserted_decliners = vec![user_id!("@bob:matrix.org"), user_id!("@carl:example.com")];
-
-    let room_id = room_id!("!test:example.org");
+    let asserted_decliners = [User::Bob, User::Carol];
 
     let notification_event_id = owned_event_id!("$00000:localhost");
 
     let f = EventFactory::new();
-    server
+    let room = server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_event(
+            JoinedRoomBuilder::default().add_timeline_event(
                 f.rtc_notification(NotificationType::Ring)
-                    .sender(user_id!("@alice:matrix.org"))
+                    .sender(User::Alice)
                     .event_id(&notification_event_id),
             ),
         )
         .await;
-
-    let room = server.sync_joined_room(&client, room_id).await;
 
     let to_subscribe_to = notification_event_id.clone();
     let join_handle = spawn({
@@ -61,59 +55,58 @@ async fn test_subscribe_to_decline_call_events() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_timeline_event(
                     // declines another call
-                    f.call_decline(&other_notification_event_id)
-                        .sender(user_id!("@valere:matrix.org")),
+                    f.call_decline(&other_notification_event_id).sender(User::Ella),
                 )
                 .add_timeline_event(
                     // declines another call
-                    f.call_decline(&notification_event_id).sender(user_id!("@bob:matrix.org")),
+                    f.call_decline(&notification_event_id).sender(User::Bob),
                 )
                 .add_timeline_event(
                     // declines another call
-                    f.call_decline(&notification_event_id).sender(user_id!("@carl:example.com")),
+                    f.call_decline(&notification_event_id).sender(User::Carol),
                 ),
         )
         .await;
 
     join_handle.await.unwrap();
-    assert_eq!(decliners_sequences.lock().unwrap().to_vec(), asserted_decliners);
+    assert_eq!(*decliners_sequences.lock().unwrap(), asserted_decliners);
 }
 
 #[async_test]
 async fn test_decline_call() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
 
-    println!("client id is: {}", client.user_id().unwrap());
-    let room_id = room_id!("!test:example.org");
+    println!("client id is: {user_id}");
 
     let notification_event_id = owned_event_id!("$00000:localhost");
     let a_message_event_id = owned_event_id!("$00001:localhost");
     let unknown_event_id = owned_event_id!("$00002:localhost");
     let own_notification_event_id = owned_event_id!("$00003:localhost");
 
-    let f = EventFactory::new().sender(user_id!("@alice:matrix.org"));
+    let f = EventFactory::new().sender(User::Alice);
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_state_event(f.room_encryption())
                 .add_timeline_event(
                     f.rtc_notification(NotificationType::Ring).event_id(&notification_event_id),
                 )
                 .add_timeline_event(
                     f.rtc_notification(NotificationType::Ring)
-                        .sender(user_id!("@example:localhost"))
+                        .sender(user_id)
                         .event_id(&own_notification_event_id),
                 )
                 .add_timeline_event(f.text_msg("Hello, HRU? ").event_id(&a_message_event_id)),
         )
         .await;
 
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     // Declining an unknown call should fail
     let result = room.make_decline_call_event(&unknown_event_id).await;

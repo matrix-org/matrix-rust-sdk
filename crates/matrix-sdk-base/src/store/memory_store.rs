@@ -40,9 +40,9 @@ use ruma::{
 use tracing::{debug, instrument, warn};
 
 use super::{
-    DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
-    RoomLoadSettings, StateChanges, StateStore, StoreError, SupportedVersionsResponse,
-    WellKnownResponse,
+    DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result,
+    RetentionConfigurationResponse, RoomInfo, RoomLoadSettings, StateChanges, StateStore,
+    StoreError, SupportedVersionsResponse, WellKnownResponse,
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
     traits::ComposerDraft,
 };
@@ -95,7 +95,9 @@ struct MemoryStoreInner {
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
     global_profiles: HashMap<OwnedUserId, UserProfile>,
+    unavailable_global_profiles: HashMap<OwnedUserId, MilliSecondsSinceUnixEpoch>,
     homeserver_capabilities: Option<TtlValue<Capabilities>>,
+    retention_configuration: Option<TtlValue<RetentionConfigurationResponse>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -211,6 +213,10 @@ impl StateStore for MemoryStore {
                 .homeserver_capabilities
                 .clone()
                 .map(StateStoreDataValue::HomeserverCapabilities),
+            StateStoreDataKey::RetentionConfiguration => inner
+                .retention_configuration
+                .clone()
+                .map(StateStoreDataValue::RetentionConfiguration),
         })
     }
 
@@ -293,6 +299,13 @@ impl StateStore for MemoryStore {
                         .expect("Session data is not a homeserver capabilities"),
                 );
             }
+            StateStoreDataKey::RetentionConfiguration => {
+                inner.retention_configuration = Some(
+                    value
+                        .into_retention_configuration()
+                        .expect("Session data is not a retention configuration"),
+                );
+            }
         }
 
         Ok(())
@@ -328,6 +341,7 @@ impl StateStore for MemoryStore {
                 inner.thread_subscriptions_catchup_tokens = None;
             }
             StateStoreDataKey::HomeserverCapabilities => inner.homeserver_capabilities = None,
+            StateStoreDataKey::RetentionConfiguration => inner.retention_configuration = None,
         }
         Ok(())
     }
@@ -548,6 +562,10 @@ impl StateStore for MemoryStore {
                         .entry(user_id.clone())
                         .or_default()
                         .apply(profile_changes.clone());
+
+                    // If the profile was marked as unavailable we can unmark
+                    // it.
+                    inner.unavailable_global_profiles.remove(user_id);
                 }
                 UserProfileUpdate::Dropped => {
                     inner.global_profiles.remove(user_id);
@@ -557,6 +575,13 @@ impl StateStore for MemoryStore {
                 }
             }
         }
+
+        inner.unavailable_global_profiles.extend(
+            changes
+                .unavailable_global_profiles
+                .iter()
+                .map(|(user_id, created_at)| (user_id.clone(), *created_at)),
+        );
 
         debug!("Saved changes in {:?}", now.elapsed());
 
@@ -1118,6 +1143,21 @@ impl StateStore for MemoryStore {
             .filter_map(|user_id| {
                 inner.global_profiles.get(user_id).map(|profile| (&**user_id, profile.clone()))
             })
+            .collect())
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(user_ids
+            .iter()
+            .filter(|user_id| {
+                !inner.global_profiles.contains_key(*user_id)
+                    && !inner.unavailable_global_profiles.contains_key(*user_id)
+            })
+            .map(|user_id| &**user_id)
             .collect())
     }
 

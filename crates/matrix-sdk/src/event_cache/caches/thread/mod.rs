@@ -46,10 +46,10 @@ use super::{
     },
     EventsOrigin, TimelineVectorDiffs,
     read_receipts::MaybeReceiptEventContent,
-    room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::RoomEventCacheGenericUpdate,
     subscriber::{AutoShrinkMessage, Subscriber},
 };
-use crate::room::WeakRoom;
+use crate::{event_cache::caches::room::LinkedChunkUpdateSender, room::WeakRoom};
 
 /// All the information related to a single thread.
 ///
@@ -104,7 +104,7 @@ impl ThreadEventCache {
         state: &StateLock,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateSender,
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
@@ -244,6 +244,11 @@ impl ThreadEventCache {
         &self.inner.state
     }
 
+    /// Return a reference to the update sender.
+    pub(in super::super) fn update_sender(&self) -> &ThreadEventCacheUpdateSender {
+        &self.inner.update_sender
+    }
+
     /// Handle an update from a joined room.
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_joined_room_update(
@@ -294,12 +299,6 @@ impl ThreadEventCache {
                 // generic update is handled by it.
                 None,
             );
-        }
-
-        if let Some(read_receipts) = read_receipts.into_inner() {
-            state
-                .update_sender
-                .send(ThreadEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
         }
 
         Ok(())

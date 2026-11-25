@@ -27,7 +27,7 @@ use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
 use reqwest::tls;
-use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
+use ruma::api::{IncomingResponse, IncomingResponseExt as _, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
@@ -43,9 +43,9 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> HttpResult<R::IncomingResponse>
+    ) -> HttpResult<R>
     where
-        R: OutgoingRequest + Debug,
+        R: IncomingResponse,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         // some functions split out so they only get compiled once, not
@@ -159,7 +159,7 @@ impl HttpClient {
                 .await?;
                 let (parts, body) = response.into_parts();
                 let response: http::Response<&[u8]> = http::Response::from_parts(parts, &body);
-                R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
+                R::try_from_http_response(response).map_err(HttpError::from)
             }
         };
 
@@ -178,15 +178,39 @@ impl HttpClient {
 }
 
 #[cfg(not(target_family = "wasm"))]
+impl HttpClient {
+    /// Create a new client, using `settings` to configure the underlying
+    /// [`reqwest::Client`] and `request_config` as the default config of
+    /// each request, including its timeouts.
+    pub fn with_settings(
+        mut settings: HttpSettings,
+        request_config: RequestConfig,
+    ) -> Result<Self, HttpError> {
+        settings.apply_timeouts(&request_config);
+        Ok(Self::new(settings.make_client()?, request_config))
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+/// Settings used to build the underlying [`reqwest::Client`].
 #[derive(Clone, Debug)]
-pub(crate) struct HttpSettings {
-    pub(crate) disable_ssl_verification: bool,
-    pub(crate) proxy: Option<String>,
-    pub(crate) user_agent: Option<String>,
+pub struct HttpSettings {
+    /// Accept invalid TLS certificates. Dangerous, only use for testing.
+    pub disable_ssl_verification: bool,
+    /// URL of a proxy to route all requests through.
+    pub proxy: Option<String>,
+    /// User agent to send, defaults to `matrix-rust-sdk`.
+    pub user_agent: Option<String>,
+    /// Total timeout for a request. Overridden by the [`RequestConfig`] the
+    /// client is built with.
     pub(crate) timeout: Option<Duration>,
+    /// Timeout for each read operation. Overridden by the [`RequestConfig`]
+    /// the client is built with.
     pub(crate) read_timeout: Option<Duration>,
-    pub(crate) additional_root_certificates: Vec<Certificate>,
-    pub(crate) disable_built_in_root_certificates: bool,
+    /// Extra root certificates to trust.
+    pub additional_root_certificates: Vec<Certificate>,
+    /// Only trust `additional_root_certificates`, not the built-in ones.
+    pub disable_built_in_root_certificates: bool,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -206,6 +230,13 @@ impl Default for HttpSettings {
 
 #[cfg(not(target_family = "wasm"))]
 impl HttpSettings {
+    /// Use the timeouts of `request_config`, since `reqwest` only supports
+    /// setting a read timeout on the whole client, not per request.
+    pub(crate) fn apply_timeouts(&mut self, request_config: &RequestConfig) {
+        self.timeout = request_config.timeout;
+        self.read_timeout = request_config.read_timeout;
+    }
+
     /// Build a client with the specified configuration.
     pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());

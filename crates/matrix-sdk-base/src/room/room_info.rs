@@ -223,9 +223,6 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
-    /// The event ID of the user's `m.fully_read` marker for this room, if any.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) fully_read_event_id: Option<OwnedEventId>,
     /// The `m.room.pinned_events` of this room.
     pub(crate) pinned_events: Option<PossiblyRedactedRoomPinnedEventsEventContent>,
 }
@@ -593,7 +590,6 @@ impl Default for BaseRoomInfo {
             is_marked_unread: false,
             is_marked_unread_source: AccountDataSource::Unstable,
             notable_tags: RoomNotableTags::empty(),
-            fully_read_event_id: None,
             pinned_events: None,
         }
     }
@@ -1286,12 +1282,6 @@ impl RoomInfo {
         self.base_info.pinned_events.clone().and_then(|c| c.pinned)
     }
 
-    /// Returns the event ID of the user's `m.fully_read` marker for this room,
-    /// if any.
-    pub fn fully_read_event_id(&self) -> Option<&EventId> {
-        self.base_info.fully_read_event_id.as_deref()
-    }
-
     /// Checks if an `EventId` is currently pinned. It avoids having to clone
     /// the whole list of event ids to check a single value.
     ///
@@ -1512,9 +1502,6 @@ bitflags! {
         /// feel broken. Ultimately, we want to clearly identify all the notable
         /// update reasons, and remove this one.
         const NONE = 0b0000_0000_1000_0000;
-
-        /// The user's `m.fully_read` marker has changed.
-        const FULLY_READ = 0b0000_0001_0000_0000;
 
         /// A room hero's global profile changed (e.g. their status or call).
         const HEROES = 0b0000_0010_0000_0000;

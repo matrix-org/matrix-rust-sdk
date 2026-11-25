@@ -15,6 +15,8 @@
 use std::collections::BTreeMap;
 
 use as_variant::as_variant;
+#[cfg(feature = "unstable-msc4354")]
+use ruma::api::client::delayed_events::send_delayed_event;
 use ruma::{
     OwnedEventId, OwnedRoomId,
     api::{
@@ -261,14 +263,21 @@ impl SendEventResponse {
     }
 }
 
-impl From<delayed_message_event::unstable::Response> for SendEventResponse {
-    fn from(val: delayed_message_event::unstable::Response) -> Self {
+impl From<delayed_message_event::msc4140::Response> for SendEventResponse {
+    fn from(val: delayed_message_event::msc4140::Response) -> Self {
         SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
     }
 }
 
-impl From<delayed_state_event::unstable::Response> for SendEventResponse {
-    fn from(val: delayed_state_event::unstable::Response) -> Self {
+impl From<delayed_state_event::msc4140::Response> for SendEventResponse {
+    fn from(val: delayed_state_event::msc4140::Response) -> Self {
+        SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
+    }
+}
+
+#[cfg(feature = "unstable-msc4354")]
+impl From<send_delayed_event::msc4140::Response> for SendEventResponse {
+    fn from(val: send_delayed_event::msc4140::Response) -> Self {
         SendEventResponse { room_id: None, event_id: None, delay_id: Some(val.delay_id) }
     }
 }
@@ -281,8 +290,8 @@ impl From<delayed_state_event::unstable::Response> for SendEventResponse {
 /// as json.
 #[derive(Serialize, Debug)]
 pub(crate) struct UpdateDelayedEventResponse {}
-impl From<update_delayed_event::unstable_v1::Response> for UpdateDelayedEventResponse {
-    fn from(_: update_delayed_event::unstable_v1::Response) -> Self {
+impl From<update_delayed_event::msc4140_v1::Response> for UpdateDelayedEventResponse {
+    fn from(_: update_delayed_event::msc4140_v1::Response) -> Self {
         Self {}
     }
 }

@@ -6,7 +6,7 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -16,7 +16,7 @@ use ruma::{
             message::{AddMentions, ReplyWithinThread, TextMessageEventContent},
         },
     },
-    mxc_uri, owned_mxc_uri, owned_user_id, uint,
+    mxc_uri, owned_mxc_uri, uint,
 };
 use serde_json::json;
 
@@ -47,7 +47,7 @@ async fn test_room_attachment_send() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -85,7 +85,7 @@ async fn test_room_attachment_send_in_encrypted_room_has_binary_mime_type() {
     mock.mock_get_members().ok(Vec::new()).mock_once().mount().await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().encrypted().mount().await;
 
     let response = room
@@ -129,7 +129,7 @@ async fn test_room_attachment_send_info() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -180,7 +180,7 @@ async fn test_room_attachment_send_wrong_info() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Here, using `AttachmentInfo::Video`…
@@ -240,7 +240,7 @@ async fn test_room_attachment_send_info_thumbnail() {
     mock.mock_upload().expect_mime_type("image/jpeg").ok(&media_mxc).mock_once().mount().await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Preconditions: nothing is found in the cache.
@@ -312,6 +312,7 @@ async fn test_room_attachment_send_info_thumbnail() {
 #[async_test]
 async fn test_room_attachment_send_mentions() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
@@ -320,7 +321,7 @@ async fn test_room_attachment_send_mentions() {
     mock.mock_room_send()
         .body_matches_partial_json(json!({
             "m.mentions": {
-                "user_ids": ["@user:localhost"],
+                "user_ids": [mentioned],
             }
         }))
         .ok(expected_event_id)
@@ -336,7 +337,7 @@ async fn test_room_attachment_send_mentions() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -344,8 +345,7 @@ async fn test_room_attachment_send_mentions() {
             "image",
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
-            AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")]))),
+            AttachmentConfig::new().mentions(Some(Mentions::with_user_ids([mentioned.into()]))),
         )
         .await
         .unwrap();
@@ -395,7 +395,7 @@ async fn test_room_attachment_reply_outside_thread() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -404,7 +404,7 @@ async fn test_room_attachment_reply_outside_thread() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([User::Bob.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Unthreaded,
@@ -420,6 +420,7 @@ async fn test_room_attachment_reply_outside_thread() {
 #[async_test]
 async fn test_room_attachment_start_thread() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let replied_to_event_id = event_id!("$foo:bar.com");
@@ -447,7 +448,7 @@ async fn test_room_attachment_start_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .into())
         .mock_once()
@@ -462,7 +463,7 @@ async fn test_room_attachment_start_thread() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -471,7 +472,7 @@ async fn test_room_attachment_start_thread() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
@@ -487,6 +488,7 @@ async fn test_room_attachment_start_thread() {
 #[async_test]
 async fn test_room_attachment_reply_on_thread_as_reply() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let thread_root_event_id = event_id!("$bar:foo.com");
@@ -514,7 +516,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -530,7 +532,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -539,7 +541,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::Threaded(ReplyWithinThread::Yes),
@@ -555,6 +557,7 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
 #[async_test]
 async fn test_room_attachment_reply_forwarding_thread() {
     let mock = MatrixMockServer::new().await;
+    let mentioned = User::Alice;
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
@@ -583,7 +586,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
         .match_event_id()
         .ok(f
             .text_msg("Send me your attachments")
-            .sender(User::Alice)
+            .sender(mentioned)
             .event_id(replied_to_event_id)
             .in_thread(thread_root_event_id, thread_root_event_id)
             .into())
@@ -599,7 +602,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let response = room
@@ -608,7 +611,7 @@ async fn test_room_attachment_reply_forwarding_thread() {
             &mime::IMAGE_JPEG,
             b"Hello world".to_vec(),
             AttachmentConfig::new()
-                .mentions(Some(Mentions::with_user_ids([owned_user_id!("@user:localhost")])))
+                .mentions(Some(Mentions::with_user_ids([mentioned.into()])))
                 .reply(Some(Reply {
                     event_id: replied_to_event_id.into(),
                     enforce_thread: EnforceThread::MaybeThreaded,
@@ -650,7 +653,7 @@ async fn test_room_attachment_send_is_animated() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -697,7 +700,7 @@ async fn test_room_attachment_send_circle_video() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new()
@@ -740,7 +743,7 @@ async fn test_room_attachment_send_extra_content() {
         .await;
 
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let room = mock.sync_default_joined_room(&client).await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([

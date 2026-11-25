@@ -49,7 +49,7 @@ use matrix_sdk::{
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_base::ruma::{
-    api::client::sync::sync_events::v5 as http, owned_room_id, room_alias_id,
+    api::client::sync::sync_events::msc4186 as http, owned_room_id, room_alias_id,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
@@ -319,7 +319,7 @@ async fn test_joined_user_can_create_push_context_with_room_list_service() -> Re
 
     let alice = Client::builder()
         .homeserver_url(hs)
-        .sliding_sync_version_builder(VersionBuilder::Native)
+        .sliding_sync_version_builder(VersionBuilder::Unstable)
         .build()
         .await
         .unwrap();
@@ -430,9 +430,9 @@ async fn test_room_notification_count() -> Result<()> {
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) }))
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: true }))
             .with_to_device_extension(
-                assign!(http::request::ToDevice::default(), { enabled: Some(true) }),
+                assign!(http::request::ToDevice::default(), { enabled: true }),
             )
             .add_list(
                 SlidingSyncList::builder("all")
@@ -1045,7 +1045,12 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only() {
         }
         .into(),
     ];
-    server.mock_public_rooms().ok(chunks, None, None, Some(1)).mock_once().mount().await;
+    server
+        .mock_get_filtered_public_rooms()
+        .ok(chunks, None, None, Some(1))
+        .mock_once()
+        .mount()
+        .await;
 
     // The room preview is found
     let preview = client
@@ -1105,7 +1110,7 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only_in_sev
         ),
     ]);
     server
-        .mock_public_rooms()
+        .mock_get_filtered_public_rooms()
         .ok_with_via_params(via_map)
         // Expect this to be called once for every server in the `via_map`
         .expect(2)

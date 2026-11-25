@@ -54,7 +54,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
 };
 
@@ -193,7 +193,7 @@ impl SqliteStateStore {
         if from < 2 {
             debug!("Upgrading database to version 2");
             let this = self.clone();
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/002_a_create_new_room_info.sql"
@@ -236,7 +236,7 @@ impl SqliteStateStore {
         if from < 3 {
             debug!("Upgrading database to version 3");
             let this = self.clone();
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Migrate data .
                 for data in txn
                     .prepare("SELECT data FROM room_info")?
@@ -290,7 +290,7 @@ impl SqliteStateStore {
 
         if from < 4 {
             debug!("Upgrading database to version 4");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!("../migrations/state_store/003_send_queue.sql"))?;
                 txn.set_db_version(4)
@@ -304,7 +304,7 @@ impl SqliteStateStore {
 
         if from < 5 {
             debug!("Upgrading database to version 5");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/004_send_queue_with_roomid_value.sql"
@@ -320,7 +320,7 @@ impl SqliteStateStore {
 
         if from < 6 {
             debug!("Upgrading database to version 6");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Create new table.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/005_send_queue_dependent_events.sql"
@@ -336,7 +336,7 @@ impl SqliteStateStore {
 
         if from < 7 {
             debug!("Upgrading database to version 7");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Drop media table.
                 txn.execute_batch(include_str!("../migrations/state_store/006_drop_media.sql"))?;
                 txn.set_db_version(7)
@@ -356,7 +356,7 @@ impl SqliteStateStore {
             };
             let default_err = self.serialize_value(&error)?;
 
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Update send queue table to persist the wedge reason if any.
                 txn.execute_batch(include_str!("../migrations/state_store/007_a_send_queue_wedge_reason.sql"))?;
 
@@ -391,7 +391,7 @@ impl SqliteStateStore {
 
         if from < 9 {
             debug!("Upgrading database to version 9");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!("../migrations/state_store/008_send_queue.sql"))?;
                 txn.set_db_version(9)
@@ -405,7 +405,7 @@ impl SqliteStateStore {
 
         if from < 10 {
             debug!("Upgrading database to version 10");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/009_send_queue_priority.sql"
@@ -421,7 +421,7 @@ impl SqliteStateStore {
 
         if from < 11 {
             debug!("Upgrading database to version 11");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/010_send_queue_enqueue_time.sql"
@@ -450,7 +450,7 @@ impl SqliteStateStore {
 
         if from < 13 {
             debug!("Upgrading database to version 13");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/011_thread_subscriptions.sql"
@@ -466,7 +466,7 @@ impl SqliteStateStore {
 
         if from < 14 {
             debug!("Upgrading database to version 14");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/012_thread_subscriptions_bumpstamp.sql"
@@ -482,7 +482,7 @@ impl SqliteStateStore {
 
         if from < 15 {
             debug!("Upgrading database to version 15");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/013_send_queue_new_parent_key_format.sql"
@@ -498,7 +498,7 @@ impl SqliteStateStore {
 
         if from < 16 {
             debug!("Upgrading database to version 16");
-            conn.with_transaction(move |txn| {
+            conn.with_immediate_transaction(move |txn| {
                 // Run the migration.
                 txn.execute_batch(include_str!(
                     "../migrations/state_store/014_global_profiles.sql"
@@ -509,6 +509,22 @@ impl SqliteStateStore {
         }
 
         if to == Some(16) {
+            return Ok(());
+        }
+
+        if from < 17 {
+            debug!("Upgrading database to version 17");
+            conn.with_immediate_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/015_unavailable_global_profiles.sql"
+                ))?;
+                txn.set_db_version(17)
+            })
+            .await?;
+        }
+
+        if to == Some(17) {
             return Ok(());
         }
 
@@ -556,6 +572,9 @@ impl SqliteStateStore {
             StateStoreDataKey::HomeserverCapabilities => {
                 Cow::Borrowed(StateStoreDataKey::HOMESERVER_CAPABILITIES)
             }
+            StateStoreDataKey::RetentionConfiguration => {
+                Cow::Borrowed(StateStoreDataKey::RETENTION_CONFIGURATION)
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -592,7 +611,18 @@ impl SqliteStateStore {
             let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
             conns.write_connection.clone()
         };
-        Ok(write_conn.lock_owned().await)
+        let connection = write_conn.lock_owned().await;
+
+        // Specify a busy timeout so that operations are automatically retried,
+        // in case the database was marked as locked, which can happen
+        // under very peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
+
+        Ok(connection)
     }
 
     fn remove_maybe_stripped_room_data(
@@ -1185,7 +1215,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
 #[async_trait]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
-        Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
+        Ok(self.with_immediate_transaction(move |conn| conn.set_kv_blob(&key, &value)).await?)
     }
 }
 
@@ -1237,6 +1267,9 @@ impl StateStore for SqliteStateStore {
                     }
                     StateStoreDataKey::HomeserverCapabilities => {
                         StateStoreDataValue::HomeserverCapabilities(self.deserialize_value(&data)?)
+                    }
+                    StateStoreDataKey::RetentionConfiguration => {
+                        StateStoreDataValue::RetentionConfiguration(self.deserialize_value(&data)?)
                     }
                 })
             })
@@ -1293,6 +1326,11 @@ impl StateStore for SqliteStateStore {
                     .into_homeserver_capabilities()
                     .expect("Session data is not the homeserver capabilities"),
             )?,
+            StateStoreDataKey::RetentionConfiguration => self.serialize_value(
+                &value
+                    .into_retention_configuration()
+                    .expect("Session data is not the retention configuration"),
+            )?,
         };
 
         self.write()
@@ -1310,7 +1348,7 @@ impl StateStore for SqliteStateStore {
         let this = self.clone();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 let StateChanges {
                     sync_token,
                     account_data,
@@ -1325,6 +1363,7 @@ impl StateStore for SqliteStateStore {
                     stripped_state,
                     ambiguity_maps,
                     global_profiles,
+                    unavailable_global_profiles,
                 } = changes;
 
                 if let Some(sync_token) = sync_token {
@@ -1652,6 +1691,13 @@ impl StateStore for SqliteStateStore {
                                 "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
                             )?
                             .execute((&user_id, serialized))?;
+
+                            // If the profile was marked as unavailable we can unmark it.
+                            // Both tables intentionally use the same key for a user.
+                            txn.prepare_cached(
+                                "DELETE FROM unavailable_global_profiles WHERE user_id = ?",
+                            )?
+                            .execute([&user_id])?;
                         }
                         // The user left all shared rooms, so drop their stored profile.
                         UserProfileUpdate::Dropped => {
@@ -1662,6 +1708,17 @@ impl StateStore for SqliteStateStore {
                             warn!(%raw_user_id, "Unhandled UserProfileUpdate variant; ignoring");
                         }
                     }
+                }
+
+                for (user_id, created_at) in unavailable_global_profiles {
+                    // We use the same key as `global_profiles`, so that a user can be
+                    // looked up in both tables with a single encoding.
+                    let user_id = this.encode_key(keys::GLOBAL_PROFILES, &user_id);
+                    let created_at_ts: u64 = created_at.0.into();
+                    txn.prepare_cached(
+                        "INSERT OR REPLACE INTO unavailable_global_profiles (user_id, created_at) VALUES (?, ?)",
+                    )?
+                    .execute((&user_id, created_at_ts))?;
                 }
 
                 Ok::<_, Error>(())
@@ -1813,6 +1870,61 @@ impl StateStore for SqliteStateStore {
                 ))
             })
             .collect()
+    }
+
+    async fn get_missing_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<Vec<&'a UserId>, Self::Error> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // A user's key is the same in both tables, see `save_changes`.
+        let user_keys: Vec<_> = user_ids
+            .iter()
+            .map(|user_id| self.encode_key(keys::GLOBAL_PROFILES, user_id))
+            .collect();
+
+        // Only select user IDs, don't load any profiles.
+        let found: BTreeSet<_> = self
+            .read()
+            .await?
+            .with_transaction({
+                let user_keys = user_keys.clone();
+                move |txn| -> Result<_> {
+                    let select_user_ids = |table: &'static str, user_ids: Vec<Key>| {
+                        txn.chunk_large_query_over(user_ids, None, move |txn, user_ids| {
+                            let sql = format!(
+                                "SELECT user_id FROM {table} WHERE user_id IN ({})",
+                                user_ids.host_parameters(),
+                            );
+
+                            let params = rusqlite::params_from_iter(user_ids);
+
+                            Ok(txn
+                                .prepare(&sql)?
+                                .query(params)?
+                                .mapped(|row| row.get(0))
+                                .collect::<Result<Vec<Vec<u8>>, _>>()?)
+                        })
+                    };
+
+                    let mut found = select_user_ids("global_profiles", user_keys.clone())?;
+                    found.extend(select_user_ids("unavailable_global_profiles", user_keys)?);
+                    Ok(found)
+                }
+            })
+            .await?
+            .into_iter()
+            .collect();
+
+        Ok(user_ids
+            .iter()
+            .zip(&user_keys)
+            .filter(|(_, key)| !found.contains(&key[..]))
+            .map(|(user_id, _)| &**user_id)
+            .collect())
     }
 
     async fn get_user_ids(
@@ -2035,7 +2147,7 @@ impl StateStore for SqliteStateStore {
 
         let conn = self.write().await?;
 
-        conn.with_transaction(move |txn| -> Result<()> {
+        conn.with_immediate_transaction(move |txn| -> Result<()> {
             let room_info_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
             txn.remove_room_info(&room_info_room_id)?;
 
@@ -2099,7 +2211,7 @@ impl StateStore for SqliteStateStore {
         let created_at_ts: u64 = created_at.0.into();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority, created_at) VALUES (?, ?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority, created_at_ts))?;
                 Ok(())
             })
@@ -2121,7 +2233,7 @@ impl StateStore for SqliteStateStore {
 
         let num_updated = self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = NULL, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))
             })
             .await?;
@@ -2142,7 +2254,7 @@ impl StateStore for SqliteStateStore {
         let num_deleted = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM send_queue_events WHERE room_id = ? AND transaction_id = ?",
                 )?
@@ -2213,7 +2325,7 @@ impl StateStore for SqliteStateStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = ? WHERE room_id = ? AND transaction_id = ?")?.execute((error_value, room_id, transaction_id))?;
                 Ok(())
             })
@@ -2262,7 +2374,7 @@ impl StateStore for SqliteStateStore {
         let created_at_ts: u64 = created_at.0.into();
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"INSERT INTO dependent_send_queue_events
                          (room_id, parent_transaction_id, own_transaction_id, content, created_at)
@@ -2295,7 +2407,7 @@ impl StateStore for SqliteStateStore {
         let num_updated = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"UPDATE dependent_send_queue_events
                        SET content = ?
@@ -2327,7 +2439,7 @@ impl StateStore for SqliteStateStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 Ok(txn.prepare_cached(
                     "UPDATE dependent_send_queue_events SET parent_key = ? WHERE parent_transaction_id = ? and room_id = ?",
                 )?
@@ -2349,7 +2461,7 @@ impl StateStore for SqliteStateStore {
         let num_deleted = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM dependent_send_queue_events WHERE own_transaction_id = ? AND room_id = ?",
                 )?
@@ -2419,7 +2531,7 @@ impl StateStore for SqliteStateStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 let mut txn = txn.prepare_cached(
                     "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
                     VALUES (?, ?, ?, ?)
@@ -3218,7 +3330,7 @@ mod migration_tests {
                     room_id,
                     &local_tx,
                     ChildTransactionId::new(),
-                    DependentQueuedRequestKind::RedactEvent,
+                    DependentQueuedRequestKind::RedactEventWithReason { reason: None },
                 )?;
                 add_send_queue_event_v7(&db, txn, &wedge_tx, room_id, true)?;
                 add_send_queue_event_v7(&db, txn, &local_tx, room_id, false)?;

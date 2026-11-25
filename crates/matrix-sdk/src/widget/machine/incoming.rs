@@ -90,7 +90,7 @@ pub(crate) enum MatrixDriverResponse {
     ToDeviceSent(SendToDeviceEventResponse),
     /// Client updated a delayed event. A response to a
     /// [`MatrixDriverRequestData::UpdateDelayedEvent`] command.
-    DelayedEventUpdated(delayed_events::update_delayed_event::unstable_v1::Response),
+    DelayedEventUpdated(delayed_events::update_delayed_event::msc4140_v1::Response),
     /// The client successfully downloaded a file from a widget action.
     FileDownloaded(DownloadFileResponse),
     /// Client fetched the RTC transports advertised by the homeserver. A

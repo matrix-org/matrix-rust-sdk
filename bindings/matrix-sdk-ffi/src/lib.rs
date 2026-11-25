@@ -14,6 +14,8 @@ mod encryption;
 mod error;
 mod event;
 mod helpers;
+#[cfg(not(target_family = "wasm"))]
+mod http_client;
 mod identity_status_change;
 mod live_locations_observer;
 mod notification;

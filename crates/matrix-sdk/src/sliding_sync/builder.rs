@@ -6,7 +6,7 @@ use std::{
 };
 
 use matrix_sdk_common::timer;
-use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use ruma::{OwnedRoomId, api::client::sync::sync_events::msc4186 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
@@ -95,13 +95,8 @@ impl SlidingSyncBuilder {
     pub fn with_all_extensions(mut self) -> Self {
         {
             let cfg = self.extensions.get_or_insert_with(Default::default);
-            if cfg.to_device.enabled.is_none() {
-                cfg.to_device.enabled = Some(true);
-            }
-
-            if cfg.e2ee.enabled.is_none() {
-                cfg.e2ee.enabled = Some(true);
-            }
+            cfg.to_device.enabled = true;
+            cfg.e2ee.enabled = true;
 
             if cfg.account_data.enabled.is_none() {
                 cfg.account_data.enabled = Some(true);
@@ -327,11 +322,7 @@ impl SlidingSyncBuilder {
 
             lists,
 
-            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers {
-                pos,
-                #[cfg(feature = "unstable-msc4354")]
-                sticky_events_since: None,
-            })),
+            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
 
             room_subscriptions: StdRwLock::new(self.room_subscriptions),
             extensions: self.extensions.unwrap_or_default(),

@@ -119,6 +119,12 @@ pub enum QrCodeIntentData<'a> {
         rendezvous_id: &'a RendezvousId,
         /// The base URL of the homeserver that the device generating the QR is
         /// using.
+        ///
+        /// Use [`LimitedUrl::as_bytes`] to get the base URL exactly as it is
+        /// encoded in the QR code, e.g. for the [MSC4388] additional
+        /// authenticated data.
+        ///
+        /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
         base_url: &'a LimitedUrl,
     },
 }
@@ -198,6 +204,15 @@ impl QrCodeData {
 
     /// Create a new [`QrCodeData`] object which conforms to the data format
     /// specified in [MSC4388].
+    ///
+    /// The `base_url` is encoded in the QR code as its normalised
+    /// serialisation, i.e. [`Url::as_str`], which may differ from the string
+    /// it was parsed from (e.g. a trailing `/` is added to
+    /// `https://example.org`). [MSC4388] binds the secure channel to the exact
+    /// base URL encoded in the QR code, so the additional authenticated data
+    /// must use those same bytes. These are returned by
+    /// [`LimitedUrl::as_bytes`] on the `base_url` of
+    /// [`QrCodeData::intent_data`].
     ///
     /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
     pub fn new_msc4388(

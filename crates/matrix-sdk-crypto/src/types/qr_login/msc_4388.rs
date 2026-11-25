@@ -76,6 +76,12 @@ pub struct InvalidLengthError {
 
 /// A wrapper type for a [`Url`] which limits the length of the URL to
 /// [`u8::MAX`].
+///
+/// It holds two forms of the URL: the bytes as they are, or will be, encoded in
+/// the QR code ([`LimitedUrl::as_bytes`]), and the parsed [`Url`]
+/// ([`LimitedUrl::as_url`], [`LimitedUrl::as_str`]). The parsed form is
+/// normalised, so when a [`LimitedUrl`] is decoded from a QR code the two can
+/// differ (e.g. by a trailing `/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LimitedUrl {
     parsed: Url,
@@ -88,7 +94,10 @@ impl LimitedUrl {
 
     /// Create a new [`LimitedUrl`] from a [`Url`].
     ///
-    /// Returns `None` if the [`Url`] is too long.
+    /// The bytes encoded in the QR code will be the normalised serialisation
+    /// of the [`Url`], i.e. [`Url::as_str`].
+    ///
+    /// Returns an error if the [`Url`] is too long.
     pub fn new(s: Url) -> Result<Self, InvalidLengthError> {
         if s.as_str().len() <= Self::MAX_SIZE {
             let raw = s.as_str().as_bytes().to_vec();
@@ -103,7 +112,8 @@ impl LimitedUrl {
         Self { parsed, raw }
     }
 
-    /// Return the length of the URL.
+    /// Return the length in bytes of the URL as encoded in the QR code, i.e.
+    /// of [`LimitedUrl::as_bytes`].
     ///
     /// Is returned as an `u8` as it is guaranteed to be <= [`u8::MAX`].
     #[allow(clippy::len_without_is_empty)]
@@ -111,7 +121,12 @@ impl LimitedUrl {
         self.raw.len() as u8
     }
 
-    /// Get a reference to the byte representation of the string.
+    /// Get the URL exactly as it is, or will be, encoded in the QR code.
+    ///
+    /// This is the value to use in the [MSC4388] additional authenticated
+    /// data. It may differ from [`LimitedUrl::as_str`].
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
     pub fn as_bytes(&self) -> &[u8] {
         &self.raw
     }
@@ -121,12 +136,17 @@ impl LimitedUrl {
         &self.parsed
     }
 
-    /// Get a reference to the string representation of this URL.
+    /// Get the normalised serialisation of the underlying [`Url`].
+    ///
+    /// This may differ from the bytes encoded in the QR code, see
+    /// [`LimitedUrl::as_bytes`].
     pub fn as_str(&self) -> &str {
         self.parsed.as_str()
     }
 }
 
+/// Formats the normalised serialisation of the underlying [`Url`], the same as
+/// [`LimitedUrl::as_str`].
 impl fmt::Display for LimitedUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.parsed.fmt(f)

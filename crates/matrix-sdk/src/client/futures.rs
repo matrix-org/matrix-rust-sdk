@@ -126,13 +126,13 @@ where
                     }
 
                     RefreshTokenError::OAuth(_) | RefreshTokenError::MatrixAuth(_) => {
-                        if refresh_error.is_session_rejected() {
+                        if let Some(rejection) = refresh_error.session_rejection() {
                             error!(
                                 "Token refresh: the refresh token was rejected: {refresh_error}"
                             );
                             // The refresh was denied, signal to sign out the
                             // user.
-                            client.broadcast_unknown_token(unknown_token_data);
+                            client.broadcast_unknown_token(&rejection);
                         } else {
                             trace!("Token refresh: the refresh request itself failed.");
                         }

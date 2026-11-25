@@ -17,7 +17,6 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
 use eyeball::{ObservableWriteGuard, SharedObservable};
-use eyeball_im::VectorDiff;
 use futures_util::{
     FutureExt as _,
     future::{Either, Shared, ready},
@@ -260,20 +259,13 @@ where
                     return Ok(Some(BackPaginationOutcome { reached_start: true, events: vec![] }));
                 }
 
-                LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
-                } => {
-                    return Ok(Some(
-                        self.cache
-                            .conclude_backwards_pagination_from_disk(
-                                events,
-                                timeline_event_diffs,
-                                reached_start,
-                            )
-                            .await,
-                    ));
+                LoadMoreEventsBackwardsOutcome::Events { events, reached_start } => {
+                    return Ok(Some(BackPaginationOutcome {
+                        reached_start,
+                        // This is a backwards pagination. `BackPaginationOutcome` expects
+                        // events to be in “reverse order”.
+                        events: events.into_iter().rev().collect(),
+                    }));
                 }
             }
         }
@@ -360,13 +352,6 @@ pub(in super::super) trait PaginatedCache {
         prev_token: &Option<String>,
     ) -> impl Future<Output = Result<Option<(Vec<Event>, Option<String>)>>> + SendOutsideWasm;
 
-    fn conclude_backwards_pagination_from_disk(
-        &self,
-        events: Vec<Event>,
-        timeline_event_diffs: Vec<VectorDiff<Event>>,
-        reached_start: bool,
-    ) -> impl Future<Output = BackPaginationOutcome> + SendOutsideWasm;
-
     fn conclude_backwards_pagination_from_network(
         &self,
         events: Vec<Event>,
@@ -443,5 +428,8 @@ pub(in super::super) enum LoadMoreEventsBackwardsOutcome {
     StartOfTimeline,
 
     /// Events have been inserted.
-    Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },
+    ///
+    /// The resulting timeline diffs have already been sent to subscribers,
+    /// while the state lock was held.
+    Events { events: Vec<Event>, reached_start: bool },
 }

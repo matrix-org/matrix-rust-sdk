@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, iter::empty, sync::Arc};
 
 use eyeball::SharedObservable;
-use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, LinkedChunkId, Update},
@@ -210,11 +209,42 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             ChunkContent::Items(events) => {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
 
-                LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
+                // Run the post-processing: no event, no receipt event, but a
+                // new event might be acknowledged by a pending receipt, in that
+                // case, we want to recompute the read receipts!
+                state
+                    .post_process_upserted_events(
+                        // We don't want to post-process these events: they
+                        // are coming from the cache, they have been
+                        // post-processed already!
+                        empty(),
+                        // A back-pagination can't include new read receipt
+                        // events, as those are ephemeral events not included in
+                        // /relations responses, so we can safely set the
+                        // receipt event to None here.
+                        //
+                        // Note: read receipts may be updated anyhow in the
+                        // post-processing step, as the back-pagination may have
+                        // revealed the event pointed to by the latest read
+                        // receipt.
+                        None,
+                    )
+                    .await?;
+
+                // Send the diffs while the state lock is still held: the
+                // indices they carry are only valid if no other change to the
+                // linked chunk is sent before them.
+                if !timeline_event_diffs.is_empty() {
+                    state.update_sender.send(
+                        ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                            diffs: timeline_event_diffs,
+                            origin: EventsOrigin::Cache,
+                        }),
+                        Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
+                    );
                 }
+
+                LoadMoreEventsBackwardsOutcome::Events { events, reached_start }
             }
         })
     }
@@ -253,30 +283,6 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
         Ok(Some((response.chunk, response.next_batch_token)))
-    }
-
-    async fn conclude_backwards_pagination_from_disk(
-        &self,
-        events: Vec<Event>,
-        timeline_event_diffs: Vec<VectorDiff<Event>>,
-        reached_start: bool,
-    ) -> BackPaginationOutcome {
-        if !timeline_event_diffs.is_empty() {
-            self.cache.update_sender.send(
-                ThreadEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
-            );
-        }
-
-        BackPaginationOutcome {
-            reached_start,
-            // This is a backwards pagination. `BackPaginationOutcome` expects
-            // events to be in “reverse order”.
-            events: events.into_iter().rev().collect(),
-        }
     }
 
     async fn conclude_backwards_pagination_from_network(
@@ -388,17 +394,25 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // Update the store.
         state.state.propagate_changes(&state.store).await?;
 
-        // A back-pagination can't include new read receipt events, as those are
-        // ephemeral events not included in /relations responses, so we can
-        // safely set the receipt event to None here.
-        //
-        // Note: read receipts may be updated anyhow in the post-processing
-        // step, as the back-pagination may have revealed the event pointed to
-        // by the latest read receipt.
-        let receipt_event = None;
-
-        // Post-process newly inserted events.
-        state.post_process_upserted_events(topo_ordered_events.iter(), receipt_event).await?;
+        // Run the post-processing: new events have been inserted, no receipt
+        // event, but a new event might be acknowledged by a pending receipt, in
+        // that case, we want to recompute the read receipts!
+        state
+            .post_process_upserted_events(
+                // We do want to post-processed these events: they are coming
+                // from the network, they have NOT been post-processed already!
+                topo_ordered_events.iter(),
+                // A back-pagination can't include new read receipt events, as
+                // those are ephemeral events not included in /relations
+                // responses, so we can safely set the receipt event to None
+                // here.
+                //
+                // Note: read receipts may be updated anyhow in the
+                // post-processing step, as the back-pagination may have
+                // revealed the event pointed to by the latest read receipt.
+                None,
+            )
+            .await?;
 
         // Notify observers about the updates.
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();

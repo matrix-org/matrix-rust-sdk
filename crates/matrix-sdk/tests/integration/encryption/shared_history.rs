@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, assert_decrypted_message_eq, assert_next_matches_with_timeout,
@@ -23,6 +25,7 @@ use ruma::{
     user_id,
 };
 use tempfile::tempdir;
+use tokio::time::{sleep, timeout};
 
 /// Helper struct to collect test data together.
 struct Test {
@@ -411,14 +414,21 @@ async fn test_shared_history_crash_before_import() {
         "The decrypted event should match the message Alice has sent"
     );
 
-    assert!(
-        bob_restarted
+    // The pending details are cleared by the background import task after the
+    // room keys are received, so it may take some time to clear the bundle
+    // details.
+    timeout(Duration::from_secs(5), async {
+        while bob_restarted
             .get_pending_key_bundle_details_for_room(room_id)
             .await
             .expect("Bob should be able to get the pending key bundle details for the room")
-            .is_none(),
-        "Bob should have cleared the pending key bundle details for the room"
-    );
+            .is_some()
+        {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Bob should have cleared the pending key bundle details for the room");
 }
 
 /// Verifies that the Megolm session is rotated when a member leave is delivered

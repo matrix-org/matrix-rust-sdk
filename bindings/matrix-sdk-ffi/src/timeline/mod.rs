@@ -55,6 +55,7 @@ use ruma::{
         room::message::{
             MessageType, RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
+        sticker::StickerEventContent,
     },
 };
 use tokio::sync::Mutex;
@@ -437,6 +438,34 @@ impl Timeline {
         Ok(())
     }
 
+    /// Get the ID of the closest visible event at or before the user's
+    /// `m.fully_read` marker, or the marker's own event ID if neither is
+    /// loaded.
+    ///
+    /// See [`matrix_sdk_ui::timeline::Timeline::fully_read_event_id`].
+    pub fn fully_read_event_id(&self) -> Option<String> {
+        self.inner.fully_read_event_id().map(|id| id.to_string())
+    }
+
+    /// Subscribe to changes of [`Self::fully_read_event_id`]. The listener is
+    /// called with the current value right away.
+    ///
+    /// See [`matrix_sdk_ui::timeline::Timeline::subscribe_fully_read_event_id`].
+    pub fn subscribe_to_fully_read_event_id(
+        &self,
+        listener: Box<dyn FullyReadEventIdListener>,
+    ) -> Arc<TaskHandle> {
+        let mut subscriber = self.inner.subscribe_fully_read_event_id();
+
+        listener.on_update(subscriber.get().map(|id| id.to_string()));
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(event_id) = subscriber.next().await {
+                listener.on_update(event_id.map(|id| id.to_string()));
+            }
+        })))
+    }
+
     /// Returns the latest [`EventId`] in the timeline.
     pub async fn latest_event_id(&self) -> Option<String> {
         self.inner.latest_event_id().await.as_deref().map(ToString::to_string)
@@ -471,6 +500,34 @@ impl Timeline {
             Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
             Err(err) => {
                 error!("error when sending a message: {err}");
+                Err(err.into())
+            }
+        }
+    }
+
+    /// Sends an already uploaded image as a sticker, such as one of the images
+    /// of an image pack.
+    ///
+    /// In a threaded timeline, the sticker is sent in the thread.
+    ///
+    /// # Arguments
+    ///
+    /// - `body` - A textual description of the sticker.
+    /// - `url` - The `mxc://` URL of the image.
+    /// - `info` - Metadata about the image, if known.
+    pub async fn send_sticker(
+        self: Arc<Self>,
+        body: String,
+        url: String,
+        info: Option<ImageInfo>,
+    ) -> Result<Arc<SendHandle>, ClientError> {
+        let info = info.map(Into::into).unwrap_or_default();
+        let content = StickerEventContent::new(body, info, url.into());
+
+        match self.inner.send(content.into()).await {
+            Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
+            Err(err) => {
+                error!("error when sending a sticker: {err}");
                 Err(err.into())
             }
         }
@@ -1010,6 +1067,11 @@ pub trait TimelineListener: SyncOutsideWasm + SendOutsideWasm {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait PaginationStatusListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: PaginationStatus);
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait FullyReadEventIdListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_update(&self, event_id: Option<String>);
 }
 
 #[derive(Clone, uniffi::Enum)]

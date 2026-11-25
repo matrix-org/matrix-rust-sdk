@@ -1,9 +1,9 @@
-use std::{assert_matches, ops::Deref, pin::pin, sync::Arc, time::Duration};
+use std::{assert_matches, future, ops::Deref, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assign::assign;
 use eyeball_im::VectorDiff;
-use futures::{FutureExt, StreamExt, future};
+use futures::{FutureExt, StreamExt};
 use matrix_sdk::{
     Client, Room, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
@@ -1195,7 +1195,7 @@ async fn test_room_key_is_rotated_on_leave() -> Result<()> {
     Ok(())
 }
 
-/// Test that when a user iis banned from a room that uses history sharing, the
+/// Test that when a user is banned from a room that uses history sharing, the
 /// room key is rotated so they cannot decrypt future messages.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_room_key_is_rotated_on_ban() -> Result<()> {
@@ -1255,6 +1255,81 @@ async fn test_room_key_is_rotated_on_ban() -> Result<()> {
         event_b.encryption_info().is_none(),
         "Charlie should not be able to decrypt message M2 after rejoining"
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_self_sent_ban_event_invalidates_megolm_session() -> Result<()> {
+    let alice_span = tracing::info_span!("alice");
+    let bob_span = tracing::info_span!("bob");
+    let charlie_span = tracing::info_span!("charlie");
+
+    let alice =
+        create_encryption_enabled_client("alice", false).instrument(alice_span.clone()).await?;
+
+    let bob = create_encryption_enabled_client("bob", false).instrument(bob_span.clone()).await?;
+
+    let charlie =
+        create_encryption_enabled_client("charlie", false).instrument(charlie_span.clone()).await?;
+
+    let (alice_room, _bob_room) =
+        create_room_and_invite_bob(&alice, &bob, &alice_span, &bob_span).await?;
+
+    // Alice creates a session by sending M1.
+    let (event_id_a, _) = send_m1(&alice_room, &alice_span).await?;
+
+    // Charlie joins and receives Alice's key for M1.
+    invite_charlie_and_he_joins(
+        &alice,
+        &charlie,
+        &alice_room,
+        &event_id_a,
+        &alice_span,
+        &charlie_span,
+    )
+    .await?;
+
+    // Process Charlie's membership events.
+    alice.sync_once().instrument(alice_span.clone()).await?;
+
+    // Verify the session is valid before the ban.
+    {
+        let guard = alice.olm_machine_for_testing().await;
+        let olm = guard.as_ref().expect("Missing Olm machine");
+
+        let session = olm
+            .store()
+            .get_outbound_group_session(alice_room.room_id())
+            .await?
+            .expect("Missing Megolm session");
+
+        assert!(!session.invalidated(), "Session was already invalidated before Charlie's ban");
+    }
+
+    // Alice bans Charlie.
+    alice_room.ban_user(charlie.user_id().unwrap(), None).instrument(alice_span.clone()).await?;
+
+    // Alice processes the ban event she sent herself.
+    alice.sync_once().instrument(alice_span.clone()).await?;
+
+    // Should discard Alice's megolm session.
+    {
+        let guard = alice.olm_machine_for_testing().await;
+        let olm = guard.as_ref().expect("Missing Olm machine");
+
+        let session = olm
+            .store()
+            .get_outbound_group_session(alice_room.room_id())
+            .await?
+            .expect("Missing Megolm session");
+
+        assert!(
+            session.invalidated(),
+            "Alice's outbound Megolm session was not invalidated \
+             after she banned Charlie"
+        );
+    }
 
     Ok(())
 }

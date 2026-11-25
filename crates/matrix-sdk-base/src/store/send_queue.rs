@@ -247,9 +247,6 @@ pub enum DependentQueuedRequestKind {
         new_content: SerializableEventContent,
     },
 
-    /// The event should be redacted/aborted/removed.
-    RedactEvent,
-
     /// The event should be redacted/aborted/removed, with a reason applied to
     /// the redaction if the event was sent by the time the abort was processed
     /// and must be redacted server-side.
@@ -533,7 +530,6 @@ impl DependentQueuedRequest {
     pub fn is_own_event(&self) -> bool {
         match self.kind {
             DependentQueuedRequestKind::EditEvent { .. }
-            | DependentQueuedRequestKind::RedactEvent
             | DependentQueuedRequestKind::RedactEventWithReason { .. }
             | DependentQueuedRequestKind::ReactEvent { .. }
             | DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
@@ -567,8 +563,6 @@ impl fmt::Debug for QueuedRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
-
     use strass::assert_let;
 
     use super::DependentQueuedRequestKind;
@@ -597,17 +591,6 @@ mod tests {
             serde_json::json!({ "org.matrix.msc2448.is_spoiler": true });
         let kind: DependentQueuedRequestKind = serde_json::from_value(with_extra.clone()).unwrap();
         assert_eq!(serde_json::to_value(kind).unwrap(), with_extra);
-    }
-
-    #[test]
-    fn test_deserialize_legacy_redact_event() {
-        // `RedactEvent` is a unit variant, and must stay one for as long as it
-        // exists: requests persisted before `RedactEventWithReason` are
-        // serialized as a plain string, and this is the only thing that still
-        // reads them.
-        let deserialized: DependentQueuedRequestKind =
-            serde_json::from_str("\"RedactEvent\"").unwrap();
-        assert_matches!(deserialized, DependentQueuedRequestKind::RedactEvent);
     }
 
     #[test]

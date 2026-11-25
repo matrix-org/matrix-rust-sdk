@@ -771,7 +771,7 @@ impl Sas {
         };
 
         let new_state = self.state_debug();
-        trace!(
+        debug!(
             flow_id = self.flow_id().as_str(),
             ?old_state,
             ?new_state,

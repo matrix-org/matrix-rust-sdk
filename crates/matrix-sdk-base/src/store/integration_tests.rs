@@ -52,8 +52,8 @@ use strass::assert_let;
 #[cfg(feature = "unstable-msc4354")]
 use super::QueuedRequestKind;
 use super::{
-    DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
-    SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
+    DependentQueuedRequestKind, DisplayName, DynStateStore, RetentionConfigurationResponse,
+    RoomLoadSettings, SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
 };
 use crate::{
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
@@ -125,6 +125,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_supported_versions_saving(&self) -> TestResult;
     /// Test saving/restoring the well-known info of the server.
     async fn test_well_known_saving(&self) -> TestResult;
+    /// Test retention configuration saving.
+    async fn test_retention_configuration_saving(&self) -> TestResult;
     /// Test fetching room infos based on [`RoomLoadSettings`].
     async fn test_get_room_infos(&self) -> TestResult;
     /// Test loading thread subscriptions.
@@ -135,6 +137,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_global_profiles_saving(&self) -> TestResult;
     /// Test loading global profiles for several users at once.
     async fn test_global_profiles_bulk_loading(&self) -> TestResult;
+    /// Test missing global profiles inc tracking unavailable ones.
+    async fn test_missing_global_profiles(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -570,14 +574,13 @@ impl StateStoreIntegrationTests for DynStateStore {
         Ok(())
     }
 
-    #[allow(deprecated)]
     async fn test_well_known_saving(&self) -> TestResult {
         let well_known = WellKnownResponse {
             homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
             identity_server: None,
             tile_server: None,
-            rtc_foci: vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-                "livekit.example.com".to_owned(),
+            rtc_foci: vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+                "wss://livekit.example.com".to_owned(),
             ))],
         };
 
@@ -609,6 +612,45 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         let stored_well_known = stored_well_known.into_data();
         assert_eq!(stored_well_known, None);
+
+        Ok(())
+    }
+
+    async fn test_retention_configuration_saving(&self) -> TestResult {
+        assert_matches!(
+            self.get_kv_data(StateStoreDataKey::RetentionConfiguration).await,
+            Ok(None)
+        );
+
+        let json = json!({
+            "policies": {
+                "*": { "max_lifetime": 86_400_000 },
+                "!room:example.org": { "min_lifetime": 3_600_000 },
+            },
+            "limits": {
+                "max_lifetime": { "min": 3_600_000, "max": 864_000_000 },
+            },
+        });
+        let config: RetentionConfigurationResponse = serde_json::from_value(json.clone())?;
+
+        self.set_kv_data(
+            StateStoreDataKey::RetentionConfiguration,
+            StateStoreDataValue::RetentionConfiguration(TtlValue::new(config)),
+        )
+        .await?;
+
+        assert_let!(
+            Ok(Some(StateStoreDataValue::RetentionConfiguration(stored))) =
+                self.get_kv_data(StateStoreDataKey::RetentionConfiguration).await
+        );
+        assert!(!stored.has_expired());
+        assert_eq!(serde_json::to_value(stored.into_data())?, json);
+
+        self.remove_kv_data(StateStoreDataKey::RetentionConfiguration).await?;
+        assert_matches!(
+            self.get_kv_data(StateStoreDataKey::RetentionConfiguration).await,
+            Ok(None)
+        );
 
         Ok(())
     }
@@ -1262,7 +1304,7 @@ impl StateStoreIntegrationTests for DynStateStore {
                 &txn,
                 ChildTransactionId::new(),
                 MilliSecondsSinceUnixEpoch::now(),
-                DependentQueuedRequestKind::RedactEvent,
+                DependentQueuedRequestKind::RedactEventWithReason { reason: None },
             )
             .await?;
         }
@@ -1862,7 +1904,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &txn0,
             child_txn.clone(),
             MilliSecondsSinceUnixEpoch::now(),
-            DependentQueuedRequestKind::RedactEvent,
+            DependentQueuedRequestKind::RedactEventWithReason { reason: None },
         )
         .await?;
 
@@ -1872,7 +1914,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents[0].parent_transaction_id, txn0);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
         assert!(dependents[0].parent_key.is_none());
-        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(
+            dependents[0].kind,
+            DependentQueuedRequestKind::RedactEventWithReason { .. }
+        );
 
         // Update the event id.
         let (event, event_type) = event0.raw();
@@ -1907,7 +1952,10 @@ impl StateStoreIntegrationTests for DynStateStore {
                 assert_eq!(received_event_type.as_str(), event_type);
             }
         );
-        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(
+            dependents[0].kind,
+            DependentQueuedRequestKind::RedactEventWithReason { .. }
+        );
 
         // Now remove it.
         let removed = self
@@ -1937,7 +1985,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &txn0,
             ChildTransactionId::new(),
             MilliSecondsSinceUnixEpoch::now(),
-            DependentQueuedRequestKind::RedactEvent,
+            DependentQueuedRequestKind::RedactEventWithReason { reason: None },
         )
         .await?;
         assert_eq!(self.load_dependent_queued_requests(room_id).await?.len(), 1);
@@ -1980,7 +2028,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             &txn,
             child_txn.clone(),
             MilliSecondsSinceUnixEpoch::now(),
-            DependentQueuedRequestKind::RedactEvent,
+            DependentQueuedRequestKind::RedactEventWithReason { reason: None },
         )
         .await?;
 
@@ -1990,7 +2038,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(dependents[0].parent_transaction_id, txn);
         assert_eq!(dependents[0].own_transaction_id, child_txn);
         assert!(dependents[0].parent_key.is_none());
-        assert_matches!(dependents[0].kind, DependentQueuedRequestKind::RedactEvent);
+        assert_matches!(
+            dependents[0].kind,
+            DependentQueuedRequestKind::RedactEventWithReason { .. }
+        );
 
         // Make it a reaction, instead of a redaction.
         self.update_dependent_queued_request(
@@ -2428,6 +2479,60 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         Ok(())
     }
+
+    async fn test_missing_global_profiles(&self) -> TestResult {
+        // Given four users without any stored global profiles.
+        let alice = user_id!("@alice:localhost");
+        let bob = user_id!("@bob:localhost");
+        let carol = user_id!("@carol:localhost");
+        let dan = user_id!("@dan:localhost");
+        let requested = [dan, carol, bob, alice].map(ToOwned::to_owned);
+        assert_eq!(
+            self.get_missing_global_profiles(&requested).await?,
+            vec![dan, carol, bob, alice]
+        );
+
+        // When Alice's profile is stored with Bob's marked as unavailable, and
+        // Carol's is marked as unavailable later on.
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(alice.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        changes
+            .unavailable_global_profiles
+            .insert(bob.to_owned(), MilliSecondsSinceUnixEpoch(uint!(1000)));
+        self.save_changes(&changes).await?;
+
+        let mut changes = StateChanges::default();
+        changes
+            .unavailable_global_profiles
+            .insert(carol.to_owned(), MilliSecondsSinceUnixEpoch(uint!(2000)));
+        self.save_changes(&changes).await?;
+
+        // Then only Dan's profile is missing.
+        assert_eq!(self.get_missing_global_profiles(&requested).await?, vec![dan]);
+
+        // When Bob's profile is received, and then dropped at a later date.
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(bob.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Bob"));
+            UserProfileUpdate::Updated(profile_changes)
+        });
+        self.save_changes(&changes).await?;
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(bob.to_owned(), UserProfileUpdate::Dropped);
+        self.save_changes(&changes).await?;
+
+        // Then Bob's profile is missing again, as it's no longer marked as
+        // unavailable.
+        assert_eq!(self.get_missing_global_profiles(&requested).await?, vec![dan, bob]);
+
+        Ok(())
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -2506,6 +2611,12 @@ macro_rules! statestore_integration_tests {
             async fn test_well_known_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_well_known_saving().await
+            }
+
+            #[async_test]
+            async fn test_retention_configuration_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_retention_configuration_saving().await
             }
 
             #[async_test]
@@ -2650,6 +2761,12 @@ macro_rules! statestore_integration_tests {
             async fn test_global_profiles_bulk_loading() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_global_profiles_bulk_loading().await
+            }
+
+            #[async_test]
+            async fn test_missing_global_profiles() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_missing_global_profiles().await
             }
         }
     };

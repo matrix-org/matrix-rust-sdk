@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Add `RoomIndex::warm_up` to open all the segments of an index ahead of its
+  first search.
+  ([#7304](https://github.com/matrix-org/matrix-rust-sdk/pull/7304))
+- [[**breaking**] The RoomIndex::search function now returns a SearchResult
+  type, containing the total search result count in addition to the list of
+  score, event tuples.
+  ([#7059](https://github.com/matrix-org/matrix-rust-sdk/pull/7059))
+
+### Changed
+
+- [**breaking**] `RoomIndex::search` now sorts results by timestamp, newest
+  first, instead of by relevance score. `SearchResult::events` now holds
+  `(MilliSecondsSinceUnixEpoch, OwnedEventId)` pairs.
+  ([#7260](https://github.com/matrix-org/matrix-rust-sdk/pull/7260))
+- Encrypted room indexes no longer stretch their key with PBKDF2, which made
+  opening each index slow: the key, formerly called a passphrase, must now be a
+  high-entropy key. Existing encrypted indexes, and any index that can't be
+  opened (e.g. after a key change), are deleted and recreated.
+  ([#7268](https://github.com/matrix-org/matrix-rust-sdk/pull/7268))
+- Merge the segments of a room index as soon as two of them are in the same
+  layer, so a room index usually has a single segment. Opening an index opens
+  every file of every segment, so this makes opening many room indexes much
+  faster. ([#7304](https://github.com/matrix-org/matrix-rust-sdk/pull/7304))
+- Bump tantivy to 0.27.0 (which includes bumping zstd to 0.14.3).
+  ([#7350](https://github.com/matrix-org/matrix-rust-sdk/pull/7350))
+
+### Fixed
+
+- `AesWriter::terminate_ref` only appended the MAC and never terminated the
+  inner writer, so encrypted index files were never fsynced to disk and could be
+  lost on an OS crash or power loss.
+  ([#7351](https://github.com/matrix-org/matrix-rust-sdk/pull/7351))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.

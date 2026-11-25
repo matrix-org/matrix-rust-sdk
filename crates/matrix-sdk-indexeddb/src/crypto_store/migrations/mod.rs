@@ -23,7 +23,8 @@ use indexed_db_futures::{
     prelude::*,
     transaction::Transaction,
 };
-use tracing::info;
+use tracing::{info, warn};
+use wasm_bindgen::{JsCast, prelude::Closure};
 
 use crate::{IndexeddbCryptoStoreError, crypto_store::Result, serializer::SafeEncodeSerializer};
 
@@ -225,8 +226,11 @@ pub async fn open_and_upgrade_db(
     // then bump `MAX_SUPPORTED_SCHEMA_VERSION` itself to the next multiple of
     // 10).
 
-    // Open and return the DB (we know it's at the latest version)
-    Ok(Database::open(name).await?)
+    // Open the database and set up version change handlers
+    let database = Database::open(name).await?;
+    close_on_version_change(&database);
+    // Return it (we know it's at the latest version)
+    Ok(database)
 }
 
 async fn db_version(name: &str) -> Result<u32, IndexeddbCryptoStoreError> {
@@ -285,6 +289,24 @@ fn add_unique_index<'a>(
     key_path: &str,
 ) -> Result<Index<'a>, Error> {
     object_store.create_index(name, key_path.into()).with_unique(true).build()
+}
+
+/// Helper method to close the database when an IndexedDB `versionchange` event
+/// is received, as is the case when tearing down the store on logout. Used to
+/// unblock the database deletion and prevent hanging starts due to leaked
+/// connections.
+fn close_on_version_change(database: &Database) {
+    let handler = Closure::<dyn FnMut(web_sys::Event)>::new(|event: web_sys::Event| {
+        // Avoid capturing `database` into the closure, since this would create
+        // a JS <-> WASM reference cycle.
+        if let Some(db) = event.target().and_then(|t| t.dyn_into::<web_sys::IdbDatabase>().ok()) {
+            warn!("IndexedDB versionchange on {}: closing connection", db.name());
+            db.close();
+        }
+    });
+    database.as_sys().set_onversionchange(Some(handler.as_ref().unchecked_ref()));
+    // Hand ownership of the closure to the JS GC
+    handler.forget();
 }
 
 #[cfg(all(test, target_family = "wasm"))]

@@ -36,8 +36,8 @@ use self::pagination::RoomPagination;
 pub use self::{
     state::RoomEventCacheState,
     updates::{
-        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-        RoomEventCacheUpdateSender,
+        LinkedChunkUpdateSender, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
+        RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     },
 };
 use super::{
@@ -480,8 +480,6 @@ impl RoomEventCacheInner {
         let (stored_prev_batch_token, timeline_event_diffs) =
             state.handle_sync(timeline, &read_receipts).await?;
 
-        drop(state);
-
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
         if stored_prev_batch_token {
@@ -489,20 +487,20 @@ impl RoomEventCacheInner {
         }
 
         // The order matters here: first send the timeline event diffs, then
-        // only the related events (read receipts, etc.).
+        // only the related events (members, etc.). Read receipts are broadcast
+        // by `Caches::handle_joined_room_update`, after this.
+        //
+        // The diffs must be sent while the state lock is still held: the
+        // indices they carry are only valid if no other change to the linked
+        // chunk is sent before them.
         if !timeline_event_diffs.is_empty() {
-            self.update_sender.send(
+            state.update_sender.send(
                 RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Sync,
                 }),
                 Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
             );
-        }
-
-        if let Some(read_receipts) = read_receipts.into_inner() {
-            self.update_sender
-                .send(RoomEventCacheUpdate::AddReadReceiptEvent { event: read_receipts }, None);
         }
 
         if !ambiguity_changes.is_empty() || avatar_changes.as_ref().is_some_and(|c| !c.is_empty()) {

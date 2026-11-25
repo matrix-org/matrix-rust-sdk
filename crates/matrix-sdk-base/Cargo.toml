@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-base"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.19.1"
+version = "0.20.0"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -77,6 +77,9 @@ unstable-msc4354 = ["ruma/unstable-msc4480"]
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["ruma/unstable-msc4426"]
 
+# Add support for fetching the global profiles of multiple users (MSC4536).
+unstable-msc4536 = []
+
 experimental-element-recent-emojis = []
 experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-crypto/experimental-x509-identity-verification"]
 
@@ -85,7 +88,7 @@ as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }
 async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
-decancer = { version = "3.3.3", default-features = false }
+decancer = { version = "4.0.0", default-features = false }
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true

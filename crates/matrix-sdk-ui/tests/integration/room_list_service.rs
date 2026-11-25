@@ -392,6 +392,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -1936,6 +1937,11 @@ async fn test_room_sorting() -> Result<(), Error> {
     // have changed. The room info notable updates are drained in one batch,
     // and deduplicated by room: the read receipt updates of `!r0`, `!r1` and
     // `!r2` are folded into their moves.
+    //
+    // `!r4` and `!r3` have no latest event: they get a timestamp back-filled
+    // from `!r1` (the smallest timestamp among the rooms above them), and
+    // are updated in the same batch. They are re-inserted one after the other,
+    // and end up below `!r1` thanks to their smaller recency stamps.
     assert_entries_batch! {
         [stream]
         remove [ 3 ];
@@ -1944,18 +1950,22 @@ async fn test_room_sorting() -> Result<(), Error> {
         insert [ 1 ] [ "!r1:bar.org" ];
         remove [ 4 ];
         push front [ "!r2:bar.org" ];
+        remove [ 4 ];
+        insert [ 3 ] [ "!r3:bar.org" ];
+        remove [ 4 ];
+        insert [ 3 ] [ "!r4:bar.org" ];
         end;
     };
 
     // Now we have:
     //
-    // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
-    // | 0     | !r2     | 9       |      |
-    // | 1     | !r0     | 7       | Bbb  |
-    // | 2     | !r1     | 6       | Aaa  |
-    // | 3     | !r4     | 5       |      |
-    // | 4     | !r3     | 4       |      |
+    // | index | room ID | recency | timestamp      | name |
+    // |-------|---------|---------|----------------|------|
+    // | 0     | !r2     | 9       | 9              |      |
+    // | 1     | !r0     | 7       | 7              | Bbb  |
+    // | 2     | !r1     | 6       | 6              | Aaa  |
+    // | 3     | !r4     | 5       | 6 (backfilled) |      |
+    // | 4     | !r3     | 4       | 6 (backfilled) |      |
 
     assert_pending!(stream);
 
@@ -2246,6 +2256,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2290,6 +2301,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2316,6 +2328,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2361,6 +2374,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2387,6 +2401,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2411,6 +2426,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2516,6 +2532,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2542,6 +2559,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2595,6 +2613,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2621,6 +2640,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2645,6 +2665,7 @@ async fn test_remove_and_reset_room_subscriptions() -> Result<(), Error> {
                         ["m.space.child", "*"],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -3221,6 +3242,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                             [ "m.space.child", "*", ],
                             ["org.matrix.msc3672.beacon_info", "*"],
                             ["org.matrix.msc1763.retention", ""],
+                            ["m.room.image_pack", "*"],
                         ],
                         "timeline_limit": 1,
                     },
@@ -3307,6 +3329,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                         [ "m.space.child", "*", ],
                         ["org.matrix.msc3672.beacon_info", "*"],
                         ["org.matrix.msc1763.retention", ""],
+                        ["m.room.image_pack", "*"],
                     ],
                     "timeline_limit": 1,
                 },

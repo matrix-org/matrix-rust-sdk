@@ -41,7 +41,7 @@ use crate::{
 /// events, and providing access to the top-level spaces and their children.
 #[derive(uniffi::Object)]
 pub struct SpaceService {
-    inner: UISpaceService,
+    pub(crate) inner: UISpaceService,
 }
 
 impl SpaceService {

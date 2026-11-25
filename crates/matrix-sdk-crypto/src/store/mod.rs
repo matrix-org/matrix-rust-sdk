@@ -102,6 +102,12 @@ pub mod types;
 pub mod integration_tests;
 
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
+#[cfg(any(test, feature = "testing"))]
+pub use crypto_store_wrapper::{
+    HISTORIC_ROOM_KEY_BUNDLES_BROADCASTER_CAPACITY, IDENTITIES_BROADCASTER_CAPACITY,
+    ROOM_KEYS_RECEIVED_CAPACITY, ROOM_KEYS_WITHHELD_RECEIVED_CAPACITY,
+    SECRETS_BROADCASTER_CAPACITY,
+};
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
     cross_process_lock::{CrossProcessLock, CrossProcessLockConfig, CrossProcessLockGeneration},

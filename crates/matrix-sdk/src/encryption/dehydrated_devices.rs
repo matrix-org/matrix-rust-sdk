@@ -310,7 +310,7 @@ impl DehydratedDevices {
     /// Any other transport or API failure is propagated.
     #[instrument(skip_all)]
     pub async fn is_supported(&self) -> Result<bool, DehydratedDeviceError> {
-        let request = get_dehydrated_device::unstable::Request::new();
+        let request = get_dehydrated_device::msc3814::Request::new();
         match self.client.send(request).await {
             Ok(_) => Ok(true),
             Err(e) => match e.client_api_error_kind() {
@@ -739,7 +739,7 @@ impl DehydratedDevices {
     /// Issue the delete request for the current dehydrated device without
     /// touching the rotation schedule.
     async fn delete_device(&self) -> Result<(), DehydratedDeviceError> {
-        let request = delete_dehydrated_device::unstable::Request::new();
+        let request = delete_dehydrated_device::msc3814::Request::new();
         match self.client.send(request).await {
             Ok(_) => {
                 self.emit(DehydratedDeviceEvent::Deleted);
@@ -757,7 +757,7 @@ impl DehydratedDevices {
     /// Returns `Ok(None)` if the server reports `M_NOT_FOUND` or
     /// `M_UNRECOGNIZED`.
     async fn download_device(&self) -> Result<Option<DownloadedDevice>, DehydratedDeviceError> {
-        let request = get_dehydrated_device::unstable::Request::new();
+        let request = get_dehydrated_device::msc3814::Request::new();
         match self.client.send(request).await {
             Ok(response) => Ok(Some(DownloadedDevice {
                 device_id: response.device_id,
@@ -804,7 +804,7 @@ impl DehydratedDevices {
         let mut room_key_count: usize = 0;
 
         let truncated = loop {
-            let mut request = get_events::unstable::Request::new(device_id.clone());
+            let mut request = get_events::msc3814::Request::new(device_id.clone());
             request.next_batch.clone_from(&next_batch);
 
             let response = self.client.send(request).await?;

@@ -20,7 +20,7 @@ use matrix_sdk_common::deserialized_responses::{
 use matrix_sdk_crypto::{DecryptionSettings, EncryptionSyncChanges, OlmMachine};
 use ruma::{
     OneTimeKeyAlgorithm, UInt,
-    api::client::sync::sync_events::{DeviceLists, v3, v5},
+    api::client::sync::sync_events::{DeviceLists, msc4186, v3},
     events::{AnyToDeviceEvent, ToDeviceEventType},
     serde::Raw,
 };
@@ -33,8 +33,8 @@ use crate::Result;
 /// This returns a list of all the to-device events that were passed in but
 /// encrypted ones were replaced with their decrypted version.
 pub async fn from_msc4186(
-    to_device: Option<&v5::response::ToDevice>,
-    e2ee: &v5::response::E2EE,
+    to_device: Option<&msc4186::response::ToDevice>,
+    e2ee: &msc4186::response::E2EE,
     olm_machine: Option<&OlmMachine>,
     decryption_settings: &DecryptionSettings,
 ) -> Result<Output> {

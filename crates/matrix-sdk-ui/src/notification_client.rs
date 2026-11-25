@@ -30,12 +30,12 @@ use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEve
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timeout::timeout};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
-    api::client::sync::sync_events::v5 as http,
+    api::client::sync::sync_events::msc4186 as http,
     assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContentChange,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, StateEventContentChange, StateEventType,
-        TimelineEventType,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
+        StateEventContentChange, StateEventType, TimelineEventType,
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent,
             join_rules::JoinRule,
@@ -1167,6 +1167,13 @@ pub struct NotificationItem {
 
     /// Whether the room this notification is from is a DM or not.
     pub room_is_dm: bool,
+
+    /// Whether the current user is allowed to send an `m.room.message` event
+    /// in the room, according to the room's power levels.
+    ///
+    /// Useful to decide whether to offer a quick reply action from the
+    /// notification.
+    pub can_send_message: bool,
 }
 
 impl NotificationItem {
@@ -1274,6 +1281,10 @@ impl NotificationItem {
             thread_id,
             actions: push_actions.map(|actions| actions.to_vec()),
             room_is_dm: room.compute_is_dm().await?,
+            can_send_message: room
+                .power_levels_or_default()
+                .await
+                .user_can_send_message(room.own_user_id(), MessageLikeEventType::RoomMessage),
         };
 
         Ok(item)
@@ -1325,7 +1336,7 @@ mod tests {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{User, async_test, event_factory::EventFactory};
     use ruma::{
-        api::client::sync::sync_events::v5,
+        api::client::sync::sync_events::msc4186,
         assign, event_id,
         events::room::{member::MembershipState, message::RedactedRoomMessageEventContent},
         owned_event_id, owned_room_id, room_id, user_id,
@@ -1375,12 +1386,12 @@ mod tests {
             .membership(MembershipState::Invite)
             .no_event_id()
             .into_raw_sync_state();
-        let mut room = v5::response::Room::new();
+        let mut room = msc4186::response::Room::new();
         room.invite_state = Some(vec![invite.cast_unchecked()]);
         let rooms = BTreeMap::from_iter([(room_id.to_owned(), room)]);
         server
             .mock_sliding_sync()
-            .ok(assign!(v5::Response::new("1".to_owned()), {
+            .ok(assign!(msc4186::Response::new("1".to_owned()), {
                 rooms: rooms,
             }))
             .mount()
@@ -1442,7 +1453,7 @@ mod tests {
             .redacted(User::Alice, RedactedRoomMessageEventContent::new())
             .event_id(&event_id)
             .into_raw();
-        let mut room = v5::response::Room::new();
+        let mut room = msc4186::response::Room::new();
         room.timeline = vec![redacted_event];
 
         let mut rooms = BTreeMap::new();
@@ -1450,7 +1461,7 @@ mod tests {
 
         server
             .mock_sliding_sync()
-            .ok(assign!(v5::Response::new("1".to_owned()), {
+            .ok(assign!(msc4186::Response::new("1".to_owned()), {
                 rooms: rooms,
             }))
             .mount()

@@ -7,24 +7,24 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::event_cache::store::{EventCacheStore, MemoryStore};
-use matrix_sdk_test::{async_test, event_factory::EventFactory};
-use ruma::{event_id, owned_room_id, user_id};
+use matrix_sdk_test::{TestRoom, User, async_test, event_factory::EventFactory};
+use ruma::event_id;
 use tokio::task::yield_now;
 
 #[async_test]
 async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
-    let room_id = owned_room_id!("!r0");
-    let alice = user_id!("@alice:local");
-    let bob = user_id!("@bob:local");
+    let room_id = TestRoom::Default;
+    let alice = User::Alice;
+    let bob = User::Bob;
     let event_alice = event_id!("$ev0");
     let event_bob = event_id!("$ev1");
-    let event_factory = EventFactory::new().room(&room_id);
+    let event_factory = EventFactory::new().default_room();
 
     // Fill the event cache with one event.
     let event_cache_store = MemoryStore::new();
     event_cache_store
         .handle_linked_chunk_updates(
-            LinkedChunkId::Room(&room_id),
+            LinkedChunkId::Room(room_id.into()),
             vec![
                 Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
                 Update::PushItems {
@@ -54,14 +54,14 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
         .await;
 
     // Create the room.
-    let _room = server.sync_joined_room(&client, &room_id).await;
+    let _room = server.sync_default_joined_room(&client).await;
 
     // Listen to the latest event to get updates.
     let mut latest_event_stream = client
         .latest_events()
         .await
         .unwrap()
-        .listen_and_subscribe_to_room(&room_id)
+        .listen_and_subscribe_to_room(room_id.into())
         .await
         .unwrap()
         .unwrap();
@@ -81,7 +81,7 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_global_account_data(event_factory.ignored_user_list([bob.to_owned()]));
+            sync_builder.add_global_account_data(event_factory.ignored_user_list([bob.into()]));
         })
         .await;
 

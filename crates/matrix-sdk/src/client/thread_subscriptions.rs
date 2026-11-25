@@ -27,7 +27,7 @@ use matrix_sdk_base::{
 };
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId,
-    api::client::threads::get_thread_subscriptions_changes::unstable::{
+    api::client::threads::get_thread_subscriptions_changes::msc4308::{
         ThreadSubscription, ThreadUnsubscription,
     },
     assign,
@@ -291,7 +291,7 @@ impl ThreadSubscriptionCatchup {
             drop(guard);
 
             // Start the actual catchup!
-            let req = assign!(ruma::api::client::threads::get_thread_subscriptions_changes::unstable::Request::new(), {
+            let req = assign!(ruma::api::client::threads::get_thread_subscriptions_changes::msc4308::Request::new(), {
                 from: Some(last.from.clone()),
                 to: last.to.clone(),
             });

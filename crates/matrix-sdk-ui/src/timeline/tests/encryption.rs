@@ -32,7 +32,9 @@ use matrix_sdk_base::{
     crypto::{decrypt_room_key_export, types::events::UtdCause},
     deserialized_responses::{TimelineEvent, UnableToDecryptReason},
 };
-use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    JoinedRoomBuilder, TestAuthToken, User, async_test, event_factory::EventFactory,
+};
 use ruma::{
     RoomId, UserId, assign, event_id,
     events::room::encrypted::{
@@ -76,7 +78,11 @@ pub(super) async fn get_client(
     let client = if let Some(user_id) = user_id {
         server
             .client_builder()
-            .logged_in_with_token("1234".into(), user_id.into(), "SomeDeviceId".into())
+            .logged_in_with_token(
+                TestAuthToken::AccessDefault.into(),
+                user_id.into(),
+                "SomeDeviceId".into(),
+            )
             .build()
             .await
     } else {

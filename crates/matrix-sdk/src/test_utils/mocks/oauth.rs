@@ -14,6 +14,7 @@
 
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
+use matrix_sdk_test::TestAuthToken;
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
     serde::Raw,
@@ -153,7 +154,7 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
     }
 
     /// Returns a successful metadata response without the device authorization
-    /// endpoint.
+    /// endpoint and grant type.
     pub fn ok_without_device_authorization(self) -> MatrixMock<'a> {
         let metadata = MockServerMetadataBuilder::new(&self.server.uri())
             .without_device_authorization()
@@ -188,7 +189,8 @@ impl MockServerMetadataBuilder {
         Self { issuer, with_device_authorization: true, with_registration: true }
     }
 
-    /// Don't generate the field for the device authorization endpoint.
+    /// Don't generate the field for the device authorization endpoint, and
+    /// don't advertise the device authorization grant type.
     fn without_device_authorization(mut self) -> Self {
         self.with_device_authorization = false;
         self
@@ -243,7 +245,7 @@ impl MockServerMetadataBuilder {
             "token_endpoint": self.token_endpoint(),
             "response_types_supported": ["code"],
             "response_modes_supported": ["query", "fragment"],
-            "grant_types_supported": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
             "revocation_endpoint": self.revocation_endpoint(),
             "code_challenge_methods_supported": ["S256"],
             "account_management_uri": self.account_management_uri(),
@@ -253,6 +255,14 @@ impl MockServerMetadataBuilder {
         let json_metadata_object = json_metadata.as_object_mut().unwrap();
 
         if self.with_device_authorization {
+            json_metadata_object.insert(
+                "grant_types_supported".to_owned(),
+                json!([
+                    "authorization_code",
+                    "refresh_token",
+                    "urn:ietf:params:oauth:grant-type:device_code"
+                ]),
+            );
             json_metadata_object.insert(
                 "device_authorization_endpoint".to_owned(),
                 self.device_authorization_endpoint().as_str().into(),
@@ -312,15 +322,19 @@ pub struct TokenEndpoint;
 impl<'a> MockEndpoint<'a, TokenEndpoint> {
     /// Returns a successful token response with the default tokens.
     pub fn ok(self) -> MatrixMock<'a> {
-        self.ok_with_tokens("1234", "ZYXWV")
+        self.ok_with_tokens(TestAuthToken::AccessDefault, TestAuthToken::RefreshDefault)
     }
 
     /// Returns a successful token response with custom tokens.
-    pub fn ok_with_tokens(self, access_token: &str, refresh_token: &str) -> MatrixMock<'a> {
+    pub fn ok_with_tokens<'b, 'c>(
+        self,
+        access_token: impl Into<&'b str>,
+        refresh_token: impl Into<&'c str>,
+    ) -> MatrixMock<'a> {
         self.ok_json(json!({
-            "access_token": access_token,
+            "access_token": access_token.into(),
             "expires_in": 300,
-            "refresh_token":  refresh_token,
+            "refresh_token":  refresh_token.into(),
             "token_type": "Bearer"
         }))
     }

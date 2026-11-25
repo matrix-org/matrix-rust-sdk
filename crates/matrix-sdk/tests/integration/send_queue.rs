@@ -25,8 +25,8 @@ use matrix_sdk::{
 use matrix_sdk_base::media::store::MemoryMediaStore;
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{
-    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, User, async_test,
-    event_factory::EventFactory,
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, TestRoom, User,
+    async_test, event_factory::EventFactory,
 };
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
@@ -379,9 +379,8 @@ async fn test_cant_send_invited_room() {
     let mock = MatrixMockServer::new().await;
 
     // When I'm invited to a room,
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_room(&client, InvitedRoomBuilder::new(room_id)).await;
+    let room = mock.sync_room(&client, InvitedRoomBuilder::default()).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -395,9 +394,8 @@ async fn test_cant_send_left_room() {
     let mock = MatrixMockServer::new().await;
 
     // When I've left a room,
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_room(&client, LeftRoomBuilder::new(room_id)).await;
+    let room = mock.sync_room(&client, LeftRoomBuilder::default()).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -413,9 +411,8 @@ async fn test_cant_send_knocked_room() {
     let mock = MatrixMockServer::new().await;
 
     // When I've knocked into a room,
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_room(&client, KnockedRoomBuilder::new(room_id)).await;
+    let room = mock.sync_room(&client, KnockedRoomBuilder::default()).await;
 
     // I can't send message to it with the send queue.
     assert_matches!(
@@ -431,9 +428,8 @@ async fn test_nothing_sent_when_disabled() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     // When I disable the send queue,
     let event_id = event_id!("$1");
@@ -462,10 +458,8 @@ async fn test_smoke() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
-
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -534,9 +528,8 @@ async fn test_smoke_raw() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -586,9 +579,8 @@ async fn test_send_sticky() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -664,9 +656,8 @@ async fn test_editing_a_sticky_event_keeps_it_sticky() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -713,9 +704,8 @@ async fn test_editing_a_sticky_event_being_sent_keeps_it_sticky() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -800,8 +790,7 @@ async fn test_error_then_locally_reenabling() {
     assert!(errors.is_empty());
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -904,8 +893,7 @@ async fn test_error_then_globally_reenabling() {
     assert!(errors.is_empty());
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -963,9 +951,8 @@ async fn test_reenabling_queue() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let errors = client.send_queue().subscribe_errors();
 
@@ -1035,8 +1022,8 @@ async fn test_disjoint_enabled_status() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id1 = room_id!("!a:b.c");
-    let room_id2 = room_id!("!b:b.c");
+    let room_id1 = TestRoom::Default;
+    let room_id2 = TestRoom::Other;
 
     let client = mock.client_builder().build().await;
     let room1 = mock.sync_joined_room(&client, room_id1).await;
@@ -1072,9 +1059,8 @@ async fn test_cancellation() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -1191,9 +1177,8 @@ async fn test_edit() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -1240,11 +1225,11 @@ async fn test_edit() {
     // The /event endpoint is used to retrieve the original event, during
     // creation of the edit event.
     mock.mock_room_event()
-        .room(room_id)
+        .room(TestRoom::Default)
         .ok(EventFactory::new()
             .text_msg("msg1")
             .sender(client.user_id().unwrap())
-            .room(room_id)
+            .default_room()
             .into_event())
         .expect(1)
         .named("room_event")
@@ -1304,9 +1289,8 @@ async fn test_edit_with_poll_start() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -1357,7 +1341,7 @@ async fn test_edit_with_poll_start() {
         .ok(EventFactory::new()
             .poll_start("poll_start", "question", vec!["Answer A"])
             .sender(client.user_id().unwrap())
-            .room(room_id)
+            .default_room()
             .into_event())
         .expect(1)
         .named("get_event")
@@ -1442,9 +1426,8 @@ async fn test_edit_while_being_sent_and_fails() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -1527,9 +1510,8 @@ async fn test_edit_wakes_the_sending_task() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -1584,9 +1566,8 @@ async fn test_abort_after_disable() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let mut errors = client.send_queue().subscribe_errors();
 
@@ -1644,9 +1625,8 @@ async fn test_abort_or_edit_after_send() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     // Start with an enabled sending queue.
     client.send_queue().set_enabled(true).await;
@@ -1693,9 +1673,8 @@ async fn test_abort_while_being_sent_and_fails() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();
@@ -1764,9 +1743,8 @@ async fn test_abort_with_reason_while_being_sent_then_sent() {
     let mock = MatrixMockServer::new().await;
 
     // Mark the room as joined.
-    let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
-    let room = mock.sync_joined_room(&client, room_id).await;
+    let room = mock.sync_default_joined_room(&client).await;
 
     let q = room.send_queue();
     let mut global_watch = client.send_queue().subscribe();

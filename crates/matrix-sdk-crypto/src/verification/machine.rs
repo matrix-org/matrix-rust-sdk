@@ -72,6 +72,7 @@ impl VerificationMachine {
         &self.store.account.device_id
     }
 
+    #[instrument(skip(self), fields(flow_id))]
     pub(crate) fn request_to_device_verification(
         &self,
         user_id: &UserId,
@@ -79,6 +80,9 @@ impl VerificationMachine {
         methods: Option<Vec<VerificationMethod>>,
     ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(TransactionId::new());
+        Span::current().record("flow_id", flow_id.as_str());
+
+        info!("Creating new to-device VerificationRequest to track sent to-device message");
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
@@ -96,6 +100,7 @@ impl VerificationMachine {
         (verification, request.into())
     }
 
+    #[instrument(skip_all, fields(other_user_id=?identity.user_id(), flow_id, methods))]
     pub fn request_verification(
         &self,
         identity: &OtherUserIdentityData,
@@ -104,6 +109,9 @@ impl VerificationMachine {
         methods: Option<Vec<VerificationMethod>>,
     ) -> VerificationRequest {
         let flow_id = FlowId::InRoom(room_id.to_owned(), request_event_id.to_owned());
+        Span::current().record("flow_id", flow_id.as_str());
+
+        info!("Creating new in-room VerificationRequest to track sent event {request_event_id}");
 
         let request = VerificationRequest::new(
             self.verifications.clone(),
@@ -177,6 +185,9 @@ impl VerificationMachine {
         for old_verification in user_requests.values_mut() {
             if !old_verification.is_cancelled() {
                 warn!(
+                    user_id = ?request.other_user(),
+                    old_flow_id = old_verification.flow_id().as_str(),
+                    new_flow_id = request.flow_id().as_str(),
                     "Received a new verification request whilst another request \
                     with the same user is ongoing. Cancelling both requests."
                 );
@@ -361,6 +372,19 @@ impl VerificationMachine {
                     trace!(
                         from_device = r.from_device().as_str(),
                         "The received verification request was sent by us, ignoring it",
+                    );
+                    return Ok(());
+                }
+
+                // In-room requests are visible to every room member, but only
+                // the user named in `to` should act on them.
+                if let Some(to) = r.to()
+                    && to != self.store.account.user_id
+                {
+                    trace!(
+                        from_device = r.from_device().as_str(),
+                        ?to,
+                        "The received verification request isn't intended for us, ignoring it",
                     );
                     return Ok(());
                 }
@@ -550,8 +574,15 @@ impl VerificationMachine {
 mod tests {
     use std::sync::Arc;
 
-    use matrix_sdk_test::async_test;
-    use ruma::TransactionId;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, TransactionId, UserId, event_id,
+        events::{
+            AnyMessageLikeEvent,
+            room::message::{MessageType, RoomMessageEventContent},
+        },
+        room_id, user_id,
+    };
     use tokio::sync::Mutex;
 
     use super::{Sas, VerificationMachine};
@@ -563,7 +594,10 @@ mod tests {
             FlowId, VerificationStore,
             cache::VerificationCache,
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
-            tests::{alice_device_id, alice_id, setup_stores, wrap_any_to_device_content},
+            tests::{
+                alice_device_id, alice_id, bob_device_id, bob_id, setup_stores,
+                wrap_any_to_device_content,
+            },
         },
     };
 
@@ -846,5 +880,45 @@ mod tests {
         // None of the requests are cancelled
         assert!(!first_request.is_cancelled());
         assert!(!second_request.is_cancelled());
+    }
+
+    /// Build an in-room verification request sent by Bob and addressed to
+    /// `to`.
+    fn in_room_request_from_bob(to: &UserId) -> AnyMessageLikeEvent {
+        let content = RoomMessageEventContent::new(MessageType::VerificationRequest(
+            VerificationRequest::request(bob_id(), bob_device_id(), to, None),
+        ));
+
+        EventFactory::new()
+            .room(room_id!("!test:localhost"))
+            .sender(bob_id())
+            .event(content)
+            .event_id(event_id!("$request"))
+            .server_ts(MilliSecondsSinceUnixEpoch::now())
+            .into_raw::<AnyMessageLikeEvent>()
+            .deserialize()
+            .unwrap()
+    }
+
+    #[async_test]
+    async fn test_in_room_verification_request_for_us() {
+        let (machine, _) = verification_machine().await;
+
+        let event = in_room_request_from_bob(alice_id());
+        machine.receive_any_event(&event).await.unwrap();
+
+        assert!(machine.get_request(bob_id(), "$request").is_some());
+    }
+
+    /// Ensure that an in-room verification request that is addressed to
+    /// another user is ignored.
+    #[async_test]
+    async fn test_ignore_in_room_verification_request_for_other_user() {
+        let (machine, _) = verification_machine().await;
+
+        let event = in_room_request_from_bob(user_id!("@carol:example.org"));
+        machine.receive_any_event(&event).await.unwrap();
+
+        assert!(machine.get_requests(bob_id()).is_empty());
     }
 }

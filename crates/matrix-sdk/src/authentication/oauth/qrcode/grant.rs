@@ -20,11 +20,17 @@ use matrix_sdk_base::{
     boxed_into_future,
     crypto::types::{
         SecretsBundle,
-        qr_login::{QrCodeData, QrCodeIntent},
+        qr_login::{QrCodeData, QrCodeIntent, QrCodeIntentData},
     },
 };
 use oauth2::VerificationUriComplete;
-use ruma::time::Instant;
+use ruma::{
+    api::client::discovery::get_authorization_server_metadata::v1::{
+        AuthorizationServerMetadata, GrantType,
+    },
+    time::Instant,
+};
+use tracing::warn;
 use url::Url;
 #[cfg(doc)]
 use vodozemac::ecies::CheckCode;
@@ -52,6 +58,59 @@ async fn export_secrets_bundle(client: &Client) -> Result<SecretsBundle, QRCodeG
         .export_secrets_bundle()
         .await?;
     Ok(secrets_bundle)
+}
+
+/// Whether the authorization server supports the device authorization grant.
+///
+/// It needs to advertise the grant type, and the endpoint that the new device
+/// uses to start the grant.
+fn supports_device_authorization_grant(metadata: &AuthorizationServerMetadata) -> bool {
+    metadata.grant_types_supported.contains(&GrantType::DeviceCode)
+        && metadata.device_authorization_endpoint.is_some()
+}
+
+/// Get the login protocols we can offer to the new device in the
+/// `m.login.protocols` message.
+///
+/// With the MSC4388 variant, the device authorization grant is only offered if
+/// the authorization server supports it. With the MSC4108 variant, it is
+/// always offered.
+///
+/// Returns [`QRCodeGrantLoginError::NoSupportedProtocols`] if there is no
+/// protocol we can offer, so that we can abort before involving the other
+/// device.
+async fn available_login_protocols(
+    client: &Client,
+    msc_4388: bool,
+) -> Result<Vec<LoginProtocolType>, QRCodeGrantLoginError> {
+    // For the MSC4108 variant, we always offer the device authorization grant
+    // without discovery. This is for compatibility with existing
+    // implementations
+    if !msc_4388 {
+        return Ok(vec![LoginProtocolType::DeviceAuthorizationGrant]);
+    }
+
+    // For the MSC4388 variant, we actually check whether the server supports
+    // the device authorization grant before offering it.
+    match client.oauth().cached_server_metadata().await {
+        Ok(metadata) if supports_device_authorization_grant(&metadata) => {
+            Ok(vec![LoginProtocolType::DeviceAuthorizationGrant])
+        }
+        Ok(_) => {
+            warn!("The authorization server doesn't support the device authorization grant");
+            Err(QRCodeGrantLoginError::NoSupportedProtocols)
+        }
+        Err(error) => {
+            // The new device checks the server metadata itself before starting
+            // the login, so let it decide.
+            warn!(
+                ?error,
+                "Could not get the authorization server metadata, offering the device \
+                 authorization grant anyway"
+            );
+            Ok(vec![LoginProtocolType::DeviceAuthorizationGrant])
+        }
+    }
 }
 
 async fn finish_login_grant<Q>(
@@ -83,8 +142,9 @@ async fn finish_login_grant<Q>(
         }
     };
 
-    // We verify the selected protocol, and that its data uses the layout of
-    // our channel variant.
+    // We verify the selected protocol. The device authorization grant is the
+    // only one we support, and its data needs to use the layout of our
+    // channel variant.
     //
     // -- MSC4108 OAuth 2.0 login step 4
     let device_authorization_grant = match channel.channel_variant() {
@@ -331,10 +391,16 @@ impl IntoFuture for GrantLoginWithScannedQrCode {
             //
             // -- MSC4108 Secure channel setup steps 1-3
 
-            // First things first, export the secrets bundle and establish the
-            // secure channel. Since we're the one that scanned the QR code,
-            // we're certain that the secure channel is secure, under the
-            // assumption that we didn't scan the wrong QR code.
+            // Determine which login protocols we can offer, so that we can
+            // abort before involving the other device if there are none.
+            let msc_4388 = cfg!(feature = "unstable-msc4388")
+                && matches!(self.qr_code_data.intent_data(), QrCodeIntentData::Msc4388 { .. });
+            let available_protocols = available_login_protocols(&self.client, msc_4388).await?;
+
+            // Export the secrets bundle and establish the secure channel.
+            // Since we're the one that scanned the QR code, we're certain that
+            // the secure channel is secure, under the assumption that we didn't
+            // scan the wrong QR code.
             //
             // -- MSC4108 Secure channel setup steps 3-5
             let secrets_bundle = export_secrets_bundle(&self.client).await?;
@@ -361,20 +427,21 @@ impl IntoFuture for GrantLoginWithScannedQrCode {
             // -- MSC4108 Secure channel setup step 7
 
             // Inform the other device about the available login protocols and
-            // the homeserver to use.
+            // the homeserver to use. With the MSC4388 variant we only offer
+            // the protocols the authorization server supports.
             //
             // -- MSC4108 OAuth 2.0 login step 1
             let message = match channel.channel_variant() {
                 ChannelVariant::Msc4108 => {
                     QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
-                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        protocols: available_protocols,
                         homeserver: self.client.homeserver(),
                     })
                 }
                 #[cfg(feature = "unstable-msc4388")]
                 ChannelVariant::Msc4388 => {
                     QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
-                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        protocols: available_protocols,
                         base_url: self.client.homeserver(),
                     })
                 }
@@ -449,6 +516,12 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
+            // Determine which login protocols we can offer, so that we can
+            // abort before generating a QR code if there are none.
+            #[cfg_attr(not(feature = "unstable-msc4388"), allow(unused_variables))]
+            let available_protocols =
+                available_login_protocols(&self.client, self.msc_4388_support).await?;
+
             // Create a new ephemeral key pair and a rendezvous session to grant
             // a login with.
             //
@@ -496,13 +569,16 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
             // QR code and doesn't expect this message, so we skip it to stay
             // compatible with existing implementations.
             //
+            // With the MSC4388 variant we only offer the protocols the
+            // authorization server supports.
+            //
             // -- MSC4108 OAuth 2.0 login step 1
             match channel.channel_variant() {
                 ChannelVariant::Msc4108 => {}
                 #[cfg(feature = "unstable-msc4388")]
                 ChannelVariant::Msc4388 => {
                     let message = QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 {
-                        protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                        protocols: available_protocols,
                         base_url: self.client.homeserver(),
                     });
                     channel.send_json(message).await?;
@@ -528,17 +604,17 @@ impl IntoFuture for GrantLoginWithGeneratedQrCode {
 mod test {
     use std::{assert_matches, sync::Arc};
 
-    use futures_util::StreamExt;
+    use futures_util::{StreamExt, future::join3};
     use matrix_sdk_base::{
         CancellableIntoFutureExt,
         crypto::types::{SecretsBundle, qr_login::QrCodeIntentData},
     };
-    use matrix_sdk_common::executor::spawn;
+    use matrix_sdk_common::executor::{JoinHandle, spawn};
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
     use ruma::{owned_device_id, owned_user_id};
     use strass::assert_let;
-    use tokio::sync::oneshot;
+    use tokio::{sync::oneshot, time::timeout};
     use tracing::debug;
 
     use super::*;
@@ -548,8 +624,61 @@ mod test {
             messages::AuthorizationGrant,
             secure_channel::{EstablishedSecureChannel, test::MockedRendezvousServer},
         },
-        test_utils::mocks::MatrixMockServer,
+        test_utils::mocks::{MatrixMockServer, oauth::MockServerMetadataBuilder},
     };
+
+    #[test]
+    fn test_supports_device_authorization_grant() {
+        let metadata = MockServerMetadataBuilder::new("https://auth.local/")
+            .build()
+            .deserialize()
+            .expect("The server metadata should deserialize");
+        assert!(supports_device_authorization_grant(&metadata));
+
+        // The grant type isn't advertised.
+        let mut without_grant_type = metadata.clone();
+        without_grant_type.grant_types_supported.remove(&GrantType::DeviceCode);
+        assert!(!supports_device_authorization_grant(&without_grant_type));
+
+        // The device authorization endpoint is missing.
+        let mut without_endpoint = metadata;
+        without_endpoint.device_authorization_endpoint = None;
+        assert!(!supports_device_authorization_grant(&without_endpoint));
+    }
+
+    /// How long Alice and Bob may take in the tests where Alice is cancelled
+    /// on a signal from Bob. They only take this long if one of them is stuck
+    /// waiting for the other, so this is generous to not fail a slow but
+    /// otherwise passing run.
+    const CANCELLED_GRANT_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Wait for Alice, Bob's task and the updates task to finish, in the
+    /// tests where Alice is cancelled on a signal from Bob.
+    ///
+    /// The three are waited for together rather than one after the other, so
+    /// that whichever fails is reported right away, even while the others are
+    /// left waiting for it forever. That includes Alice's result, which is
+    /// passed to `check_result` as soon as Alice finishes. If several failed,
+    /// Alice is reported before Bob and Bob before the updates task, as that
+    /// is the order in which one failure most likely caused the other.
+    ///
+    /// Nothing fails while Alice and Bob are stuck waiting for each other, so
+    /// this also gives up after [`CANCELLED_GRANT_TIMEOUT`].
+    async fn finish_in_time<T>(
+        grant: impl IntoFuture<Output = T>,
+        bob_task: JoinHandle<()>,
+        updates_task: JoinHandle<()>,
+        check_result: impl FnOnce(T),
+    ) {
+        let alice = async { check_result(grant.await) };
+        let bob = async { bob_task.await.expect("Bob's task should finish") };
+        let updates =
+            async { updates_task.await.expect("Alice should run through all progress states") };
+
+        timeout(CANCELLED_GRANT_TIMEOUT, join3(alice, bob, updates))
+            .await
+            .expect("Alice and Bob should finish in time");
+    }
 
     enum BobBehaviour {
         HappyPath,
@@ -560,6 +689,11 @@ mod test {
         DeviceAlreadyExists,
         DeviceNotCreated,
         InvalidJsonMessage,
+        /// Alice cancels before Bob sends `m.login.protocol`. Bob signals on
+        /// reaching the point of sending it, which is after receiving
+        /// `m.login.protocols` if Alice sends one, and exits without sending
+        /// anything.
+        CancelledBeforeLoginProtocol(oneshot::Sender<()>),
         /// Alice cancels after Bob signals that he received
         /// `m.login.protocol_accepted`.
         CancelledWhileWaitingForAuth(oneshot::Sender<()>),
@@ -623,6 +757,12 @@ mod test {
                 // Send an unexpected message and exit.
                 let message = QrAuthMessage::LoginSuccess;
                 bob.send_json(message).await.unwrap();
+                return;
+            }
+            BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx) => {
+                // Let Alice know it is time to cancel and exit. Alice is
+                // dropped when cancelled, so we won't be told about it.
+                bob_done_tx.send(()).expect("Bob should be able to signal when done");
                 return;
             }
             BobBehaviour::LoginFailureInsteadOfLoginProtocol => {
@@ -920,7 +1060,7 @@ mod test {
         let message = bob
             .receive_json()
             .await
-            .expect("Bob should receive the LoginProtocolAccepted message from Alice");
+            .expect("Bob should receive the LoginProtocols message from Alice");
 
         let (protocols, alice_homeserver) = if is_using_msc_4388 {
             assert_let!(
@@ -950,6 +1090,12 @@ mod test {
                 // Send an unexpected message and exit.
                 let message = QrAuthMessage::LoginSuccess;
                 bob.send_json(message).await.unwrap();
+                return;
+            }
+            BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx) => {
+                // Let Alice know it is time to cancel and exit. Alice is
+                // dropped when cancelled, so we won't be told about it.
+                bob_done_tx.send(()).expect("Bob should be able to signal when done");
                 return;
             }
             BobBehaviour::LoginFailureInsteadOfLoginProtocol => {
@@ -1133,6 +1279,9 @@ mod test {
                 .await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
 
+        // The authorization server supports the device authorization grant.
+        server.oauth().mock_server_metadata().ok().named("server_metadata").mount().await;
+
         let device_authorization_grant = AuthorizationGrant {
             verification_uri_complete: Some(VerificationUriComplete::new(
                 "https://id.matrix.org/device/abcde".to_owned(),
@@ -1298,6 +1447,9 @@ mod test {
             MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, msc_4388)
                 .await;
         debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        // The authorization server supports the device authorization grant.
+        server.oauth().mock_server_metadata().ok().named("server_metadata").mount().await;
 
         let device_authorization_grant = AuthorizationGrant {
             verification_uri_complete: Some(VerificationUriComplete::new(
@@ -1618,6 +1770,7 @@ mod test {
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
+        let (bob_done_tx, bob_done_rx) = oneshot::channel();
 
         // Spawn the updates task.
         let mut updates = grant.subscribe_to_progress();
@@ -1662,6 +1815,10 @@ mod test {
                             .send(checkcode)
                             .await
                             .expect("Alice should be able to forward the checkcode");
+
+                        // Only cancel once Bob is done. Bob doesn't send
+                        // anything, so Alice can't finish in any other way.
+                        bob_done_rx.await.expect("Bob should signal when done");
                         cancel.cancel();
                         break;
                     }
@@ -1677,7 +1834,7 @@ mod test {
         let rendezvous_server_clone = rendezvous_server.clone();
         let bob_task = spawn(async move {
             request_login_with_scanned_qr_code(
-                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx),
                 qr_code_rx,
                 checkcode_tx,
                 None,
@@ -1689,9 +1846,10 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(result, None, "Alice should abort the login by cancelling it");
+        })
+        .await;
     }
 
     #[async_test]
@@ -1748,6 +1906,7 @@ mod test {
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
+        let (bob_done_tx, bob_done_rx) = oneshot::channel();
 
         // Spawn the updates task.
         let mut updates = grant.subscribe_to_progress();
@@ -1770,6 +1929,14 @@ mod test {
                             .expect("The checkcode should only be forwarded once")
                             .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
+
+                        // Only cancel once Bob is done, which is after
+                        // receiving the login protocols. This ensures that
+                        // Alice got to send them, although Alice might still
+                        // be finishing that request rather than waiting for
+                        // Bob's reply. Bob doesn't send one, so Alice can't
+                        // finish in any other way.
+                        bob_done_rx.await.expect("Bob should signal when done");
                         cancel.cancel();
                         break;
                     }
@@ -1785,7 +1952,7 @@ mod test {
         // Let Bob request the login and run through the process.
         let bob_task = spawn(async move {
             request_login_with_generated_qr_code(
-                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                BobBehaviour::CancelledBeforeLoginProtocol(bob_done_tx),
                 channel,
                 checkcode_rx,
                 None,
@@ -1798,9 +1965,10 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(grant.await, None, "Alice should abort the login by cancelling it");
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(result, None, "Alice should abort the login by cancelling it");
+        })
+        .await;
     }
 
     #[async_test]
@@ -2208,6 +2376,47 @@ mod test {
             "Alice should abort the login with expected error variant"
         );
         assert_eq!(protocol.as_str(), "m.unknown_protocol");
+    }
+
+    /// The authorization server doesn't support the device authorization grant,
+    /// so Alice should abort before generating a QR code.
+    #[async_test]
+    #[cfg(feature = "unstable-msc4388")]
+    async fn test_grant_login_with_generated_qr_code_no_supported_protocols_msc_4388() {
+        let server = MatrixMockServer::new().await;
+
+        server
+            .oauth()
+            .mock_server_metadata()
+            .ok_without_device_authorization()
+            .named("server_metadata")
+            .mount()
+            .await;
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+
+        // Prepare the login granting future.
+        let oauth = alice.oauth();
+        let mut grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
+        grant.with_msc4388_support();
+        let state = grant.state.clone();
+
+        assert_matches!(grant.await, Err(QRCodeGrantLoginError::NoSupportedProtocols));
+        assert_matches!(
+            state.get(),
+            GrantLoginProgress::Starting,
+            "Alice should abort before generating a QR code"
+        );
     }
 
     #[async_test]
@@ -3232,6 +3441,57 @@ mod test {
         bob_task.await.expect("Bob's task should finish");
     }
 
+    /// The authorization server doesn't support the device authorization grant,
+    /// so Alice should abort before connecting to the secure channel.
+    #[async_test]
+    #[cfg(feature = "unstable-msc4388")]
+    async fn test_grant_login_with_scanned_qr_code_no_supported_protocols_msc_4388() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server =
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX, true).await;
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        server
+            .oauth()
+            .mock_server_metadata()
+            .ok_without_device_authorization()
+            .named("server_metadata")
+            .mount()
+            .await;
+
+        // Create a secure channel on the new client (Bob) and extract the QR
+        // code.
+        let client = rendezvous_server.unlogged_client().await;
+        let channel = SecureChannel::login(&client, true)
+            .await
+            .expect("Bob should be able to create a secure channel.");
+        let qr_code_data = channel.qr_code_data().clone();
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+
+        // Prepare the login granting future using the QR code.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .scan(&qr_code_data);
+        let state = grant.state.clone();
+
+        assert_matches!(grant.await, Err(QRCodeGrantLoginError::NoSupportedProtocols));
+        assert_matches!(
+            state.get(),
+            GrantLoginProgress::Starting,
+            "Alice should abort before connecting to the secure channel"
+        );
+    }
+
     #[async_test]
     async fn test_grant_login_with_scanned_qr_code_login_failure_instead_of_login_success() {
         let server = MatrixMockServer::new().await;
@@ -4192,13 +4452,16 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
-            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
-            "Alice should abort the login with expected error"
-        );
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(
+                result,
+                Err(QRCodeGrantLoginError::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled
+                }),
+                "Alice should abort the login with expected error"
+            );
+        })
+        .await;
     }
 
     #[async_test]
@@ -4329,12 +4592,15 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
-            Err(QRCodeGrantLoginError::LoginFailure { reason: LoginFailureReason::UserCancelled }),
-            "Alice should abort the login with expected error"
-        );
-        updates_task.await.expect("Alice should run through all progress states");
-        bob_task.await.expect("Bob's task should finish");
+        finish_in_time(grant, bob_task, updates_task, |result| {
+            assert_matches!(
+                result,
+                Err(QRCodeGrantLoginError::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled
+                }),
+                "Alice should abort the login with expected error"
+            );
+        })
+        .await;
     }
 }

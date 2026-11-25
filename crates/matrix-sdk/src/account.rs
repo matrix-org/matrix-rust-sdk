@@ -58,6 +58,7 @@ use ruma::{
         AnyGlobalAccountDataEventContent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        invite_permission_config::InvitePermissionConfigEventContent,
         media_preview_config::{
             InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
             UnstableMediaPreviewConfigEventContent,
@@ -1153,6 +1154,135 @@ impl Account {
         self.set_account_data(content).await?;
 
         Ok(())
+    }
+
+    /// Enable or disable an image pack globally, making it usable in all the
+    /// rooms or only in its own room and the rooms of the spaces it's in.
+    ///
+    /// The pack is the `m.room.image_pack` state event with the given
+    /// `state_key` in the room identified by `room_id`. It's added to or
+    /// removed from the user's `m.image_pack.rooms` account data.
+    pub async fn set_image_pack_enabled_globally(
+        &self,
+        room_id: &RoomId,
+        state_key: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        use ruma::events::image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta};
+
+        // Prevent concurrent calls from trampling on each other's update, like
+        // in `mark_as_dm()`.
+        let _guard = self.client.locks().image_pack_rooms_lock.lock().await;
+
+        // Fetched from the server as `/sync` may not have caught up with a
+        // previous update yet.
+        let mut content =
+            match self.fetch_account_data_static::<ImagePackRoomsEventContent>().await? {
+                // A malformed event is kept rather than overwritten, as it may
+                // hold the packs enabled by another client.
+                Some(raw) => raw.deserialize()?,
+                None => ImagePackRoomsEventContent::new(Default::default()),
+            };
+
+        if enabled {
+            content
+                .rooms
+                .entry(room_id.to_owned())
+                .or_default()
+                .insert(state_key.to_owned(), RoomImagePackMeta::new());
+        } else if let Some(state_keys) = content.rooms.get_mut(room_id) {
+            state_keys.remove(state_key);
+            if state_keys.is_empty() {
+                content.rooms.remove(room_id);
+            }
+        }
+
+        self.set_account_data(content).await?;
+
+        Ok(())
+    }
+
+    /// Set the invite permission configuration for this account.
+    ///
+    /// The configuration determines how the server should handle incoming
+    /// room invitations. If `default_action` is unset, then it allows
+    /// invitations as normal, but it is still subject to other
+    /// restrictions such as ignored users.
+    ///
+    /// See the [Matrix specification](https://spec.matrix.org/v1.19/client-server-api/#minvite_permission_config).
+    pub async fn set_invite_permission_config(
+        &self,
+        config: InvitePermissionConfigEventContent,
+    ) -> Result<()> {
+        self.set_account_data(config).await?;
+        Ok(())
+    }
+
+    /// Fetches the invite permission configuration from the server.
+    ///
+    /// Returns `None` if no configuration has been set for this account.
+    pub async fn fetch_invite_permission_config(
+        &self,
+    ) -> Result<Option<InvitePermissionConfigEventContent>> {
+        self.fetch_account_data_static::<InvitePermissionConfigEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Gets the invite permission configuration stored in the local state
+    /// store.
+    ///
+    /// Returns `None` if no configuration has been received yet.
+    pub async fn get_invite_permission_config(
+        &self,
+    ) -> Result<Option<InvitePermissionConfigEventContent>> {
+        self.account_data::<InvitePermissionConfigEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Observes changes to the invite permission configuration.
+    ///
+    /// This will return the current value of the configuration from the local
+    /// state store and a stream that will yield new values as they are
+    /// received.
+    ///
+    /// The initial value may be `None` if no configuration has been received
+    /// yet.
+    pub async fn observe_invite_permission_config(
+        &self,
+    ) -> Result<
+        (
+            Option<InvitePermissionConfigEventContent>,
+            impl Stream<Item = InvitePermissionConfigEventContent> + use<>,
+        ),
+        Error,
+    > {
+        let observer = self
+            .client
+            .observe_events::<GlobalAccountDataEvent<InvitePermissionConfigEventContent>, ()>();
+
+        let mut stream = observer.subscribe().map(|event| event.0.content);
+
+        let result_stream = async_stream::stream! {
+            // The observer needs to be alive for the lifetime of the stream, we need to take
+            // ownership.
+            let _observer = observer;
+
+            while let Some(item) = stream.next().await {
+                yield item;
+            }
+        };
+
+        // We need to read the initial value after subscribing to avoid missing
+        // updates.
+        let initial_value = self.get_invite_permission_config().await?;
+
+        Ok((initial_value, result_stream))
     }
 
     /// Adds the given user ID to the account's ignore list.

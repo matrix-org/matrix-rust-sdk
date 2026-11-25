@@ -22,7 +22,7 @@ use matrix_sdk_common::deserialized_responses::{TimelineEvent, TimelineEventKind
 use ruma::events::AnySyncTimelineEvent;
 use ruma::{
     OwnedRoomId, RoomId,
-    api::client::sync::sync_events::v5 as http,
+    api::client::sync::sync_events::msc4186 as http,
     events::{AnySyncEphemeralRoomEvent, SyncEphemeralRoomEvent, receipt::ReceiptEventContent},
     serde::Raw,
 };

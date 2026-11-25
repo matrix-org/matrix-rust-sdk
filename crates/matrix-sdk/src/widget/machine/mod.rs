@@ -16,6 +16,8 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "unstable-msc4354")]
+use driver_req::ReadStickyEventsRequest;
 use driver_req::{ReadStateRequest, UpdateDelayedEventRequest};
 use from_widget::UpdateDelayedEventResponse;
 use indexmap::IndexMap;
@@ -49,6 +51,8 @@ use self::{
 };
 #[cfg(doc)]
 use super::WidgetDriver;
+#[cfg(feature = "unstable-msc4354")]
+use super::capabilities::SEND_STICKY_EVENT;
 use super::{
     Capabilities, StateEventFilter, StateKeySelector,
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
@@ -522,6 +526,33 @@ impl WidgetMachine {
             ));
         }
 
+        #[cfg(feature = "unstable-msc4354")]
+        if request.sticky_duration_ms.is_some() {
+            if !capabilities.send_sticky_event {
+                return Some(Self::send_from_widget_error_string_response(
+                    raw_request,
+                    format!("Not allowed: missing the {SEND_STICKY_EVENT} capability."),
+                ));
+            }
+
+            // MSC4354 only allows message-like events to be sticky.
+            if request.state_key.is_some() {
+                return Some(Self::send_from_widget_error_string_response(
+                    raw_request,
+                    "Cannot send a state event with a sticky duration",
+                ));
+            }
+
+            // A redaction is sent through the dedicated endpoint, which has no
+            // notion of stickiness.
+            if request.event_type == ruma::events::TimelineEventType::RoomRedaction.to_string() {
+                return Some(Self::send_from_widget_error_string_response(
+                    raw_request,
+                    "Cannot send a redaction with a sticky duration",
+                ));
+            }
+        }
+
         if !capabilities.allow_sending(&request) {
             return Some(Self::send_from_widget_error_string_response(
                 raw_request,
@@ -868,12 +899,56 @@ impl WidgetMachine {
 
         actions.extend(initial_state_actions);
 
+        // If the widget may receive sticky events, push the ones that are live.
+        #[cfg(feature = "unstable-msc4354")]
+        if approved.receive_sticky_event
+            && approved.read.iter().any(|filter| matches!(filter, Filter::MessageLike(_)))
+            && let Some((request, action)) =
+                self.send_matrix_driver_request(ReadStickyEventsRequest)
+        {
+            request.add_response_handler(|result, machine| {
+                machine.process_read_sticky_events_response(result)
+            });
+            actions.push(action);
+        }
+
         let notify_caps_changed = NotifyCapabilitiesChanged { approved, requested };
         if let Some((_request, action)) = self.send_to_widget_request(notify_caps_changed) {
             actions.push(action);
         }
 
         actions
+    }
+
+    /// Pushes the live sticky events read from the room to the widget, one
+    /// `send_event` action each, as if they had just been received.
+    #[cfg(feature = "unstable-msc4354")]
+    fn process_read_sticky_events_response(
+        &mut self,
+        result: Result<Vec<Raw<AnyTimelineEvent>>>,
+    ) -> Vec<Action> {
+        let events = match result {
+            Ok(events) => events,
+            Err(e) => {
+                error!("Reading the live sticky events failed: {e}");
+                return Vec::new();
+            }
+        };
+
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            error!("Received the live sticky events before capabilities negotiation");
+            return Vec::new();
+        };
+
+        let allowed: Vec<_> =
+            events.into_iter().filter(|e| capabilities.allow_reading(e)).collect();
+
+        allowed
+            .into_iter()
+            .filter_map(|event| {
+                self.send_to_widget_request(NotifyNewMatrixEvent(event)).map(|(_, action)| action)
+            })
+            .collect()
     }
 
     /// Attempts to acquire capabilities that have been requested by the widget

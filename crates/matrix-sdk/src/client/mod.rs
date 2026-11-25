@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "unstable-msc4536")]
+use std::sync::OnceLock as StdOnceLock;
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
@@ -57,6 +59,7 @@ use ruma::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
             authenticated_media,
+            delayed_events::update_delayed_event,
             device::{self, delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{discover_homeserver, get_supported_versions},
@@ -67,7 +70,11 @@ use ruma::{
             presence::set_presence as set_presence_status,
             retention::get_retention_configuration,
             room::create_room,
-            rtc::{RtcTransport, transports},
+            rtc::{
+                RtcTransport,
+                livekit::{delegate_delayed_leave, get_token},
+                transports,
+            },
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
             threads::get_thread_subscriptions_changes,
@@ -96,6 +103,8 @@ use self::{
     caches::{Cache, CachedValue, ClientCaches},
     futures::SendRequest,
 };
+#[cfg(feature = "unstable-msc4536")]
+use crate::client::global_profiles::GlobalProfileFetcher;
 use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
@@ -138,12 +147,18 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+#[cfg(feature = "unstable-msc4536")]
+pub(crate) mod global_profiles;
 pub(crate) mod homeserver_capabilities;
 pub(crate) mod thread_subscriptions;
 
 pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
 use crate::search_index::SearchIndex;
+
+/// How long the cached homeserver message retention configuration is
+/// considered fresh: 6 hours.
+const RETENTION_CONFIGURATION_TTL: Duration = Duration::from_hours(6);
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -220,6 +235,12 @@ pub(crate) struct ClientLocks {
     /// Look at the [`Account::mark_as_dm()`] method for a more detailed
     /// explanation.
     pub(crate) mark_as_dm_lock: Mutex<()>,
+
+    /// Lock ensuring that only a single image pack may be enabled or disabled
+    /// globally at once. Look at the
+    /// [`Account::set_image_pack_enabled_globally()`] method for a more
+    /// detailed explanation.
+    pub(crate) image_pack_rooms_lock: Mutex<()>,
 
     /// Lock ensuring that only a single secret store is getting opened at the
     /// same time.
@@ -416,6 +437,11 @@ pub(crate) struct ClientInner {
     /// background.
     thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
 
+    /// Service fetching missing global profiles in the background, created
+    /// lazily on first use.
+    #[cfg(feature = "unstable-msc4536")]
+    global_profile_fetcher: StdOnceLock<GlobalProfileFetcher>,
+
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
@@ -460,6 +486,7 @@ impl ClientInner {
         base_client: BaseClient,
         supported_versions: CachedValue<TtlValue<SupportedVersions>>,
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
+        retention_configuration: Option<TtlValue<get_retention_configuration::msc1763::Response>>,
         respect_login_well_known: bool,
         well_known_lookup_disabled: bool,
         enable_automatic_back_pagination: bool,
@@ -478,6 +505,7 @@ impl ClientInner {
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
             rtc_transports: Cache::new(),
+            retention_configuration: SharedObservable::new(retention_configuration),
         };
 
         let client = Self {
@@ -514,6 +542,8 @@ impl ClientInner {
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
             thread_subscription_catchup,
+            #[cfg(feature = "unstable-msc4536")]
+            global_profile_fetcher: StdOnceLock::new(),
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
@@ -647,9 +677,12 @@ impl Client {
         &self.inner.base_client
     }
 
-    /// The underlying HTTP client.
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.inner.http_client.inner
+    /// The [`HttpClient`] used by this client, with its [`RequestConfig`]
+    /// retry and concurrency limits.
+    ///
+    /// Use [`HttpClient::raw()`] to get the underlying [`reqwest::Client`].
+    pub fn http_client(&self) -> &HttpClient {
+        &self.inner.http_client
     }
 
     pub(crate) fn locks(&self) -> &ClientLocks {
@@ -1301,8 +1334,10 @@ impl Client {
     /// Subscribe to future `beacon_info` updates for the current user across
     /// all rooms.
     ///
-    /// This stream is push-only: it emits only future updates observed during
-    /// sync processing and does not replay existing state.
+    /// This stream is push-only: it emits only updates observed during sync
+    /// processing. Only the room's current own `beacon_info` is emitted, older
+    /// ones replayed in a sync timeline are skipped. The current one may be
+    /// emitted again if sync sends it again, e.g. on a new connection.
     pub fn observe_own_beacon_info_updates(
         &self,
     ) -> Result<impl Stream<Item = BeaconInfoUpdate> + use<>> {
@@ -1314,6 +1349,15 @@ impl Client {
 
             while let Some((event, room)) = stream.next().await {
                 if event.state_key != own_user_id {
+                    continue;
+                }
+                // Sync stores the room state before calling event handlers, so
+                // anything that isn't the stored one is an older replay.
+                let is_current = room
+                    .get_user_beacon_info(&own_user_id)
+                    .await
+                    .is_ok_and(|current| current.event_id == event.event_id);
+                if !is_current {
                     continue;
                 }
                 yield BeaconInfoUpdate {
@@ -2164,7 +2208,9 @@ impl Client {
     pub async fn create_room(&self, request: create_room::v3::Request) -> Result<Room> {
         let invite = request.invite.clone();
         let is_direct_room = request.is_direct;
-        let response = self.send(request).await?;
+
+        let request_config = self.request_config().disable_retry();
+        let response = self.send(request).with_request_config(request_config).await?;
 
         let base_room = self.base_client().get_or_create_room(&response.room_id, RoomState::Joined);
 
@@ -2975,17 +3021,20 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
+    /// # #![allow(deprecated)]
     /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::rtc::RtcTransport};
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let rtc_foci = client.well_known_rtc_transports().await?;
-    /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
-    ///     RtcTransport::LiveKit(info) => Some(info),
+    /// // Well-known foci may still use the legacy `livekit` transport type.
+    /// let default_livekit_url = rtc_foci.iter().find_map(|focus| match focus {
+    ///     RtcTransport::LiveKit(info) => Some(&info.url),
+    ///     RtcTransport::LegacyLiveKit(info) => info.url.as_ref(),
     ///     _ => None,
     /// });
-    /// if let Some(url) = default_livekit_focus_info.and_then(|info| info.url.as_ref()) {
+    /// if let Some(url) = default_livekit_url {
     ///     println!("Default LiveKit SFU URL: {url}");
     /// }
     /// # anyhow::Ok(()) };
@@ -3098,7 +3147,7 @@ impl Client {
     /// bypassing the cache.
     pub async fn fetch_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
         let response = self
-            .send(transports::v1::Request::new())
+            .send(transports::msc4143::Request::new())
             .with_request_config(RequestConfig::short_retry())
             .await?;
         Ok(response.rtc_transports)
@@ -3152,6 +3201,72 @@ impl Client {
         Ok(self.well_known().await.map(|well_known| well_known.rtc_foci))
     }
 
+    /// Obtain a token to authenticate with a LiveKit SFU, by calling the
+    /// homeserver's `/rtc/livekit/get_token` endpoint
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU to obtain a token for, as
+    ///   advertised by a LiveKit [`RtcTransport`].
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the user's own
+    ///   `m.rtc.member` event.
+    /// * `server_name` - The server name of the sender of the `m.rtc.member`
+    ///   event that advertised the SFU. If `None`, the homeserver uses its own
+    ///   server name.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error, which is returned as-is.
+    pub async fn rtc_livekit_get_token(
+        &self,
+        url: String,
+        room_id: OwnedRoomId,
+        slot_id: String,
+        member_id: String,
+        server_name: Option<OwnedServerName>,
+    ) -> HttpResult<get_token::v1::Response> {
+        let request =
+            assign!(get_token::v1::Request::new(url, room_id, slot_id, member_id), { server_name });
+        self.send(request).await
+    }
+
+    /// Hand the delayed leave event of a MatrixRTC session over to the
+    /// homeserver, by calling its `/rtc/livekit/delegate_delayed_leave`
+    /// endpoint.
+    ///
+    /// The homeserver then takes care of keeping the delayed event alive
+    /// while the user is connected to the LiveKit SFU, and lets it be sent
+    /// once the user disconnects.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU that the user has
+    ///   connected to.
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the `m.rtc.member` event.
+    /// * `delay_id` - The ID of the delayed `m.rtc.member` leave event to
+    ///   delegate.
+    ///
+    /// The stable endpoint is used if the homeserver advertises the
+    /// `org.matrix.msc4195.stable` feature, the unstable one otherwise.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error, which is returned as-is.
+    pub async fn rtc_livekit_delegate_delayed_leave(
+        &self,
+        url: String,
+        room_id: OwnedRoomId,
+        slot_id: String,
+        member_id: String,
+        delay_id: String,
+    ) -> HttpResult<delegate_delayed_leave::v1::Response> {
+        let request =
+            delegate_delayed_leave::v1::Request::new(url, room_id, slot_id, member_id, delay_id);
+        self.send(request).await
+    }
+
     /// Get information about the homeserver's advertised map tile server, if
     /// any, by fetching the well-known file from the server or the cache.
     ///
@@ -3202,6 +3317,44 @@ impl Client {
         Ok(self.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4354")))
     }
 
+    /// Update a delayed event that was previously scheduled with
+    /// [`SendRawMessageLikeEvent::into_delayed`] or
+    /// [`SendRawStateEvent::into_delayed`] ([MSC4140]).
+    ///
+    /// Depending on the `action` this cancels the delayed event, restarts its
+    /// timeout, or sends it to the room right away.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_id` - The identifier of the delayed event, as returned by the
+    ///   homeserver when the event was scheduled.
+    ///
+    /// * `action` - What to do with the delayed event.
+    ///
+    /// * `request_config` - The [`RequestConfig`] to use for this request, for
+    ///   example to control retries. If `None`, the client's default request
+    ///   config is used.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`SendRawMessageLikeEvent::into_delayed`]: crate::room::futures::SendRawMessageLikeEvent::into_delayed
+    /// [`SendRawStateEvent::into_delayed`]: crate::room::futures::SendRawStateEvent::into_delayed
+    #[instrument(skip_all)]
+    pub async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: update_delayed_event::UpdateAction,
+        request_config: Option<RequestConfig>,
+    ) -> Result<update_delayed_event::msc4140_v2::Response> {
+        let request = update_delayed_event::msc4140_v2::Request::new(delay_id, action);
+
+        // Ruma declares this endpoint as not requiring authentication, but the
+        // homeserver only lets the owner of the delayed event update it, so the
+        // access token must be sent anyway.
+        let request_config = request_config.unwrap_or_else(|| self.request_config()).force_auth();
+
+        Ok(self.send(request).with_request_config(request_config).await?)
+    }
+
     /// Get information of all our own devices.
     ///
     /// # Examples
@@ -3229,18 +3382,102 @@ impl Client {
         self.send(request).await
     }
 
-    /// Get the server's message retention policy configuration.
+    /// Fetch the server's message retention policy configuration.
     ///
     /// Returns the server-level retention policy limits and any per-room
-    /// overrides defined by the server.
+    /// overrides defined by the server, or `None` if the homeserver doesn't
+    /// implement the endpoint.
+    ///
+    /// This always makes a request to the homeserver. On success, the
+    /// response is stored in the client's cache and persisted in the state
+    /// store, so it can be read with [`Self::retention_configuration`] and
+    /// observed with [`Self::subscribe_to_retention_configuration`], even
+    /// after a restart without connectivity.
     ///
     /// See
     /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
     /// for more info.
-    pub async fn get_retention_configuration(
+    pub async fn fetch_retention_configuration(
         &self,
-    ) -> HttpResult<get_retention_configuration::unstable::Response> {
-        self.send(get_retention_configuration::unstable::Request::default()).await
+    ) -> HttpResult<Option<get_retention_configuration::msc1763::Response>> {
+        let response =
+            match self.send(get_retention_configuration::msc1763::Request::default()).await {
+                Ok(response) => response,
+                Err(error) if error.is_endpoint_not_implemented() => return Ok(None),
+                Err(error) => return Err(error),
+            };
+        let value = TtlValue::new(response.clone());
+
+        if let Err(error) = self
+            .state_store()
+            .set_kv_data(
+                StateStoreDataKey::RetentionConfiguration,
+                StateStoreDataValue::RetentionConfiguration(value.clone().map(Into::into)),
+            )
+            .await
+        {
+            warn!("error when persisting the retention configuration: {error}");
+        }
+
+        self.inner.caches.retention_configuration.set(Some(value));
+
+        Ok(Some(response))
+    }
+
+    /// Get the server's message retention policy configuration, from the cache
+    /// if possible.
+    ///
+    /// If the cached value is missing or older than 6 hours, it is re-fetched
+    /// from the homeserver with [`Self::fetch_retention_configuration`]. If
+    /// that request fails (e.g. because there is no connectivity) and a stale
+    /// value is cached, the stale value is returned instead. The only
+    /// exception is when the homeserver doesn't implement the endpoint, in
+    /// which case `None` is always returned.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn retention_configuration(
+        &self,
+    ) -> HttpResult<Option<get_retention_configuration::msc1763::Response>> {
+        let cached = self.inner.caches.retention_configuration.get();
+
+        if let Some(cached) = &cached
+            && !cached.has_expired_after(RETENTION_CONFIGURATION_TTL)
+        {
+            return Ok(Some(cached.data().clone()));
+        }
+
+        match self.fetch_retention_configuration().await {
+            Ok(response) => Ok(response),
+            Err(error) => match cached {
+                Some(cached) => {
+                    warn!(
+                        "failed to refresh the retention configuration, using the stale cached \
+                         value: {error}"
+                    );
+                    Ok(Some(cached.into_data()))
+                }
+                None => Err(error),
+            },
+        }
+    }
+
+    /// Subscribe to changes of the cached server message retention policy
+    /// configuration.
+    ///
+    /// The initial value is the one persisted in the state store, if any. It is
+    /// `None` until it has been successfully fetched at least once with
+    /// [`Self::fetch_retention_configuration`] (or
+    /// [`Self::retention_configuration`]).
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub fn subscribe_to_retention_configuration(
+        &self,
+    ) -> Subscriber<Option<TtlValue<get_retention_configuration::msc1763::Response>>> {
+        self.inner.caches.retention_configuration.subscribe()
     }
 
     /// Delete the given devices from the server.
@@ -3874,6 +4111,7 @@ impl Client {
                     .await?,
                 self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.value(),
+                self.inner.caches.retention_configuration.get(),
                 self.inner.respect_login_well_known,
                 self.well_known_lookup_disabled(),
                 false,
@@ -3990,6 +4228,12 @@ impl Client {
             self.send(media::get_media_config::v3::Request::default()).await?.upload_size
         };
 
+        let Some(upload_size) = upload_size else {
+            return Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(
+                "the homeserver does not advertise `m.upload.size`".to_owned(),
+            )));
+        };
+
         match max_upload_size_lock.set(upload_size) {
             Ok(_) => Ok(upload_size),
             Err(error) => {
@@ -4066,8 +4310,8 @@ impl Client {
         from: Option<String>,
         to: Option<String>,
         limit: Option<UInt>,
-    ) -> Result<get_thread_subscriptions_changes::unstable::Response> {
-        let request = assign!(get_thread_subscriptions_changes::unstable::Request::new(), {
+    ) -> Result<get_thread_subscriptions_changes::msc4308::Response> {
+        let request = assign!(get_thread_subscriptions_changes::msc4308::Request::new(), {
             from,
             to,
             limit,
@@ -4077,6 +4321,11 @@ impl Client {
 
     pub(crate) fn thread_subscription_catchup(&self) -> &ThreadSubscriptionCatchup {
         self.inner.thread_subscription_catchup.get().unwrap()
+    }
+
+    #[cfg(feature = "unstable-msc4536")]
+    pub(crate) fn global_profile_fetcher(&self) -> &GlobalProfileFetcher {
+        self.inner.global_profile_fetcher.get_or_init(|| GlobalProfileFetcher::new(self))
     }
 
     /// Pause the client for background suspension.
@@ -4350,6 +4599,7 @@ struct PreJoinRoomInfo {
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use std::{
+        collections::BTreeMap,
         pin::pin,
         sync::{
             Arc,
@@ -4382,6 +4632,9 @@ pub(crate) mod tests {
         api::{
             FeatureFlag, MatrixVersion,
             client::{
+                retention::{
+                    RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits,
+                },
                 room::create_room::v3::Request as CreateRoomRequest,
                 rtc::{LiveKitRtcTransport, RtcTransport},
             },
@@ -4389,7 +4642,11 @@ pub(crate) mod tests {
         assign,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
+            invite_permission_config::{
+                InvitePermissionAction, InvitePermissionConfigEventContent,
+            },
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
+            room::retention::RoomRetentionEventContent,
         },
         owned_device_id,
         presence::PresenceState,
@@ -4787,6 +5044,68 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_rtc_livekit_endpoints_path_selection() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        for (stable, prefix) in
+            [(false, "/_matrix/client/unstable/io.element.msc4195"), (true, "/_matrix/client/v1")]
+        {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().no_server_versions().build().await;
+
+            server
+                .mock_versions()
+                .with_feature("org.matrix.msc4195.stable", stable)
+                .ok()
+                .mock_once()
+                .mount()
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path(format!("{prefix}/rtc/livekit/get_token")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "jwt": "the-jwt" })))
+                .expect(1)
+                .mount(server.server())
+                .await;
+
+            Mock::given(method("POST"))
+                .and(path(format!("{prefix}/rtc/livekit/delegate_delayed_leave")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+                .expect(1)
+                .mount(server.server())
+                .await;
+
+            let room_id = ruma::owned_room_id!("!1:example.org");
+
+            let response = client
+                .rtc_livekit_get_token(
+                    "wss://livekit.example.org".to_owned(),
+                    room_id.clone(),
+                    "m.call".to_owned(),
+                    "member-id".to_owned(),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.jwt, "the-jwt");
+
+            client
+                .rtc_livekit_delegate_delayed_leave(
+                    "wss://livekit.example.org".to_owned(),
+                    room_id,
+                    "m.call".to_owned(),
+                    "member-id".to_owned(),
+                    "delay-id".to_owned(),
+                )
+                .await
+                .unwrap();
+        }
+    }
+
+    #[async_test]
     async fn test_can_homeserver_push_encrypted_event_to_device() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
@@ -5006,14 +5325,13 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_well_known_caching() {
         let server = MatrixMockServer::new().await;
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let server_name = <&ServerName>::try_from(domain).unwrap();
-        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let well_known_mock = server
@@ -5091,16 +5409,15 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_rtc_transports_caching() {
         let server = MatrixMockServer::new().await;
-        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let transports_mock = server
             .mock_get_rtc_transports()
-            .ok_with_service_url()
+            .ok()
             .named("first transports mock")
             .expect(1)
             .mount_as_scoped()
@@ -5121,7 +5438,7 @@ pub(crate) mod tests {
 
         server
             .mock_get_rtc_transports()
-            .ok_with_service_url()
+            .ok()
             .named("second transports mock")
             .expect(2)
             .mount()
@@ -5182,18 +5499,16 @@ pub(crate) mod tests {
     ) -> wiremock::MockGuard {
         let endpoint = server.mock_get_rtc_transports();
 
-        let mock =
-            if supported { endpoint.ok_with_service_url() } else { endpoint.error_unrecognized() };
+        let mock = if supported { endpoint.ok() } else { endpoint.error_unrecognized() };
 
         mock.named("transports mock").expect(1).mount_as_scoped().await
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_discover_rtc_transports_prefers_the_endpoint() {
         let server = MatrixMockServer::new().await;
-        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let transports = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
@@ -5214,12 +5529,11 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    #[allow(deprecated)]
     async fn test_discover_rtc_transports_falls_back_to_well_known() {
         let server = MatrixMockServer::new().await;
         // The `m.rtc_foci` advertised by `WellKnownEndpoint::ok`.
-        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::with_service_url(
-            "https://livekit.example.com".to_owned(),
+        let rtc_foci = vec![RtcTransport::LiveKit(LiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
         ))];
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
@@ -5453,6 +5767,23 @@ pub(crate) mod tests {
         timeout(Duration::from_secs(1), client.await_room_remote_echo(room.room_id()))
             .await
             .unwrap_err();
+    }
+
+    #[async_test]
+    async fn test_create_room_is_not_retried() {
+        let server = MatrixMockServer::new().await;
+
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
+            .build()
+            .await;
+
+        // Creating a room isn't idempotent, so retrying could create duplicate
+        // rooms.
+        server.mock_create_room().error500().expect(1).mount().await;
+
+        client.create_room(CreateRoomRequest::new()).await.unwrap_err();
     }
 
     #[async_test]
@@ -5895,6 +6226,295 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_disable_room_invites() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{body_json, method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("PUT"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .and(body_json(json!({
+                "default_action": "block"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let mut config = InvitePermissionConfigEventContent::new();
+        // Set config to block invites.
+        config.default_action = Some(InvitePermissionAction::Block);
+
+        // Disables invites.
+        client.account().set_invite_permission_config(config).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_enable_room_invites() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{body_json, method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("PUT"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .and(body_json(json!({})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+        let mut config = InvitePermissionConfigEventContent::new();
+        // Just to be explicit.
+        config.default_action = None;
+
+        // Enables invites.
+        client.account().set_invite_permission_config(config).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_fetch_disabled_invite_permission_config() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "default_action": "block"
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let config = client.account().fetch_invite_permission_config().await.unwrap();
+        // Invites are disabled.
+        assert_eq!(config.unwrap().default_action, Some(InvitePermissionAction::Block));
+    }
+
+    #[async_test]
+    async fn test_fetch_enabled_invite_permission_config() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let config = client.account().fetch_invite_permission_config().await.unwrap();
+        // Invites are enabled.
+        assert_eq!(config.unwrap().default_action, None);
+    }
+
+    #[async_test]
+    async fn test_fetch_missing_invite_permission_config() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/_matrix/client/v3/user/{user_id}/account_data/m.invite_permission_config"
+            )))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_NOT_FOUND",
+                "error": "Account data not found"
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let config = client.account().fetch_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(config.is_none());
+    }
+
+    #[async_test]
+    async fn test_get_disabled_invite_permission_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {
+                        "default_action": "block"
+                    },
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        let config = client.account().get_invite_permission_config().await.unwrap();
+
+        // Invites are disabled.
+        assert_eq!(config.unwrap().default_action, Some(InvitePermissionAction::Block));
+    }
+
+    #[async_test]
+    async fn test_get_enabled_invite_permission_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {},
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        let config = client.account().get_invite_permission_config().await.unwrap();
+
+        assert!(config.is_some());
+        // Invites are enabled.
+        assert_eq!(config.unwrap().default_action, None);
+    }
+
+    #[async_test]
+    async fn test_get_invite_permission_config_not_found() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let config = client.account().get_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(config.is_none());
+    }
+
+    #[async_test]
+    async fn test_observe_invite_permission_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Room invitations are disabled.
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {
+                        "default_action": "block"
+                    },
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        let (initial_value, stream) =
+            client.account().observe_invite_permission_config().await.unwrap();
+
+        let initial_value = initial_value.unwrap();
+        assert_eq!(initial_value.default_action, Some(InvitePermissionAction::Block));
+
+        let mut stream = pin!(stream);
+        assert_pending!(stream);
+
+        // Room invitations are enabled again.
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {},
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        assert_next_matches!(
+            stream,
+            InvitePermissionConfigEventContent { default_action: None, .. }
+        );
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_observe_invite_permission_config_after_initial_subscription() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let (initial_value, stream) =
+            client.account().observe_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(initial_value.is_none());
+
+        let mut stream = pin!(stream);
+        assert_pending!(stream);
+
+        // Room invitations are disabled.
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_custom_global_account_data(json!({
+                    "content": {
+                        "default_action": "block"
+                    },
+                    "type": "m.invite_permission_config"
+                }));
+            })
+            .await;
+
+        assert_next_matches!(
+            stream,
+            InvitePermissionConfigEventContent {
+                default_action: Some(InvitePermissionAction::Block),
+                ..
+            }
+        );
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_observe_invite_permission_config_not_found() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let (initial_value, _) = client.account().observe_invite_permission_config().await.unwrap();
+
+        // No config found.
+        assert!(initial_value.is_none());
+    }
+
+    #[async_test]
     async fn test_get_dm_room_returns_the_room_we_have_with_this_user() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
@@ -6121,31 +6741,156 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_get_retention_configuration() {
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{method, path},
-        };
-
+    async fn test_fetch_retention_configuration() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "policies": {},
-                "limits": {},
-            })))
-            .expect(1)
-            .mount(server.server())
-            .await;
+        server.mock_get_retention_configuration().ok_empty().mock_once().mount().await;
 
-        let response = client.get_retention_configuration().await;
+        let response = client.fetch_retention_configuration().await;
         assert!(response.is_ok());
-        let response = response.unwrap();
+        let response = response.unwrap().unwrap();
         assert!(response.policies.is_empty());
         assert!(response.limits.max_lifetime.is_none());
         assert!(response.limits.min_lifetime.is_none());
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_is_cached_and_observable() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let mut subscriber = client.subscribe_to_retention_configuration();
+        assert!(subscriber.get().is_none());
+
+        server
+            .mock_get_retention_configuration()
+            .ok_empty()
+            // Only the first call hits the network, the second one uses the cache.
+            .mock_once()
+            .mount()
+            .await;
+
+        client.retention_configuration().await.unwrap();
+
+        assert_next_matches!(subscriber, Some(cached) => {
+            assert!(!cached.has_expired_after(super::RETENTION_CONFIGURATION_TTL));
+        });
+
+        client.retention_configuration().await.unwrap();
+        assert_pending!(subscriber);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_is_persisted() {
+        let server = MatrixMockServer::new().await;
+        let memory_store = Arc::new(MemoryStore::new());
+        let build_client = || {
+            server
+                .client_builder()
+                .on_builder(|builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                            .state_store(memory_store.clone()),
+                    )
+                })
+                .build()
+        };
+
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_secs(24 * 60 * 60))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let client = build_client().await;
+            assert!(client.subscribe_to_retention_configuration().get().is_none());
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // A new client using the same store gets the persisted value, without
+        // any request to the homeserver.
+        let client = build_client().await;
+
+        let cached = client
+            .subscribe_to_retention_configuration()
+            .get()
+            .expect("the retention configuration should have been loaded from the store");
+        assert_eq!(cached.data().policies.len(), 1);
+
+        let config = client.retention_configuration().await.unwrap().unwrap();
+        assert_eq!(config.policies.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_retention_configuration_falls_back_to_stale_value() {
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::new().disable_retry()))
+            .build()
+            .await;
+
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_secs(24 * 60 * 60))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            client.fetch_retention_configuration().await.unwrap();
+        }
+
+        // Expire the cached value.
+        let mut cached = client.inner.caches.retention_configuration.get().unwrap();
+        cached.expire();
+        client.inner.caches.retention_configuration.set(Some(cached));
+
+        // The homeserver is unreachable: the stale value is returned.
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error500()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let config = client.retention_configuration().await.unwrap().unwrap();
+            assert_eq!(config.policies.len(), 1);
+        }
+
+        // The homeserver doesn't implement the endpoint: `None` is returned,
+        // even though a stale value is cached.
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error_unrecognized()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let config = client.retention_configuration().await.unwrap();
+            assert!(config.is_none());
+        }
     }
 
     #[async_test]
@@ -6234,8 +6979,7 @@ pub(crate) mod tests {
         server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(TestRoom::V12.into())
-                    .add_account_data(f.marked_unread(true)),
+                JoinedRoomBuilder::new(TestRoom::V12).add_account_data(f.marked_unread(true)),
             )
             .await;
 

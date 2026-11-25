@@ -27,6 +27,7 @@ use std::ops::Deref;
 use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
+pub use matrix_sdk::sliding_sync::Version as SdkSlidingSyncVersion;
 use matrix_sdk::{
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     ToDeviceMessage as SdkToDeviceMessage,
@@ -46,6 +47,7 @@ use matrix_sdk::{
             account::request_openid_token,
             discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
+            retention::{RoomIdOrAllRooms, get_retention_configuration},
             room::{Visibility, create_room},
             session::get_login_types,
             user_directory::search_users,
@@ -59,7 +61,6 @@ use matrix_sdk::{
         },
         serde::Raw,
     },
-    sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
@@ -91,6 +92,7 @@ use ruma::{
     api::{
         client::{
             alias::get_alias,
+            delayed_events::update_delayed_event::UpdateAction,
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
@@ -136,9 +138,11 @@ use tracing::{debug, error, warn};
 use url::Url;
 
 use super::{
-    room::{Room, room_info::RoomInfo},
+    room::{RequestConfigOverride, Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
+#[cfg(not(target_family = "wasm"))]
+use crate::http_client::HttpClient;
 use crate::{
     ClientError,
     authentication::{
@@ -154,12 +158,13 @@ use crate::{
     },
     notification_settings::NotificationSettings,
     qr_code::{GrantLoginWithQrCodeHandler, LoginWithQrCodeHandler},
-    room::{RoomHistoryVisibility, RoomInfoListener, RoomSendQueueUpdate},
+    room::{RoomHistoryVisibility, RoomInfoListener, RoomRetentionPolicy, RoomSendQueueUpdate},
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{
-        AccountDataEvent, AccountDataEventType, InviteAvatars, MediaPreviewConfig, MediaPreviews,
-        MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
+        AccountDataEvent, AccountDataEventType, InviteAvatars, InvitePermissionAction,
+        InvitePermissionState, MediaPreviewConfig, MediaPreviews, MediaSource, PresenceState,
+        RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -167,7 +172,7 @@ use crate::{
     sync_v2::{SyncListenerV2, SyncResponseV2, SyncSettingsV2},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
-    utils::AsyncRuntimeDropped,
+    utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -403,6 +408,73 @@ impl From<request_openid_token::v3::Response> for OpenIdToken {
     }
 }
 
+/// The server's message retention policy configuration.
+///
+/// See
+/// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+/// for more info.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RetentionConfiguration {
+    /// The server's default retention policy (`"*"`), if any.
+    pub default_policy: Option<RoomRetentionPolicy>,
+    /// Map between a room ID and the per-room override the server defines for
+    /// that room.
+    pub room_policies: HashMap<String, RoomRetentionPolicy>,
+    /// Limits to apply to policies defined by `m.room.retention` state events.
+    pub limits: RetentionLimits,
+}
+
+impl From<get_retention_configuration::msc1763::Response> for RetentionConfiguration {
+    fn from(value: get_retention_configuration::msc1763::Response) -> Self {
+        let mut default_policy = None;
+        let mut room_policies = HashMap::new();
+
+        for (room, policy) in value.policies {
+            match room {
+                RoomIdOrAllRooms::AllRooms => default_policy = Some(policy.into()),
+                RoomIdOrAllRooms::RoomId(room_id) => {
+                    room_policies.insert(room_id.to_string(), policy.into());
+                }
+            }
+        }
+
+        Self { default_policy, room_policies, limits: value.limits.into() }
+    }
+}
+
+/// Limits to apply to policies defined by `m.room.retention` state events.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RetentionLimits {
+    /// Limits to apply to the minimum lifetime of `m.room.retention` policies.
+    pub min_lifetime: Option<RetentionLifetimeLimits>,
+    /// Limits to apply to the maximum lifetime of `m.room.retention` policies.
+    pub max_lifetime: Option<RetentionLifetimeLimits>,
+}
+
+impl From<get_retention_configuration::msc1763::RetentionLimits> for RetentionLimits {
+    fn from(value: get_retention_configuration::msc1763::RetentionLimits) -> Self {
+        Self {
+            min_lifetime: value.min_lifetime.map(Into::into),
+            max_lifetime: value.max_lifetime.map(Into::into),
+        }
+    }
+}
+
+/// Global limits for the per-room retention policy lifetimes.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RetentionLifetimeLimits {
+    /// The minimum accepted value for this limit.
+    pub min: Option<Duration>,
+    /// The maximum accepted value for this limit.
+    pub max: Option<Duration>,
+}
+
+impl From<get_retention_configuration::msc1763::LifetimeLimits> for RetentionLifetimeLimits {
+    fn from(value: get_retention_configuration::msc1763::LifetimeLimits) -> Self {
+        Self { min: value.min(), max: value.max() }
+    }
+}
+
 struct ClientDelegateData {
     /// The delegate itself, that will receive the callbacks.
     delegate: Arc<dyn ClientDelegate>,
@@ -524,6 +596,16 @@ impl Client {
     /// get hold of the inner actual matrix client for reusing in other crates
     pub fn cloned_inner(&self) -> MatrixClient {
         self.inner.clone().deref().clone()
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// The [`HttpClient`] used by this client, sharing its HTTP settings,
+    /// request config and concurrency limits.
+    pub fn http_client(&self) -> Arc<HttpClient> {
+        Arc::new(HttpClient { inner: self.inner.http_client().clone() })
     }
 }
 
@@ -1134,26 +1216,6 @@ impl Client {
             .await;
     }
 
-    /// Allows generic GET requests to be made through the SDK's internal HTTP
-    /// client. This is useful when the caller's native HTTP client wouldn't
-    /// have the same configuration (such as certificates, proxies, etc.) This
-    /// method returns the raw bytes of the response, so that any kind of
-    /// resource can be fetched including images, files, etc.
-    ///
-    /// Note: When an HTTP error occurs, the error response can be found in the
-    /// `ClientError::Generic`'s `details` field.
-    pub async fn get_url(&self, url: String) -> Result<Vec<u8>, ClientError> {
-        let response = self.inner.http_client().get(url).send().await?;
-        if response.status().is_success() {
-            Ok(response.bytes().await?.into())
-        } else {
-            Err(ClientError::Generic {
-                msg: response.status().to_string(),
-                details: response.text().await.ok(),
-            })
-        }
-    }
-
     /// Empty the server version and unstable features cache.
     ///
     /// Since the SDK caches the supported versions, it's possible to have a
@@ -1546,26 +1608,26 @@ impl Client {
             .await?)
     }
 
+    #[uniffi::method(default(animated = false))]
     pub async fn get_media_thumbnail(
         &self,
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        animated: bool,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
-        debug!(?source, width, height, "requesting media thumbnail");
+        debug!(?source, width, height, animated, "requesting media thumbnail");
+
+        let mut settings = MediaThumbnailSettings::new(u64_to_uint(width), u64_to_uint(height));
+        settings.animated = animated;
+
         Ok(self
             .inner
             .media()
             .get_media_content(
-                &MediaRequestParameters {
-                    source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                        UInt::new(width).unwrap(),
-                        UInt::new(height).unwrap(),
-                    )),
-                },
+                &MediaRequestParameters { source, format: MediaFormat::Thumbnail(settings) },
                 true,
             )
             .await?)
@@ -2270,9 +2332,15 @@ impl Client {
     /// a fallback, unless well-known discovery was disabled with
     /// [`crate::ClientBuilder::disable_well_known_lookup`] or
     /// [`Client::disable_well_known_lookup`].
+    ///
+    /// Both the `m.livekit` and the legacy `livekit` transport types count as
+    /// LiveKit support.
+    #[allow(deprecated)]
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
-        Ok(transports.iter().any(|focus| matches!(focus, RumaRtcTransport::LiveKit { .. })))
+        Ok(transports.iter().any(|transport| {
+            matches!(transport, RumaRtcTransport::LiveKit(_) | RumaRtcTransport::LegacyLiveKit(_))
+        }))
     }
 
     /// Discover the RTC transports advertised by the homeserver.
@@ -2293,6 +2361,68 @@ impl Client {
             .discover_rtc_transports()
             .await?
             .map(|transports| transports.iter().map(Into::into).collect()))
+    }
+
+    /// Obtain a JWT to authenticate with a LiveKit SFU, through the
+    /// homeserver's `/rtc/livekit/get_token` endpoint (MSC4195).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU to obtain a token for.
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the user's own
+    ///   `m.rtc.member` event.
+    /// * `server_name` - The server name of the sender of the `m.rtc.member`
+    ///   event that advertised the SFU. If `None`, the homeserver uses its own
+    ///   server name.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error.
+    pub async fn rtc_livekit_get_token(
+        &self,
+        url: String,
+        room_id: String,
+        slot_id: String,
+        member_id: String,
+        server_name: Option<String>,
+    ) -> Result<String, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let server_name = server_name.map(ServerName::parse).transpose()?;
+        let response =
+            self.inner.rtc_livekit_get_token(url, room_id, slot_id, member_id, server_name).await?;
+        Ok(response.jwt)
+    }
+
+    /// Hand the delayed leave event of a MatrixRTC session over to the
+    /// homeserver, through its `/rtc/livekit/delegate_delayed_leave` endpoint
+    /// (MSC4195).
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL of the LiveKit SFU that the user has
+    ///   connected to.
+    /// * `room_id` - The room where the `m.rtc.member` event is present.
+    /// * `slot_id` - The slot ID from the `m.rtc.member` event.
+    /// * `member_id` - The `member.id` property of the `m.rtc.member` event.
+    /// * `delay_id` - The ID of the delayed `m.rtc.member` leave event to
+    ///   delegate.
+    ///
+    /// Homeservers that don't implement the endpoint respond with an
+    /// `M_UNRECOGNIZED` error.
+    pub async fn rtc_livekit_delegate_delayed_leave(
+        &self,
+        url: String,
+        room_id: String,
+        slot_id: String,
+        member_id: String,
+        delay_id: String,
+    ) -> Result<(), ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        self.inner
+            .rtc_livekit_delegate_delayed_leave(url, room_id, slot_id, member_id, delay_id)
+            .await?;
+        Ok(())
     }
 
     /// Checks if the server supports the Profiles sliding sync extension.
@@ -2337,6 +2467,56 @@ impl Client {
     /// calling the `/_matrix/federation/v1/version` endpoint.
     pub async fn server_vendor_info(&self) -> Result<matrix_sdk::ServerVendorInfo, ClientError> {
         Ok(self.inner.server_vendor_info(None).await?)
+    }
+
+    /// Subscribe to changes in the room invite permission configuration.
+    pub async fn subscribe_to_invite_permission(
+        &self,
+        listener: Box<dyn InvitePermissionListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let (initial_value, stream) =
+            self.inner.account().observe_invite_permission_config().await?;
+
+        // Missing configuration is treated as unrestricted.
+        let state = initial_value
+            .map_or(InvitePermissionState::Unrestricted, |config| config.default_action.into());
+
+        // Send the initial value to the listener.
+        listener.on_change(state);
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            // Listen for changes and notify the listener.
+            let mut stream = pin!(stream);
+            while let Some(config) = stream.next().await {
+                listener.on_change(config.default_action.into());
+            }
+        }))))
+    }
+
+    /// Set the room invite permission for this account.
+    pub async fn set_invite_permission(
+        &self,
+        action: InvitePermissionAction,
+    ) -> Result<(), ClientError> {
+        let account = self.inner.account();
+
+        let mut config = account.fetch_invite_permission_config().await?.unwrap_or_default();
+
+        config.default_action = action.into();
+
+        account.set_invite_permission_config(config).await?;
+
+        Ok(())
+    }
+
+    /// Get the room invite permission stored in the cache.
+    ///
+    /// A missing configuration is treated as unrestricted.
+    pub async fn get_invite_permission(&self) -> Result<InvitePermissionState, ClientError> {
+        let config = self.inner.account().get_invite_permission_config().await?;
+
+        Ok(config
+            .map_or(InvitePermissionState::Unrestricted, |config| config.default_action.into()))
     }
 
     /// Subscribe to changes in the media preview configuration.
@@ -2405,6 +2585,45 @@ impl Client {
         &self,
     ) -> Result<Option<MediaPreviewConfig>, ClientError> {
         Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
+    }
+
+    /// Fetch the server's message retention policy configuration.
+    ///
+    /// Returns the server-level retention policy limits and any per-room
+    /// overrides defined by the server, or `None` if the homeserver doesn't
+    /// implement the endpoint.
+    ///
+    /// This always makes a request to the homeserver. On success, the
+    /// response is stored in the client's cache and persisted in the state
+    /// store, so it can be read with [`Client::retention_configuration`],
+    /// even after a restart without connectivity.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn fetch_retention_configuration(
+        &self,
+    ) -> Result<Option<RetentionConfiguration>, ClientError> {
+        Ok(self.inner.fetch_retention_configuration().await?.map(Into::into))
+    }
+
+    /// Get the server's message retention policy configuration, from the cache
+    /// if possible.
+    ///
+    /// If the cached value is missing or older than 6 hours, it is re-fetched
+    /// from the homeserver with [`Client::fetch_retention_configuration`]. If
+    /// that request fails (e.g. because there is no connectivity) and a stale
+    /// value is cached, the stale value is returned instead. The only
+    /// exception is when the homeserver doesn't implement the endpoint, in
+    /// which case `None` is always returned.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn retention_configuration(
+        &self,
+    ) -> Result<Option<RetentionConfiguration>, ClientError> {
+        Ok(self.inner.retention_configuration().await?.map(Into::into))
     }
 
     /// Gets the `max_upload_size` value from the homeserver, which controls the
@@ -2623,6 +2842,65 @@ pub trait TotalUnreadNotificationsListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, count: u64);
 }
 
+/// What to do with a delayed event that hasn't been distributed to the room
+/// yet ([MSC4140]).
+///
+/// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum DelayedEventUpdateAction {
+    /// Cancel the delayed event: it will never be sent to the room.
+    Cancel,
+    /// Restart the delay timeout, keeping the event scheduled.
+    Restart,
+    /// Send the event to the room right away.
+    Send,
+}
+
+impl From<DelayedEventUpdateAction> for UpdateAction {
+    fn from(value: DelayedEventUpdateAction) -> Self {
+        match value {
+            DelayedEventUpdateAction::Cancel => Self::Cancel,
+            DelayedEventUpdateAction::Restart => Self::Restart,
+            DelayedEventUpdateAction::Send => Self::Send,
+        }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// Cancel, restart or immediately send a previously scheduled delayed
+    /// event ([MSC4140]).
+    ///
+    /// # Arguments
+    ///
+    /// * `delay_id` - The identifier returned by [`Room::send_delayed_event`]
+    ///   or [`Room::send_delayed_state_event`].
+    ///
+    /// * `action` - What should happen to the delayed event.
+    ///
+    /// * `request_config_override` - Overrides the client's request config for
+    ///   this request. Fields that are not set keep the client's values.
+    ///
+    /// [MSC4140]: https://github.com/matrix-org/matrix-spec-proposals/pull/4140
+    /// [`Room::send_delayed_event`]: crate::room::Room::send_delayed_event
+    /// [`Room::send_delayed_state_event`]: crate::room::Room::send_delayed_state_event
+    #[uniffi::method(default(request_config_override = None))]
+    pub async fn update_delayed_event(
+        &self,
+        delay_id: String,
+        action: DelayedEventUpdateAction,
+        request_config_override: Option<RequestConfigOverride>,
+    ) -> Result<(), ClientError> {
+        let request_config = request_config_override.map(|request_config_override| {
+            request_config_override.apply_to(self.inner.request_config())
+        });
+
+        self.inner.update_delayed_event(delay_id, action.into(), request_config).await?;
+
+        Ok(())
+    }
+}
+
 #[cfg(feature = "unstable-msc4354")]
 #[matrix_sdk_ffi_macros::export]
 impl Client {
@@ -2807,6 +3085,10 @@ async fn notification_handler(
         is_direct,
         is_space: room.is_space(),
         is_dm: room.compute_is_dm().await.ok().unwrap_or_default(),
+        can_send_message: room.power_levels_or_default().await.user_can_send_message(
+            room.own_user_id(),
+            ruma::events::MessageLikeEventType::RoomMessage,
+        ),
     };
 
     listener.on_notification(
@@ -2858,6 +3140,11 @@ mod recent_emoji {
                 .collect::<Vec<RecentEmoji>>())
         }
     }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait InvitePermissionListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_change(&self, invite_permission: InvitePermissionState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -3536,14 +3823,16 @@ impl MediaFileHandle {
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersion {
     None,
-    Native,
+    Unstable,
+    Stable,
 }
 
 impl From<SdkSlidingSyncVersion> for SlidingSyncVersion {
     fn from(value: SdkSlidingSyncVersion) -> Self {
         match value {
             SdkSlidingSyncVersion::None => Self::None,
-            SdkSlidingSyncVersion::Native => Self::Native,
+            SdkSlidingSyncVersion::Unstable => Self::Unstable,
+            SdkSlidingSyncVersion::Stable => Self::Stable,
         }
     }
 }
@@ -3554,7 +3843,8 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
     fn try_from(value: SlidingSyncVersion) -> Result<Self, Self::Error> {
         Ok(match value {
             SlidingSyncVersion::None => Self::None,
-            SlidingSyncVersion::Native => Self::Native,
+            SlidingSyncVersion::Unstable => Self::Unstable,
+            SlidingSyncVersion::Stable => Self::Stable,
         })
     }
 }
@@ -3741,15 +4031,26 @@ impl TryFrom<RumaAllowRule> for AllowRule {
 /// Information about a MatrixRTC transport advertised by the homeserver.
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum RtcTransport {
-    /// A LiveKit RTC transport.
+    /// A LiveKit RTC transport with the `m.livekit` type, as defined in the
+    /// merged state of MSC4195.
     LiveKit {
         /// The WebSocket URL of the LiveKit SFU.
-        url: Option<String>,
+        url: String,
 
         /// The URL of the LiveKit JWT service.
         ///
         /// Deprecated in favor of `url`. Should only be used when backwards
-        /// compatibility with older versions of MSC4195 is required
+        /// compatibility with older versions of MSC4195 is required.
+        service_url: Option<String>,
+    },
+
+    /// A LiveKit RTC transport with the legacy `livekit` type, used by
+    /// implementations of earlier versions of MSC4195.
+    LegacyLiveKit {
+        /// The WebSocket URL of the LiveKit SFU.
+        url: Option<String>,
+
+        /// The URL of the LiveKit JWT service.
         service_url: Option<String>,
     },
 
@@ -3766,13 +4067,16 @@ pub enum RtcTransport {
 }
 
 impl From<&RumaRtcTransport> for RtcTransport {
-    // `service_url` is deprecated, but still exposed for backwards
-    // compatibility.
+    // `LegacyLiveKit` and `service_url` are deprecated, but still exposed for
+    // backwards compatibility.
     #[allow(deprecated)]
     fn from(value: &RumaRtcTransport) -> Self {
         match value {
             RumaRtcTransport::LiveKit(info) => {
                 Self::LiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
+            }
+            RumaRtcTransport::LegacyLiveKit(info) => {
+                Self::LegacyLiveKit { url: info.url.clone(), service_url: info.service_url.clone() }
             }
             _ => Self::Custom {
                 transport_type: value.transport_type().to_owned(),
@@ -4126,7 +4430,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn test_rtc_transport_conversion() {
-        use ruma::api::client::rtc::RtcTransport as RumaRtcTransport;
+        use ruma::api::client::rtc::{LegacyLiveKitRtcTransport, RtcTransport as RumaRtcTransport};
         use strass::assert_let;
 
         use super::RtcTransport;
@@ -4135,8 +4439,29 @@ mod tests {
         transport.service_url = Some("https://livekit-jwt.example.com".to_owned());
         let livekit = RumaRtcTransport::LiveKit(transport);
         assert_let!(RtcTransport::LiveKit { url, service_url } = RtcTransport::from(&livekit));
-        assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(url, "wss://livekit.example.com");
         assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
+
+        // The legacy `livekit` transport type keeps its own variant.
+        let legacy_livekit =
+            RumaRtcTransport::LegacyLiveKit(LegacyLiveKitRtcTransport::with_service_url(
+                "https://livekit-jwt.example.com".to_owned(),
+            ));
+        assert_let!(
+            RtcTransport::LegacyLiveKit { url, service_url } = RtcTransport::from(&legacy_livekit)
+        );
+        assert_eq!(url, None);
+        assert_eq!(service_url.as_deref(), Some("https://livekit-jwt.example.com"));
+
+        // A legacy `livekit` transport naming only its SFU url is still legacy.
+        let legacy_livekit = RumaRtcTransport::LegacyLiveKit(LegacyLiveKitRtcTransport::new(
+            "wss://livekit.example.com".to_owned(),
+        ));
+        assert_let!(
+            RtcTransport::LegacyLiveKit { url, service_url } = RtcTransport::from(&legacy_livekit)
+        );
+        assert_eq!(url.as_deref(), Some("wss://livekit.example.com"));
+        assert_eq!(service_url, None);
 
         let custom = RumaRtcTransport::new(
             "com.example.custom",

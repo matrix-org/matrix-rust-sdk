@@ -1,7 +1,7 @@
 [package]
 name = "matrix-sdk-ui"
 description = "GUI-centric utilities on top of matrix-rust-sdk (experimental)."
-version = "0.19.1"
+version = "0.20.0"
 edition = "2024"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
@@ -12,7 +12,7 @@ rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
 default = ["rustls-aws-lc-rs"]
-js = ["matrix-sdk/js"]
+js = ["matrix-sdk/js", "jiff/js"]
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi", "ruma/unstable-uniffi"]
 
 rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs"]
@@ -50,8 +50,8 @@ async-rx = { workspace = true, features = ["alloc"] }
 async-stream.workspace = true
 async_cell.workspace = true
 bitflags.workspace = true
-chrono.workspace = true
-emojis = { version = "0.9.0", default-features = false }
+jiff.workspace = true
+emojis = { version = "0.9.1", default-features = false }
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyeball-im-util.workspace = true

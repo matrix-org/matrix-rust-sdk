@@ -21,8 +21,6 @@ use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 #[cfg(feature = "experimental-x509-identity-verification")]
 use matrix_sdk::encryption::SignatureError;
-#[cfg(not(any(target_family = "wasm")))]
-use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
 use matrix_sdk::search_index::SearchIndexStoreKind;
 use matrix_sdk::{
@@ -50,6 +48,8 @@ use tracing::debug;
 use super::client::Client;
 #[cfg(feature = "experimental-x509-identity-verification")]
 use super::client::{RawX509Signer, RawX509Verifier};
+#[cfg(not(target_family = "wasm"))]
+use crate::http_client::HttpSettings;
 #[cfg(any(feature = "sqlite", feature = "indexeddb"))]
 use crate::store;
 use crate::{
@@ -58,9 +58,6 @@ use crate::{
     helpers::unwrap_or_clone_arc,
     store::{StoreBuilder, StoreBuilderOutcome},
 };
-
-/// A list of bytes containing a certificate in DER or PEM form.
-pub type CertificateBytes = Vec<u8>;
 
 #[derive(Debug, Clone)]
 enum HomeserverConfig {
@@ -168,15 +165,7 @@ pub struct ClientBuilder {
     search_index_store: Option<SearchIndexStoreKind>,
 
     #[cfg(not(target_family = "wasm"))]
-    user_agent: Option<String>,
-    #[cfg(not(target_family = "wasm"))]
-    proxy: Option<String>,
-    #[cfg(not(target_family = "wasm"))]
-    disable_ssl_verification: bool,
-    #[cfg(not(target_family = "wasm"))]
-    disable_built_in_root_certificates: bool,
-    #[cfg(not(target_family = "wasm"))]
-    additional_root_certificates: Vec<Vec<u8>>,
+    http_settings: HttpSettings,
 
     threading_support: ThreadingSupport,
 
@@ -204,19 +193,11 @@ impl ClientBuilder {
             system_is_memory_constrained: false,
             homeserver_cfg: None,
             #[cfg(not(target_family = "wasm"))]
-            user_agent: None,
+            http_settings: Default::default(),
             sliding_sync_version_builder: SlidingSyncVersionBuilder::None,
-            #[cfg(not(target_family = "wasm"))]
-            proxy: None,
-            #[cfg(not(target_family = "wasm"))]
-            disable_ssl_verification: false,
             disable_automatic_token_refresh: false,
             cross_process_lock_config: CrossProcessLockConfig::SingleProcess,
             session_delegate: None,
-            #[cfg(not(target_family = "wasm"))]
-            additional_root_certificates: Default::default(),
-            #[cfg(not(target_family = "wasm"))]
-            disable_built_in_root_certificates: false,
             encryption_settings: EncryptionSettings {
                 auto_enable_cross_signing: false,
                 backup_download_strategy:
@@ -566,40 +547,24 @@ impl ClientBuilder {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            let mut certificates = Vec::new();
-            for certificate in builder.additional_root_certificates {
-                // We don't really know what type of certificate we may get
-                // here, so let's try first one type, then the other.
-                match Certificate::from_der(&certificate) {
-                    Ok(cert) => {
-                        certificates.push(cert);
-                    }
-                    Err(der_error) => {
-                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
-                            ClientBuildError::Generic {
-                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
-                            }
-                        })?;
-                        certificates.push(cert);
-                    }
-                }
-            }
+            let http_settings = matrix_sdk::HttpSettings::from(builder.http_settings);
 
-            inner_builder = inner_builder.add_root_certificates(certificates);
+            inner_builder =
+                inner_builder.add_root_certificates(http_settings.additional_root_certificates);
 
-            if builder.disable_built_in_root_certificates {
+            if http_settings.disable_built_in_root_certificates {
                 inner_builder = inner_builder.disable_built_in_root_certificates();
             }
 
-            if let Some(proxy) = builder.proxy {
+            if let Some(proxy) = http_settings.proxy {
                 inner_builder = inner_builder.proxy(proxy);
             }
 
-            if builder.disable_ssl_verification {
+            if http_settings.disable_ssl_verification {
                 inner_builder = inner_builder.disable_ssl_verification();
             }
 
-            if let Some(user_agent) = builder.user_agent {
+            if let Some(user_agent) = http_settings.user_agent {
                 inner_builder = inner_builder.user_agent(user_agent);
             }
         }
@@ -622,37 +587,30 @@ impl ClientBuilder {
                 inner_builder = inner_builder
                     .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::None)
             }
-            SlidingSyncVersionBuilder::Native => {
+            SlidingSyncVersionBuilder::Unstable => {
                 inner_builder = inner_builder
-                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Native)
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Unstable)
             }
-            SlidingSyncVersionBuilder::DiscoverNative => {
+            SlidingSyncVersionBuilder::Stable => {
                 inner_builder = inner_builder
-                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverNative)
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Stable)
+            }
+            SlidingSyncVersionBuilder::DiscoverUnstable => {
+                inner_builder = inner_builder
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverUnstable)
+            }
+            SlidingSyncVersionBuilder::DiscoverStable => {
+                inner_builder = inner_builder
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::DiscoverStable)
+            }
+            SlidingSyncVersionBuilder::Discover => {
+                inner_builder = inner_builder
+                    .sliding_sync_version_builder(MatrixSlidingSyncVersionBuilder::Discover)
             }
         }
 
         if let Some(config) = builder.request_config {
-            let mut updated_config = matrix_sdk::config::RequestConfig::default();
-            if let Some(retry_limit) = config.retry_limit {
-                updated_config =
-                    updated_config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
-            }
-            if let Some(timeout) = config.timeout {
-                updated_config = updated_config.timeout(Duration::from_millis(timeout));
-            }
-            updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
-            if let Some(max_concurrent_requests) = config.max_concurrent_requests
-                && max_concurrent_requests > 0
-            {
-                updated_config = updated_config
-                    .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
-            }
-            if let Some(max_retry_time) = config.max_retry_time {
-                updated_config =
-                    updated_config.max_retry_time(Duration::from_millis(max_retry_time));
-            }
-            inner_builder = inner_builder.request_config(updated_config);
+            inner_builder = inner_builder.request_config(config.into());
         }
 
         inner_builder = inner_builder
@@ -794,58 +752,15 @@ impl ClientBuilder {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
-    pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
+    /// Configure the HTTP client: proxy, user agent, TLS settings and extra
+    /// root certificates. Timeouts are set with
+    /// [`ClientBuilder::request_config`].
+    pub fn http_settings(self: Arc<Self>, settings: HttpSettings) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        #[cfg(not(target_family = "wasm"))]
-        {
-            builder.proxy = Some(url);
-        }
-        Arc::new(builder)
-    }
-
-    pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        #[cfg(not(target_family = "wasm"))]
-        {
-            builder.disable_ssl_verification = true;
-        }
-        Arc::new(builder)
-    }
-
-    pub fn add_root_certificates(
-        self: Arc<Self>,
-        certificates: Vec<CertificateBytes>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            builder.additional_root_certificates = certificates;
-        }
-
-        Arc::new(builder)
-    }
-
-    /// Don't trust any system root certificates, only trust the certificates
-    /// provided through
-    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
-    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        #[cfg(not(target_family = "wasm"))]
-        {
-            builder.disable_built_in_root_certificates = true;
-        }
-        Arc::new(builder)
-    }
-
-    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        #[cfg(not(target_family = "wasm"))]
-        {
-            builder.user_agent = Some(user_agent);
-        }
+        builder.http_settings = settings;
         Arc::new(builder)
     }
 }
@@ -861,13 +776,43 @@ pub struct RequestConfig {
     max_concurrent_requests: Option<u64>,
     /// Base delay between retries.
     max_retry_time: Option<u64>,
+    /// Timeout for each read operation in milliseconds, which resets after a
+    /// successful read. Defaults to 60 seconds.
+    #[uniffi(default = None)]
+    read_timeout: Option<u64>,
+}
+
+impl From<RequestConfig> for matrix_sdk::config::RequestConfig {
+    fn from(value: RequestConfig) -> Self {
+        let read_timeout = value.read_timeout.map_or(DEFAULT_READ_TIMEOUT, Duration::from_millis);
+        let mut config = Self::default().read_timeout(read_timeout);
+        if let Some(retry_limit) = value.retry_limit {
+            config = config.retry_limit(retry_limit.try_into().unwrap_or(usize::MAX));
+        }
+        if let Some(timeout) = value.timeout {
+            config = config.timeout(Duration::from_millis(timeout));
+        }
+        if let Some(max_concurrent_requests) = value.max_concurrent_requests
+            && max_concurrent_requests > 0
+        {
+            config =
+                config.max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
+        }
+        if let Some(max_retry_time) = value.max_retry_time {
+            config = config.max_retry_time(Duration::from_millis(max_retry_time));
+        }
+        config
+    }
 }
 
 #[derive(Clone, uniffi::Enum)]
 pub enum SlidingSyncVersionBuilder {
     None,
-    Native,
-    DiscoverNative,
+    Unstable,
+    Stable,
+    DiscoverUnstable,
+    DiscoverStable,
+    Discover,
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]

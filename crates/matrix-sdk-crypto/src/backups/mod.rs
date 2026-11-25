@@ -635,8 +635,8 @@ impl BackupMachine {
 mod tests {
     use std::collections::BTreeMap;
 
-    use matrix_sdk_test::async_test;
-    use ruma::{CanonicalJsonValue, DeviceId, RoomId, UserId, device_id, room_id, user_id};
+    use matrix_sdk_test::{TestDevice, TestRoom, User, async_test};
+    use ruma::CanonicalJsonValue;
     use serde_json::json;
     use strass::assert_let;
 
@@ -667,22 +667,6 @@ mod tests {
             .expect("We should be able to deserialize our backed up room key")
     }
 
-    fn alice_id() -> &'static UserId {
-        user_id!("@alice:example.org")
-    }
-
-    fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
-    }
-
-    fn room_id() -> &'static RoomId {
-        room_id!("!test:localhost")
-    }
-
-    fn room_id2() -> &'static RoomId {
-        room_id!("!test2:localhost")
-    }
-
     async fn backup_flow(machine: OlmMachine) -> Result<(), OlmError> {
         let backup_machine = machine.backup_machine();
         let backup_version = current_backup_version(backup_machine).await;
@@ -693,8 +677,12 @@ mod tests {
         assert_eq!(counts.total, 0, "Initially no keys exist");
         assert_eq!(counts.backed_up, 0, "Initially no backed up keys exist");
 
-        machine.create_outbound_group_session_with_defaults_test_helper(room_id()).await?;
-        machine.create_outbound_group_session_with_defaults_test_helper(room_id2()).await?;
+        machine
+            .create_outbound_group_session_with_defaults_test_helper(TestRoom::Default.into())
+            .await?;
+        machine
+            .create_outbound_group_session_with_defaults_test_helper(TestRoom::V12.into())
+            .await?;
 
         let counts =
             backup_machine.store.inbound_group_session_counts(backup_version.as_deref()).await?;
@@ -748,14 +736,14 @@ mod tests {
 
     #[async_test]
     async fn test_memory_store_backups() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(User::Alice.into(), TestDevice::Default.into()).await;
 
         backup_flow(machine).await
     }
 
     #[async_test]
     async fn test_verify_auth_data() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(User::Alice.into(), TestDevice::Default.into()).await;
         let backup_machine = machine.backup_machine();
 
         let auth_data = json!({
@@ -834,7 +822,7 @@ mod tests {
 
     #[async_test]
     async fn test_import_backed_up_room_keys() {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(User::Alice.into(), TestDevice::Default.into()).await;
         let backup_machine = machine.backup_machine();
 
         // We set up a backup key, so that we can test `backup_machine.backup()`
@@ -844,16 +832,15 @@ mod tests {
         backup_key.set_version("1".to_owned());
         backup_machine.enable_backup_v1(backup_key).await.expect("Couldn't enable backup");
 
-        let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
+        let room_id = TestRoom::Default;
         let session_id = "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU";
         let room_key = room_key();
 
-        let room_keys: BTreeMap<_, BTreeMap<_, _>> = BTreeMap::from([(
-            room_id.to_owned(),
-            BTreeMap::from([(session_id.to_owned(), room_key)]),
-        )]);
+        let room_keys: BTreeMap<_, BTreeMap<_, _>> =
+            BTreeMap::from([(room_id.into(), BTreeMap::from([(session_id.to_owned(), room_key)]))]);
 
-        let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
+        let session =
+            machine.store().get_inbound_group_session(room_id.into(), session_id).await.unwrap();
 
         assert!(session.is_none(), "Initially we should not have the session in the store");
 
@@ -865,7 +852,8 @@ mod tests {
 
         // Now check that the session was correctly imported, and that it is
         // marked as backed up
-        let session = machine.store().get_inbound_group_session(room_id, session_id).await.unwrap();
+        let session =
+            machine.store().get_inbound_group_session(room_id.into(), session_id).await.unwrap();
         assert_let!(Some(session) = session);
         assert!(
             session.backed_up(),
@@ -884,7 +872,7 @@ mod tests {
 
     #[async_test]
     async fn test_sign_backup_info() {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(User::Alice.into(), TestDevice::Default.into()).await;
         let backup_machine = machine.backup_machine();
 
         let decryption_key = BackupDecryptionKey::new();
@@ -918,7 +906,7 @@ mod tests {
 
         // Create the machine using `with_store` and without a call to
         // enable_backup_v1, like regenerate_olm would do
-        let alice = OlmMachineBuilder::new(alice_id(), alice_device_id())
+        let alice = OlmMachineBuilder::new(User::Alice.into(), TestDevice::Default.into())
             .with_crypto_store(store)
             .build()
             .await

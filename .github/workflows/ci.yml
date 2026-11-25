@@ -68,7 +68,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v 2.90.5
         with:
           tool: nextest
 
@@ -106,7 +106,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v 2.90.5
         with:
           tool: nextest
 
@@ -150,7 +150,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v 2.90.5
         with:
           tool: nextest
 
@@ -192,7 +192,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: protoc@3.20.3
 
@@ -214,7 +214,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v 2.90.5
         with:
           tool: nextest
 
@@ -294,7 +294,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v 2.90.5
         with:
           tool: nextest
 
@@ -325,7 +325,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the spelling of the files in our repo
-        uses: crate-ci/typos@7f9d0819ca1c008ade73f4b41fa9d258d48f605b # v1.51.1
+        uses: crate-ci/typos@276087d9a4f06398b3e04825487805e2d7375888 # v1.52.2
 
   lint:
     name: Lint
@@ -339,7 +339,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: protoc@3.20.3
 
@@ -417,7 +417,7 @@ jobs:
           lookup-only: true
 
       - name: Install nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v 2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v 2.90.5
         with:
           tool: nextest
 

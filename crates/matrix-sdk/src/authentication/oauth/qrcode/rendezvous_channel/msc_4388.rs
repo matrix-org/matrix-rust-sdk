@@ -106,7 +106,7 @@ impl Channel {
     pub(super) async fn create_outbound(client: &Client) -> Result<Self, SecureChannelError> {
         let base_url =
             LimitedUrl::new(client.homeserver()).map_err(MessageDecodeError::TooLongBaseUrl)?;
-        let request = create_rendezvous_session::unstable_msc4388::Request::new("".to_owned());
+        let request = create_rendezvous_session::msc4388::Request::new("".to_owned());
 
         let response = client.send(request).await?;
 
@@ -161,7 +161,7 @@ impl Channel {
     /// device.
     #[instrument(skip_all)]
     pub(super) async fn send(&mut self, message: String) -> Result<(), SecureChannelError> {
-        let request = update_rendezvous_session::unstable::Request::new(
+        let request = update_rendezvous_session::msc4388::Request::new(
             self.rendezvous_id.to_string(),
             TransactionId::new(),
             self.sequence_token.to_string(),
@@ -231,9 +231,9 @@ impl Channel {
         client: &HttpClient,
         base_url: &Url,
         rendezvous_id: &RendezvousId,
-    ) -> Result<get_rendezvous_session::unstable::Response, HttpError> {
+    ) -> Result<get_rendezvous_session::msc4388::Response, HttpError> {
         let request =
-            get_rendezvous_session::unstable::Request::new(rendezvous_id.as_str().to_owned());
+            get_rendezvous_session::msc4388::Request::new(rendezvous_id.as_str().to_owned());
         client
             .send(
                 request,

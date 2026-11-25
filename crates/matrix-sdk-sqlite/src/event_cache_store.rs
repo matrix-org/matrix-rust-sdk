@@ -43,9 +43,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
 };
-use rusqlite::{
-    OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
-};
+use rusqlite::{OptionalExtension, ToSql, Transaction, params, params_from_iter};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
@@ -97,12 +95,22 @@ impl Encryption {
         let raw_event = event.raw();
         let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
 
+        // An event is a state event if it has a `state_key`, even if it's
+        // empty. Empty state keys are encoded too, so they can be told apart
+        // from a missing one.
+        let state_key = raw_event
+            .get_field::<String>("state_key")
+            .ok()
+            .flatten()
+            .map(|state_key| self.encode_key(keys::EVENTS, state_key));
+
         // The content may be encrypted.
         let content = self.encode_value(serialized)?;
 
         Ok(EncodedEvent {
             content,
             rel_type,
+            state_key,
             relates_to: relates_to
                 .map(|relates_to| self.encode_event_id(keys::EVENTS, &relates_to)),
         })
@@ -297,6 +305,15 @@ impl SqliteEventCacheStore {
 
         let connection = write_connection.lock_owned().await;
 
+        // Specify a busy timeout so that operations are automatically retried,
+        // in case the database was marked as locked, which can happen
+        // under very peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
+
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
         // time we try to get a connection, since we can't guarantee a previous
@@ -363,6 +380,9 @@ struct EncodedEvent {
     content: Vec<u8>,
     rel_type: Option<String>,
     relates_to: Option<Key>,
+    /// The (possibly) hashed `state_key` of the event, if any. An empty
+    /// `state_key` is still `Some`.
+    state_key: Option<Key>,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -486,7 +506,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         // fails with the error message: "cannot change into wal mode from
         // within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/001_init.sql"))?;
             txn.set_db_version(1)
         })
@@ -495,7 +515,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 2 {
         debug!("Upgrading database to version 2");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/002_lease_locks.sql"))?;
             txn.set_db_version(2)
         })
@@ -504,7 +524,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 3 {
         debug!("Upgrading database to version 3");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
             txn.set_db_version(3)
         })
@@ -513,7 +533,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 4 {
         debug!("Upgrading database to version 4");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/004_ignore_policy.sql"
             ))?;
@@ -524,7 +544,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 5 {
         debug!("Upgrading database to version 5");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/005_events_index_on_event_id.sql"
             ))?;
@@ -535,7 +555,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 6 {
         debug!("Upgrading database to version 6");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
             txn.set_db_version(6)
         })
@@ -544,7 +564,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 7 {
         debug!("Upgrading database to version 7");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/007_event_chunks.sql"
             ))?;
@@ -555,7 +575,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 8 {
         debug!("Upgrading database to version 8");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/008_linked_chunk_id.sql"
             ))?;
@@ -566,7 +586,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 9 {
         debug!("Upgrading database to version 9");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/009_related_event_index.sql"
             ))?;
@@ -577,7 +597,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 10 {
         debug!("Upgrading database to version 10");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))?;
             txn.set_db_version(10)
         })
@@ -592,7 +612,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 11 {
         debug!("Upgrading database to version 11");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/011_empty_event_cache.sql"
             ))?;
@@ -603,7 +623,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 12 {
         debug!("Upgrading database to version 12");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/012_store_event_type.sql"
             ))?;
@@ -614,7 +634,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 13 {
         debug!("Upgrading database to version 13");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
             ))?;
@@ -625,7 +645,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 14 {
         debug!("Upgrading database to version 14");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
             ))?;
@@ -636,7 +656,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 15 {
         debug!("Upgrading database to version 15");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/015_event_ids_are_encoded.sql"
             ))?;
@@ -647,7 +667,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 16 {
         debug!("Upgrading database to version 16");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/016_threads.sql"))?;
             txn.set_db_version(16)
         })
@@ -656,7 +676,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 17 {
         debug!("Upgrading database to version 17");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/017_threads_with_thread_infos.sql"
             ))?;
@@ -667,9 +687,31 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
     if version < 18 {
         debug!("Upgrading database to version 18");
-        conn.with_transaction(|txn| {
+        conn.with_immediate_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/018_event_chunks_unique_linked_chunk_id_event_id.sql"))?;
             txn.set_db_version(18)
+        })
+        .await?;
+    }
+
+    if version < 19 {
+        debug!("Upgrading database to version 19");
+        conn.with_immediate_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/019_events_timestamp.sql"
+            ))?;
+            txn.set_db_version(19)
+        })
+        .await?;
+    }
+
+    if version < 20 {
+        debug!("Upgrading database to version 20");
+        conn.with_immediate_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/020_events_state_key.sql"
+            ))?;
+            txn.set_db_version(20)
         })
         .await?;
     }
@@ -698,7 +740,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration) \
                     VALUES (?1, ?2, ?3) \
@@ -742,7 +784,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         // Use a single transaction throughout this function, so that either all
         // updates work, or none is taken into account.
-        with_immediate_transaction(self, move |txn| {
+        self.write().await?.with_immediate_transaction::<_, Self::Error, _>(move |txn| {
             for update in updates {
                 match update {
                     Update::NewItemsChunk { previous, new, next } => {
@@ -839,7 +881,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // outside the context of a linked chunk (e.g. pinned
                         // event).
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -878,6 +920,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             {
                                 let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
                                 let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
+                                let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                                 let encoded_event = encryption.encode_event(&event)?;
 
                                 content_statement.execute((
@@ -887,7 +930,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    timestamp,
+                                    encoded_event.state_key,
                                 ))?;
                             }
                         }
@@ -924,8 +969,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                             let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
                             let encoded_event = encryption.encode_event(&event)?;
 
+                            let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                             txn.execute(
-                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
                                     &hashed_room_id,
                                     &hashed_event_id,
@@ -933,7 +979,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    timestamp,
+                                    encoded_event.state_key,
                                 ),
                             )?;
                         }
@@ -1464,7 +1512,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.execute(
                     "INSERT INTO threads VALUES (?, ?, ?, ?)",
                     (hashed_linked_chunk_id, hashed_room_id, hashed_thread_id, encoded_thread_id),
@@ -1490,7 +1538,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| {
+            .with_immediate_transaction(move |txn| {
                 txn.execute(
                     "UPDATE threads SET info = ? WHERE linked_chunk_id = ?",
                     (encoded_thread_info, hashed_linked_chunk_id),
@@ -1510,7 +1558,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             None => {
                 self.write()
                     .await?
-                    .with_transaction(move |txn| {
+                    .with_immediate_transaction(move |txn| {
                         // Remove all the chunks, and let cascading do its job.
                         txn.execute("DELETE FROM linked_chunks", ())?;
 
@@ -1530,7 +1578,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 self.write()
                     .await?
-                    .with_transaction(move |txn| {
+                    .with_immediate_transaction(move |txn| {
                         // Delete linked chunks for the room and pinned-events caches.
                         {
                             let mut delete =
@@ -1749,6 +1797,40 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    async fn find_events_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut results = Vec::new();
+                let mut statement = txn.prepare(
+                    "SELECT content \
+                    FROM events \
+                    WHERE room_id = ? AND timestamp < ? \
+                    ORDER BY timestamp ASC",
+                )?;
+                let rows = statement
+                    .query_map((&hashed_room_id, cutoff_ms), |row| row.get::<_, Vec<u8>>(0))?;
+
+                for row in rows {
+                    let event = encryption.decode_event(&row?)?;
+                    results.push(event);
+                }
+
+                Ok(results)
+            })
+            .await
+    }
+
+    #[instrument(skip(self))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
@@ -1825,9 +1907,10 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         self.write()
             .await?
-            .with_transaction(move |txn| -> Result<_> {
+            .with_immediate_transaction(move |txn| -> Result<_> {
+                let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp, state_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         &hashed_room_id,
                         hashed_event_id,
@@ -1835,7 +1918,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                         hashed_session_id,
                         encoded_event.content,
                         encoded_event.relates_to,
-                        encoded_event.rel_type
+                        encoded_event.rel_type,
+                        timestamp,
+                        encoded_event.state_key,
                     )
                 )?;
 
@@ -1953,46 +2038,6 @@ fn find_event_relations_transaction(
     }
 }
 
-/// Like `deadpool::managed::Object::with_transaction`, but starts the
-/// transaction in immediate (write) mode from the beginning, precluding errors
-/// of the kind SQLITE_BUSY from happening, for transactions that may involve
-/// both reads and writes, and start with a write.
-async fn with_immediate_transaction<
-    T: Send + 'static,
-    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
->(
-    this: &SqliteEventCacheStore,
-    f: F,
-) -> Result<T, Error> {
-    this.write()
-        .await?
-        .interact(move |conn| -> Result<T, Error> {
-            // Start the transaction in IMMEDIATE mode since all updates may
-            // cause writes, to avoid read transactions upgrading to write mode
-            // and causing SQLITE_BUSY errors. See also:
-            // https://www.sqlite.org/lang_transaction.html#deferred_immediate_and_exclusive_transactions
-            conn.set_transaction_behavior(TransactionBehavior::Immediate);
-
-            let code = || -> Result<T, Error> {
-                let txn = conn.transaction()?;
-                let res = f(&txn)?;
-                txn.commit()?;
-                Ok(res)
-            };
-
-            let res = code();
-
-            // Reset the transaction behavior to use Deferred, after this
-            // transaction has been run, whether it was successful or not.
-            conn.set_transaction_behavior(TransactionBehavior::Deferred);
-
-            res
-        })
-        .await
-        // SAFETY: same logic as in [`deadpool::managed::Object::with_transaction`].`
-        .unwrap()
-}
-
 fn insert_chunk(
     txn: &Transaction<'_>,
     linked_chunk_id: &Key,
@@ -2068,12 +2113,15 @@ mod tests {
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
-    use matrix_sdk_test::{TestRoom, async_test};
-    use ruma::{OwnedEventId, event_id};
+    use matrix_sdk_test::{TestRoom, User, async_test, event_factory::EventFactory};
+    use ruma::{EventId, OwnedEventId, event_id, room_id};
     use tempfile::{TempDir, tempdir};
 
     use super::{SqliteEventCacheStore, keys};
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{
+        SqliteStoreConfig,
+        utils::{EncryptableStore, SqliteAsyncConnExt},
+    };
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2104,6 +2152,62 @@ mod tests {
             store.encryption.decode_thread_id(&encoded_thread_id).unwrap();
 
         assert_eq!(thread_id, decoded_thread_id);
+    }
+
+    #[async_test]
+    async fn test_state_key_column() {
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = room_id!("!test:localhost");
+        let f = EventFactory::new().room(room_id).sender(User::Alice);
+
+        let message_id = event_id!("$message");
+        let empty_state_key_ev_id = event_id!("$empty_state_key");
+        let state_key_ev_id = event_id!("$state_key");
+        let state_key = User::Bob.as_str();
+
+        // A message-like event, without a `state_key`.
+        store
+            .save_event(room_id, f.text_msg("hello").event_id(message_id).into_event())
+            .await
+            .unwrap();
+        // A state event with an empty `state_key`.
+        store
+            .save_event(
+                room_id,
+                f.room_topic("topic").state_key("").event_id(empty_state_key_ev_id).into_event(),
+            )
+            .await
+            .unwrap();
+        // A state event with a non-empty `state_key` (in this case, Bob's user
+        // id).
+        store
+            .save_event(room_id, f.member(User::Bob).event_id(state_key_ev_id).into_event())
+            .await
+            .unwrap();
+
+        let stored_state_key = async |event_id: &EventId| -> Option<Vec<u8>> {
+            let hashed_event_id = store.encryption.encode_event_id(keys::EVENTS, event_id);
+            store
+                .read()
+                .await
+                .unwrap()
+                .with_transaction(move |txn| {
+                    txn.query_one(
+                        "SELECT state_key FROM events WHERE event_id = ?",
+                        (hashed_event_id,),
+                        |row| row.get::<_, Option<Vec<u8>>>(0),
+                    )
+                })
+                .await
+                .unwrap()
+        };
+        let encoded_state_key =
+            |state_key: &str| store.encryption.encode_key(keys::EVENTS, state_key).to_vec();
+
+        assert_eq!(stored_state_key(message_id).await, None);
+        assert_eq!(stored_state_key(empty_state_key_ev_id).await, Some(encoded_state_key("")));
+        assert_eq!(stored_state_key(state_key_ev_id).await, Some(encoded_state_key(state_key)));
     }
 
     #[async_test]

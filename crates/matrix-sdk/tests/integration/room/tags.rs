@@ -2,15 +2,14 @@ use std::ops::Not;
 
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::{events::tag::TagName, room_id};
+use ruma::events::tag::TagName;
 
 #[async_test]
 async fn test_set_favourite() {
-    let room_id = room_id!("!test:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room = server.sync_joined_room(&client, room_id).await;
-    let f = EventFactory::new().room(room_id);
+    let room = server.sync_default_joined_room(&client).await;
+    let f = EventFactory::new().default_room();
 
     // Not favourite.
     assert!(room.is_favourite().not());
@@ -24,7 +23,7 @@ async fn test_set_favourite() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_account_data(f.tag_from_names(vec![TagName::Favorite])),
         )
         .await;
@@ -35,16 +34,15 @@ async fn test_set_favourite() {
 
 #[async_test]
 async fn test_set_favourite_on_low_priority_room() {
-    let room_id = room_id!("!test:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
     // Mock a response from the server setting the room as low priority.
     let room = server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_account_data(f.tag_from_names(vec![TagName::LowPriority])),
         )
         .await;
@@ -64,7 +62,7 @@ async fn test_set_favourite_on_low_priority_room() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_account_data(f.tag_from_names(vec![TagName::Favorite])),
         )
         .await;
@@ -76,10 +74,9 @@ async fn test_set_favourite_on_low_priority_room() {
 
 #[async_test]
 async fn test_unset_favourite() {
-    let room_id = room_id!("!test:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     // Server will be called to unset the room as favourite.
     server.mock_delete_tag(&TagName::Favorite).ok().mock_once().mount().await;
@@ -89,11 +86,10 @@ async fn test_unset_favourite() {
 
 #[async_test]
 async fn test_set_low_priority() {
-    let room_id = room_id!("!test:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room = server.sync_joined_room(&client, room_id).await;
-    let f = EventFactory::new().room(room_id);
+    let room = server.sync_default_joined_room(&client).await;
+    let f = EventFactory::new().default_room();
 
     // Not low prioriry.
     assert!(room.is_low_priority().not());
@@ -107,7 +103,7 @@ async fn test_set_low_priority() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_account_data(f.tag_from_names(vec![TagName::LowPriority])),
         )
         .await;
@@ -118,16 +114,15 @@ async fn test_set_low_priority() {
 
 #[async_test]
 async fn test_set_low_priority_on_favourite_room() {
-    let room_id = room_id!("!test:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let f = EventFactory::new().room(room_id);
+    let f = EventFactory::new().default_room();
 
     // Mock a response from the server setting the room as favourite.
     let room = server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_account_data(f.tag_from_names(vec![TagName::Favorite])),
         )
         .await;
@@ -147,7 +142,7 @@ async fn test_set_low_priority_on_favourite_room() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
+            JoinedRoomBuilder::default()
                 .add_account_data(f.tag_from_names(vec![TagName::LowPriority])),
         )
         .await;
@@ -159,10 +154,9 @@ async fn test_set_low_priority_on_favourite_room() {
 
 #[async_test]
 async fn test_unset_low_priority() {
-    let room_id = room_id!("!test:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    let room = server.sync_joined_room(&client, room_id).await;
+    let room = server.sync_default_joined_room(&client).await;
 
     // Server will be called to unset the room as favourite.
     server.mock_delete_tag(&TagName::LowPriority).ok().mock_once().mount().await;

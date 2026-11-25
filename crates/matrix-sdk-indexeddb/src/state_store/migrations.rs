@@ -52,7 +52,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 15;
+const CURRENT_DB_VERSION: u32 = 16;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing data.
@@ -254,6 +254,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 15 {
                 db = migrate_to_v15(db).await?;
+            }
+            if old_version < 16 {
+                db = migrate_to_v16(db).await?;
             }
         }
 
@@ -851,6 +854,16 @@ async fn migrate_to_v15(db: Database) -> Result<Database> {
         data: Default::default(),
     };
     apply_migration(db, 15, migration).await
+}
+
+/// Create the `"unavailable_global_profiles"` object store.
+async fn migrate_to_v16(db: Database) -> Result<Database> {
+    let migration = OngoingMigration {
+        drop_stores: Default::default(),
+        create_stores: [keys::UNAVAILABLE_GLOBAL_PROFILES].into_iter().collect(),
+        data: Default::default(),
+    };
+    apply_migration(db, 16, migration).await
 }
 
 #[cfg(all(test, target_family = "wasm"))]

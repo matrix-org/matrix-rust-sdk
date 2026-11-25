@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "matrix-sdk"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.19.1"
+version = "0.20.0"
 include = [".cargo/mermaid.html", "**/*.rs", "**/*.md"]
 
 [package.metadata.docs.rs]
@@ -15,7 +15,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs", "unstable-msc4388"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -96,10 +96,13 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 unstable-msc4354 = ["matrix-sdk-base/unstable-msc4354"]
 
 # Support for the MSC4388 variant of the QR code login.
-unstable-msc4388 = []
+unstable-msc4388 = ["ruma/unstable-msc4388"]
 
 # Add support for user status profile fields (m.status, m.call).
 unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
+
+# Add support for fetching the global profiles of multiple users (MSC4536).
+unstable-msc4536 = ["matrix-sdk-base/unstable-msc4536"]
 
 # Add support for circle videos (MSC4546).
 unstable-msc4546 = ["ruma/unstable-msc4546"]
@@ -117,7 +120,7 @@ as_variant.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
 axum = { version = "0.8.9", optional = true }
-bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+bytes = { version = "1.12.2", default-features = false, features = ["std"] }
 bytesize = { version = "2.7.0", default-features = false, features = ["std"] }
 event-listener = "5.4.2"
 eyeball.workspace = true
@@ -155,6 +158,7 @@ ruma = { workspace = true, features = [
     "unstable-msc4108",
     "unstable-msc4278",
     "unstable-msc4262",
+    "unstable-msc4536",
 ] }
 serde.workspace = true
 serde_html_form.workspace = true
@@ -191,7 +195,7 @@ tokio = { workspace = true, features = ["macros"] }
 anyhow.workspace = true
 assert-json-diff.workspace = true
 assert_matches.workspace = true
-dirs = "6.0.0"
+dirs = "7.0.0"
 futures-executor.workspace = true
 insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
@@ -204,7 +208,7 @@ serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 strass.workspace = true
 stream_assert.workspace = true
-tokio-test = "0.4.5"
+tokio-test = "0.4.6"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]

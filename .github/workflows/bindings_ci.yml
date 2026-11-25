@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: protoc@3.20.3
 
@@ -89,7 +89,7 @@ jobs:
           persist-credentials: false
 
       - name: Use JDK 17
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: 'temurin' # See 'Supported distributions' for available options
           java-version: '17'
@@ -155,7 +155,7 @@ jobs:
 
       # install protoc in case we end up rebuilding opentelemetry-proto
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: protoc@3.20.3
 
@@ -215,7 +215,7 @@ jobs:
 
       # install protoc in case we end up rebuilding opentelemetry-proto
       - name: Install protoc
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: protoc@3.20.3
 

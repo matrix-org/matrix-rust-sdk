@@ -21,6 +21,7 @@ use std::{
     sync::Arc,
 };
 
+use itertools::Either;
 use matrix_sdk_base::{
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     timer,
@@ -182,7 +183,7 @@ impl StateLock {
                 };
 
                 // Reload the state.
-                guard.reload(ReloadPreprocessing::None).await?;
+                guard.reload(ReloadPreprocessing::None, None).await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
@@ -229,7 +230,7 @@ impl StateLock {
                 };
 
                 // Reload the state.
-                guard.reload(ReloadPreprocessing::None).await?;
+                guard.reload(ReloadPreprocessing::None, None).await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
@@ -269,9 +270,10 @@ impl StateLock {
         // Clear all the events.
         guard.store.clear_all_events(room_id).await?;
 
-        // At this point, all the in-memory `LinkedChunk`s are desynchronised
-        // from the storage. Resynchronise them manually by reloading them.
-        guard.reload(ReloadPreprocessing::ForgetAll).await?;
+        // At this point, all the affected in-memory `LinkedChunk`s are
+        // desynchronised from the storage. Resynchronise them manually
+        // by reloading them.
+        guard.reload(ReloadPreprocessing::ForgetAll, room_id).await?;
 
         if EventCacheStoreLockGuard::is_dirty(&guard.store) {
             // All good because the state has been reloaded, mark the
@@ -488,13 +490,24 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         }
     }
 
-    async fn reload(&mut self, preprocessing: ReloadPreprocessing) -> Result<()> {
+    async fn reload(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+        room_id: Option<&RoomId>,
+    ) -> Result<()> {
         trace!("Reloading the state");
 
-        // Iterate over all states and reload them.
-        for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
-            self.state.by_room.iter_mut()
-        {
+        let rooms = if let Some(room_id) = room_id {
+            Either::Left(
+                self.state.by_room.get_mut(room_id).into_iter().map(move |state| (room_id, state)),
+            )
+        } else {
+            Either::Right(
+                self.state.by_room.iter_mut().map(|(event_id, state)| (event_id.as_ref(), state)),
+            )
+        };
+
+        for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in rooms {
             // Room.
             if let Some(room_state) = room {
                 let mut room_state = StateLockWriteGuard {
@@ -509,7 +522,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
                     }),
-                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
+                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
                 );
             }
 
@@ -528,7 +541,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
                     }),
-                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
+                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
                 );
                 thread_state
                     .update_sender
@@ -683,7 +696,7 @@ where
     /// test.
     #[cfg(test)]
     pub async fn reload_no_preprocessing(&self) -> Result<()> {
-        self.state_lock.write().await?.reload(ReloadPreprocessing::None).await
+        self.state_lock.write().await?.reload(ReloadPreprocessing::None, None).await
     }
 }
 

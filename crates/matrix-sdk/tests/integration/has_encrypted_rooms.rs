@@ -4,19 +4,19 @@ use assert_matches::assert_matches;
 use matrix_sdk::{
     Error, sliding_sync::Version as SlidingSyncVersion, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use ruma::{RoomVersionId, UInt, api::client::sync::sync_events::v5, assign, room_id, user_id};
+use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
+use ruma::{RoomVersionId, UInt, api::client::sync::sync_events::msc4186, assign};
 use serde_json::json;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{body_partial_json, method, path, query_param},
 };
 
-fn encrypted_rooms_count_response(count: u32) -> v5::Response {
-    let mut response = v5::Response::new("pos".to_owned());
+fn encrypted_rooms_count_response(count: u32) -> msc4186::Response {
+    let mut response = msc4186::Response::new("pos".to_owned());
     response.lists.insert(
         "encrypted_rooms".to_owned(),
-        assign!(v5::response::List::default(), { count: UInt::from(count) }),
+        assign!(msc4186::response::List::default(), { count: UInt::from(count) }),
     );
     response
 }
@@ -24,7 +24,7 @@ fn encrypted_rooms_count_response(count: u32) -> v5::Response {
 async fn new_server_and_client() -> (MatrixMockServer, matrix_sdk::Client) {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    client.set_sliding_sync_version(SlidingSyncVersion::Native);
+    client.set_sliding_sync_version(SlidingSyncVersion::Unstable);
 
     (server, client)
 }
@@ -91,9 +91,8 @@ async fn test_has_encrypted_rooms_knows_cached_encrypted_rooms() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id!("!encrypted:bar.org")).add_state_event(
-                EventFactory::new().sender(user_id!("@example:bar.org")).room_encryption(),
-            ),
+            JoinedRoomBuilder::default()
+                .add_state_event(EventFactory::new().sender(User::Alice).room_encryption()),
         )
         .await;
 
@@ -108,7 +107,7 @@ async fn test_has_encrypted_rooms_counts_unknown_encryption_as_encrypted() {
 
     // This room comes from a regular sync, which doesn't tell whether the room
     // is encrypted or not, so its encryption state is unknown.
-    let room = server.sync_joined_room(&client, room_id!("!unknown:bar.org")).await;
+    let room = server.sync_default_joined_room(&client).await;
     assert!(room.encryption_state().is_unknown());
 
     // Do not mock the sliding sync endpoint to make sure an unknown encryption
@@ -125,10 +124,8 @@ async fn test_has_encrypted_rooms_ignores_spaces_in_the_cache() {
     let room = server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id!("!space:bar.org")).add_state_event(
-                EventFactory::new()
-                    .create(user_id!("@example:bar.org"), RoomVersionId::V11)
-                    .with_space_type(),
+            JoinedRoomBuilder::default().add_state_event(
+                EventFactory::new().create(User::Alice, RoomVersionId::V11).with_space_type(),
             ),
         )
         .await;

@@ -7,13 +7,12 @@ license = "Apache-2.0"
 name = "matrix-sdk-test"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.19.1"
+version = "0.20.0"
 
 [package.metadata.release]
 release = true
 
 [lib]
-test = false
 doctest = false
 
 [features]
@@ -23,9 +22,8 @@ experimental-encrypted-state-events = ["ruma/unstable-msc4362"]
 as_variant.workspace = true
 http.workspace = true
 indexmap.workspace = true
-insta.workspace = true
-matrix-sdk-common = { version = "0.19.1", path = "../../crates/matrix-sdk-common" }
-matrix-sdk-test-macros = { version = "0.19.1", path = "../matrix-sdk-test-macros" }
+matrix-sdk-common = { version = "0.20.0", path = "../../crates/matrix-sdk-common" }
+matrix-sdk-test-macros = { version = "0.20.0", path = "../matrix-sdk-test-macros" }
 # Enable the unstable feature for polls support.
 # "client-api-s" enables need the "server" feature of ruma-client-api, which is needed to serialize Response objects to JSON.
 ruma = { workspace = true, features = ["client-api-s", "rand", "unstable-msc3381", "unstable-msc4274"] }
@@ -43,6 +41,9 @@ wiremock.workspace = true
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 wasm-bindgen-test.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
 
 [lints]
 workspace = true

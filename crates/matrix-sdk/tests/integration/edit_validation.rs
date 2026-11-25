@@ -4,22 +4,17 @@ use matrix_sdk::{
     EditValidityError, check_validity_of_replacement_events,
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
 };
-use matrix_sdk_test::event_factory::EventFactory;
+use matrix_sdk_test::{TestDevice, User, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{AnySyncTimelineEvent, room::message::RoomMessageEventContentWithoutRelation},
     serde::Raw,
-    user_id,
 };
 use serde_json::json;
 
 fn original_event() -> Raw<AnySyncTimelineEvent> {
     let event_factory = EventFactory::new();
-    event_factory
-        .sender(user_id!("@example:localhost"))
-        .text_msg("Hello world")
-        .event_id(event_id!("$asbc"))
-        .into()
+    event_factory.sender(User::Default).text_msg("Hello world").event_id(event_id!("$asbc")).into()
 }
 
 #[test]
@@ -28,7 +23,7 @@ fn test_edit_validity_invalid_sender() {
     let event = original_event();
 
     let replacement = event_factory
-        .sender(user_id!("@not_example:localhost"))
+        .sender(User::Alice)
         .text_msg("* edit")
         .edit(event_id!("$asbc"), RoomMessageEventContentWithoutRelation::text_plain("edit"))
         .into();
@@ -53,8 +48,8 @@ fn test_edit_validity_replacement_is_state_event() {
         },
         "event_id":"$xG2xPOiRLXoEjG4Cgq:dummy.org",
         "origin_server_ts":0,
-        "sender":"@example:localhost",
-        "state_key":"@example:localhost",
+        "sender": User::Default,
+        "state_key": User::Default,
         "type":"m.room.message"
     }))
     .unwrap()
@@ -67,7 +62,7 @@ fn test_edit_validity_replacement_is_state_event() {
 
 #[test]
 fn test_edit_validity_original_is_edit_as_well() {
-    let event_factory = EventFactory::new().sender(user_id!("@example:localhost"));
+    let event_factory = EventFactory::new().sender(User::Default);
 
     let event = event_factory
         .text_msg("Hello world")
@@ -94,7 +89,7 @@ fn test_edit_validity_mismatched_content() {
     let event = original_event();
 
     let replacement = event_factory
-        .sender(user_id!("@example:localhost"))
+        .sender(User::Default)
         .poll_edit(event_id!("$asbc"), "Foo", vec!["bar"])
         .into();
 
@@ -108,8 +103,7 @@ fn test_edit_validity_replacement_not_replacement() {
     let event_factory = EventFactory::new();
     let event = original_event();
 
-    let replacement =
-        event_factory.sender(user_id!("@example:localhost")).text_msg("* edit").into();
+    let replacement = event_factory.sender(User::Default).text_msg("* edit").into();
 
     let result = check_validity_of_replacement_events(&event, None, &replacement, None);
 
@@ -118,13 +112,13 @@ fn test_edit_validity_replacement_not_replacement() {
 
 #[test]
 fn test_edit_validity_replacement_is_not_encrypted() {
-    let user_id = user_id!("@example:localhost");
+    let user_id = User::Default;
     let event_factory = EventFactory::new();
     let event = original_event();
 
     let original_encryption_info = Some(EncryptionInfo {
         sender: user_id.into(),
-        sender_device: Some("DEVICEID".into()),
+        sender_device: Some(TestDevice::Default.into()),
         forwarder: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "1337".to_owned(),
@@ -152,12 +146,12 @@ fn test_edit_validity_replacement_is_not_encrypted() {
 
 #[test]
 fn test_edit_validity_replacement_is_missing_new_content() {
-    let user_id = user_id!("@example:localhost");
+    let user_id = User::Default;
     let event = original_event();
 
     let original_encryption_info = Some(EncryptionInfo {
         sender: user_id.into(),
-        sender_device: Some("DEVICEID".into()),
+        sender_device: Some(TestDevice::Default.into()),
         forwarder: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "1337".to_owned(),
@@ -178,7 +172,7 @@ fn test_edit_validity_replacement_is_missing_new_content() {
         },
         "event_id":"$xG2xPOiRLXoEjG4Cgq:dummy.org",
         "origin_server_ts":0,
-        "sender":"@example:localhost",
+        "sender": user_id,
         "type":"m.room.message"
     }))
     .unwrap()
@@ -200,7 +194,7 @@ fn test_edit_validity_valid_edit() {
     let event = original_event();
 
     let replacement = event_factory
-        .sender(user_id!("@example:localhost"))
+        .sender(User::Default)
         .text_msg("* edit")
         .edit(event_id!("$asbc"), RoomMessageEventContentWithoutRelation::text_plain("edit"))
         .into();

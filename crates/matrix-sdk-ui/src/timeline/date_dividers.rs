@@ -17,7 +17,7 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use chrono::{Datelike, Local, TimeZone};
+use jiff::{Timestamp, ZonedDateTime, tz::TimeZone};
 use ruma::MilliSecondsSinceUnixEpoch;
 use tracing::{Level, error, event_enabled, instrument, trace, warn};
 
@@ -28,9 +28,9 @@ use super::{
 
 #[derive(Debug, PartialEq)]
 struct Date {
-    year: i32,
-    month: u32,
-    day: u32,
+    day: i8,
+    month: i8,
+    year: i16,
 }
 
 impl Date {
@@ -41,15 +41,12 @@ impl Date {
 
 /// Converts a timestamp since Unix Epoch to a year, month and day.
 fn timestamp_to_date(ts: MilliSecondsSinceUnixEpoch) -> Date {
-    let datetime = Local
-        .timestamp_millis_opt(ts.0.into())
-        // Only returns `None` if date is after Dec 31, 262143 BCE.
-        .single()
-        // Fallback to the current date to avoid issues with malicious
-        // homeservers.
-        .unwrap_or_else(Local::now);
+    let date = ZonedDateTime::new(
+        Timestamp::from_millisecond(ts.0.into()).unwrap_or_else(|_| Timestamp::now()),
+        TimeZone::system(),
+    );
 
-    Date { year: datetime.year(), month: datetime.month(), day: datetime.day() }
+    Date { month: date.month(), year: date.year(), day: date.day() }
 }
 
 /// Algorithm ensuring that date dividers are adjusted correctly, according to

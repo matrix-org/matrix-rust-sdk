@@ -199,7 +199,7 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
             for i in (0..30).rev() {
                 events.push(
                     f.text_msg(format!("hello world {i}"))
-                        .event_id(&EventId::parse(format!("$ev{i}")).unwrap()),
+                        .event_id(EventId::parse(format!("$ev{i}")).unwrap()),
                 );
             }
             events
@@ -1047,7 +1047,7 @@ async fn test_lazy_back_pagination() {
                     room = room.add_timeline_event(
                         event_factory
                             .text_msg("foo")
-                            .event_id(&EventId::parse(format!("$ev{nth}")).unwrap()),
+                            .event_id(EventId::parse(format!("$ev{nth}")).unwrap()),
                     );
                 }
 
@@ -1180,7 +1180,7 @@ async fn test_lazy_back_pagination() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev{nth}")).unwrap())
                         })
                         .collect::<Vec<_>>()
                 }))
@@ -1230,7 +1230,7 @@ async fn test_lazy_back_pagination() {
                         .map(|nth| {
                             event_factory
                                 .text_msg("foo")
-                                .event_id(&EventId::parse(format!("$ev{nth}")).unwrap())
+                                .event_id(EventId::parse(format!("$ev{nth}")).unwrap())
                         })
                         .collect::<Vec<_>>()
                 }))
@@ -1311,7 +1311,7 @@ async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_even
                 room = room.add_timeline_event(
                     event_factory
                         .text_msg("foo")
-                        .event_id(&EventId::parse(format!("$ev{nth}")).unwrap()),
+                        .event_id(EventId::parse(format!("$ev{nth}")).unwrap()),
                 );
             }
 

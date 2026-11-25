@@ -668,6 +668,12 @@ fn decode_pickle_key(base64: &str) -> Result<DehydratedDeviceKey, DehydratedDevi
     DehydratedDeviceKey::from_slice(&bytes).map_err(|_| DehydratedDeviceError::InvalidPickleKey)
 }
 
+#[derive(uniffi::Record)]
+pub struct RoomKeyImportSummary {
+    pub imported_count: u64,
+    pub total_count: u64,
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl Encryption {
     /// Get the public ed25519 key of our own device. This is usually what is
@@ -699,6 +705,30 @@ impl Encryption {
         self.inner.backups().state().into()
     }
 
+    pub async fn export_room_keys(
+        &self,
+        path: String,
+        mut passphrase: String,
+    ) -> Result<(), ClientError> {
+        let result = self.inner.export_room_keys(path.into(), &passphrase, |_| true).await;
+        // Wipe the passphrase from memory as soon as it is no longer needed.
+        passphrase.zeroize();
+        Ok(result?)
+    }
+
+    pub async fn import_room_keys(
+        &self,
+        path: String,
+        mut passphrase: String,
+    ) -> Result<RoomKeyImportSummary, matrix_sdk::encryption::RoomKeyImportError> {
+        let result = self.inner.import_room_keys(path.into(), &passphrase).await;
+        passphrase.zeroize();
+        let r = result?;
+        Ok(RoomKeyImportSummary {
+            imported_count: r.imported_count as u64,
+            total_count: r.total_count as u64,
+        })
+    }
     /// Does a backup exist on the server?
     ///
     /// Because the homeserver doesn't notify us about changes to the backup

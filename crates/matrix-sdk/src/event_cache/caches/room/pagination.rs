@@ -19,13 +19,13 @@
 
 use std::{
     fmt,
+    iter::empty,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
 
 use eyeball::{SharedObservable, Subscriber};
-use eyeball_im::VectorDiff;
 use futures_core::{Stream, ready};
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
@@ -46,7 +46,6 @@ use super::{
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
-        read_receipts::{contains_a_receipt_target, unresolved_receipt_targets},
     },
     RoomEventCacheInner, RoomEventCacheUpdate,
 };
@@ -267,33 +266,42 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             ChunkContent::Items(events) => {
                 trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
 
-                // This chunk may reveal the event a read receipt points to,
-                // which the unread counts couldn't find last time. Only the
-                // counts need recomputing, and it must happen before the caller
-                // sends the timeline update, or observers see the diff with a
-                // stale count.
-                let reveals_a_receipt_target = self.weak_room.get().is_some_and(|room| {
-                    let read_receipts = room.read_receipts();
+                // Run the post-processing: no event, no receipt event, but a
+                // new event might be acknowledged by a pending receipt, in that
+                // case, we want to recompute the read receipts!
+                state
+                    .post_process_upserted_events(
+                        // We don't want to post-process these events: they
+                        // are coming from the cache, they have been
+                        // post-processed already!
+                        empty(),
+                        // A back-pagination can't include new read receipt
+                        // events, as those are ephemeral events not included in
+                        // /messages responses, so we can safely set the receipt
+                        // event to None here.
+                        //
+                        // Note: read receipts may be updated anyhow in the
+                        // post-processing step, as the back-pagination may have
+                        // revealed the event pointed to by the latest read
+                        // receipt.
+                        None,
+                    )
+                    .await?;
 
-                    contains_a_receipt_target(&events, &unresolved_receipt_targets(&read_receipts))
-                });
-
-                if reveals_a_receipt_target {
-                    let result = state.update_read_receipts(None).await;
-
-                    if let Err(err) = result {
-                        error!(
-                            ?err,
-                            "error when recomputing the read receipts after loading a chunk from disk"
-                        );
-                    }
+                // Send the diffs while the state lock is still held: the
+                // indices they carry are only valid if no other change to the
+                // linked chunk is sent before them.
+                if !timeline_event_diffs.is_empty() {
+                    state.update_sender.send(
+                        RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                            diffs: timeline_event_diffs,
+                            origin: EventsOrigin::Cache,
+                        }),
+                        Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+                    );
                 }
 
-                LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
-                }
+                LoadMoreEventsBackwardsOutcome::Events { events, reached_start }
             }
         })
     }
@@ -327,30 +335,6 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?;
 
         Ok(Some((response.chunk, response.end)))
-    }
-
-    async fn conclude_backwards_pagination_from_disk(
-        &self,
-        events: Vec<Event>,
-        timeline_event_diffs: Vec<VectorDiff<Event>>,
-        reached_start: bool,
-    ) -> BackPaginationOutcome {
-        if !timeline_event_diffs.is_empty() {
-            self.update_sender.send(
-                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
-            );
-        }
-
-        BackPaginationOutcome {
-            reached_start,
-            // This is a backwards pagination. `BackPaginationOutcome` expects
-            // events to be in “reverse order”.
-            events: events.into_iter().rev().collect(),
-        }
     }
 
     async fn conclude_backwards_pagination_from_network(
@@ -439,17 +423,25 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // Update the store.
         state.propagate_changes().await?;
 
-        // A back-pagination can't include new read receipt events, as those are
-        // ephemeral events not included in /messages responses, so we can
-        // safely set the receipt event to None here.
-        //
-        // Note: read receipts may be updated anyhow in the post-processing
-        // step, as the back-pagination may have revealed the event pointed to
-        // by the latest read receipt.
-        let receipt_event = None;
-
-        // Post-process newly inserted events.
-        state.post_process_upserted_events(topo_ordered_events.iter(), receipt_event).await?;
+        // Run the post-processing: new events have been inserted, no receipt
+        // event, but a new event might be acknowledged by a pending receipt, in
+        // that case, we want to recompute the read receipts!
+        state
+            .post_process_upserted_events(
+                // We do want to post-processed these events: they are coming
+                // from the network, they have NOT been post-processed already!
+                topo_ordered_events.iter(),
+                // A back-pagination can't include new read receipt events, as
+                // those are ephemeral events not included in /messages
+                // responses, so we can safely set the receipt event to None
+                // here.
+                //
+                // Note: read receipts may be updated anyhow in the
+                // post-processing step, as the back-pagination may have
+                // revealed the event pointed to by the latest read receipt.
+                None,
+            )
+            .await?;
 
         let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
 

@@ -29,6 +29,7 @@ use matrix_sdk::{
 use matrix_sdk_test::{JoinedRoomBuilder, User, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
     EventSendState, TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus,
+    TimelineReadReceiptTracking, VirtualTimelineItem,
 };
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use strass::assert_let;
@@ -905,4 +906,60 @@ async fn test_focused_timeline_filters_out_threaded_events() {
     assert_eq!(timeline_updates.len(), 1);
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     assert_eq!(item.as_event().unwrap().content().as_message().unwrap().body(), "Next no thread");
+}
+
+#[async_test]
+async fn test_focused_timeline_read_marker_on_hidden_event() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let f = EventFactory::new().room(room_id);
+    let event_id_a = event_id!("$a");
+    let reaction_id = event_id!("$reaction");
+
+    // The fully read event is a reaction, which isn't rendered.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_account_data(f.fully_read(reaction_id)),
+        )
+        .await;
+
+    // Focus on the fully read event: [A, reaction to A, B].
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(
+            f.reaction(event_id_a, "👍").event_id(reaction_id).sender(User::Bob).into_event(),
+        )
+        .events_before(vec![f.text_msg("A").event_id(event_id_a).sender(User::Bob).into_event()])
+        .events_after(vec![
+            f.text_msg("B").event_id(event_id!("$b")).sender(User::Bob).into_event(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Event {
+            target: reaction_id.to_owned(),
+            num_context_events: 20,
+            thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: false },
+        })
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
+        .build()
+        .await
+        .unwrap();
+
+    // The read marker is displayed after A, the closest previous visible event.
+    // Timeline: [date-divider, A, read-marker, B].
+    let items = timeline.items().await;
+    assert_eq!(items.len(), 4);
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().event_id(), Some(event_id_a));
+    assert_matches!(items[2].as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
+    assert_eq!(items[3].as_event().unwrap().event_id(), Some(event_id!("$b")));
 }

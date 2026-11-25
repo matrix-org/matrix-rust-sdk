@@ -1215,18 +1215,17 @@ mod tests {
 
     #[cfg(feature = "automatic-room-key-forwarding")]
     use assert_matches::assert_matches;
-    use matrix_sdk_test::{async_test, message_like_event_content};
+    use matrix_sdk_test::{TestDevice, TestRoom, User, async_test, message_like_event_content};
     use ruma::{
-        DeviceId, RoomId, UserId, device_id,
+        UserId,
         events::{
             ToDeviceEvent as RumaToDeviceEvent,
             secret::request::{
                 RequestAction, SecretName, SecretRequestAction, ToDeviceSecretRequestEventContent,
             },
         },
-        owned_event_id, room_id,
+        owned_event_id,
         serde::Raw,
-        user_id,
     };
     use tokio::sync::Mutex;
 
@@ -1261,50 +1260,26 @@ mod tests {
         },
     };
 
-    fn alice_id() -> &'static UserId {
-        user_id!("@alice:example.org")
-    }
-
-    fn alice_device_id() -> &'static DeviceId {
-        device_id!("JLAFKJWSCS")
-    }
-
-    fn bob_id() -> &'static UserId {
-        user_id!("@bob:example.org")
-    }
-
-    fn bob_device_id() -> &'static DeviceId {
-        device_id!("ILMLKASTES")
-    }
-
-    fn alice2_device_id() -> &'static DeviceId {
-        device_id!("ILMLKASTES")
-    }
-
-    fn room_id() -> &'static RoomId {
-        room_id!("!test:example.org")
-    }
-
     fn account() -> Account {
-        Account::with_device_id(alice_id(), alice_device_id())
+        Account::with_device_id(User::Alice.into(), TestDevice::Default.into())
     }
 
     fn bob_account() -> Account {
-        Account::with_device_id(bob_id(), bob_device_id())
+        Account::with_device_id(User::Bob.into(), TestDevice::Alt1.into())
     }
 
     fn alice_2_account() -> Account {
-        Account::with_device_id(alice_id(), alice2_device_id())
+        Account::with_device_id(User::Alice.into(), TestDevice::Alt2.into())
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn gossip_machine_test_helper(user_id: &UserId) -> GossipMachine {
+    async fn gossip_machine_test_helper(user_id: User) -> GossipMachine {
         let user_id = user_id.to_owned();
-        let device_id = DeviceId::new();
+        let device_id = TestDevice::Alt3;
 
-        let store = Arc::new(store_with_account_helper(&user_id, &device_id).await);
+        let store = Arc::new(store_with_account_helper(user_id, device_id).await);
         let static_data = store.load_account().await.unwrap().unwrap().static_data;
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id.into())));
         let verification =
             VerificationMachine::new(static_data.clone(), identity.clone(), store.clone());
         let store = Store::new(static_data, identity, store, verification);
@@ -1316,13 +1291,10 @@ mod tests {
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
-    async fn store_with_account_helper(
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> CryptoStoreWrapper {
+    async fn store_with_account_helper(user_id: User, device_id: TestDevice) -> CryptoStoreWrapper {
         // Properly create the store by first saving the own device and then the
         // account data.
-        let account = Account::with_device_id(user_id, device_id);
+        let account = Account::with_device_id(user_id.into(), device_id.into());
         let device = DeviceData::from_account(&account);
         device.set_trust_state(LocalTrust::Verified);
 
@@ -1334,19 +1306,20 @@ mod tests {
         mem_store.save_changes(changes).await.unwrap();
         mem_store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
 
-        CryptoStoreWrapper::new(user_id, device_id, mem_store)
+        CryptoStoreWrapper::new(user_id.into(), device_id.into(), mem_store)
     }
 
     async fn get_machine_test_helper() -> GossipMachine {
-        let user_id = alice_id();
-        let account = Account::with_device_id(user_id, alice_device_id());
+        let account = account();
         let device = DeviceData::from_account(&account);
-        let another_device =
-            DeviceData::from_account(&Account::with_device_id(user_id, alice2_device_id()));
+        let another_device = DeviceData::from_account(&alice_2_account());
 
-        let store =
-            Arc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let store = Arc::new(CryptoStoreWrapper::new(
+            account.user_id(),
+            account.device_id(),
+            MemoryStore::new(),
+        ));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(account.user_id())));
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
 
@@ -1362,7 +1335,7 @@ mod tests {
 
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn machines_for_key_share_test_helper(
-        other_machine_owner: &UserId,
+        other_machine_owner: User,
         create_sessions: bool,
         algorithm: EventEncryptionAlgorithm,
     ) -> (GossipMachine, OutboundGroupSession, GossipMachine) {
@@ -1421,7 +1394,7 @@ mod tests {
             .inner
             .store
             .static_account()
-            .create_group_session_pair(room_id(), settings, SenderData::unknown())
+            .create_group_session_pair(TestRoom::Default.into(), settings, SenderData::unknown())
             .await
             .unwrap();
 
@@ -1437,7 +1410,10 @@ mod tests {
 
         // Alice wants to request the outbound group session from bob.
         assert!(
-            alice_machine.create_outgoing_key_request(room_id(), &event,).await.unwrap(),
+            alice_machine
+                .create_outgoing_key_request(TestRoom::Default.into(), &event)
+                .await
+                .unwrap(),
             "We should request a room key"
         );
 
@@ -1520,7 +1496,8 @@ mod tests {
         let machine = get_machine_test_helper().await;
         let account = account();
 
-        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, session) =
+            account.create_group_session_pair_with_defaults(TestRoom::Default.into()).await;
 
         let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), result.content);
@@ -1549,7 +1526,8 @@ mod tests {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.inner.store.save_device_data(&[alice_device]).await.unwrap();
 
-        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, session) =
+            account.create_group_session_pair_with_defaults(TestRoom::Default.into()).await;
         let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), result.content);
 
@@ -1587,7 +1565,8 @@ mod tests {
         machine.set_room_key_requests_enabled(false);
         assert!(!machine.are_room_key_requests_enabled());
 
-        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, session) =
+            account.create_group_session_pair_with_defaults(TestRoom::Default.into()).await;
         let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let event = wrap_encrypted_content(machine.user_id(), result.content);
 
@@ -1612,7 +1591,8 @@ mod tests {
         let devices = std::slice::from_ref(&alice_device);
         machine.inner.store.save_device_data(devices).await.unwrap();
 
-        let (outbound, session) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, session) =
+            account.create_group_session_pair_with_defaults(TestRoom::Default.into()).await;
         let result = outbound.encrypt("m.dummy", &message_like_event_content!({})).await;
         let room_event = wrap_encrypted_content(machine.user_id(), result.content);
 
@@ -1629,8 +1609,8 @@ mod tests {
         let content: ForwardedRoomKeyContent = export.try_into().unwrap();
 
         let event = DecryptedOlmV1Event::new(
-            alice_id(),
-            alice_id(),
+            alice_device.user_id(),
+            alice_device.user_id(),
             alice_device.ed25519_key().unwrap(),
             None,
             content,
@@ -1679,8 +1659,8 @@ mod tests {
         let content: ForwardedRoomKeyContent = export.try_into().unwrap();
 
         let event = DecryptedOlmV1Event::new(
-            alice_id(),
-            alice_id(),
+            alice_device.user_id(),
+            alice_device.user_id(),
             alice_device.ed25519_key().unwrap(),
             None,
             content,
@@ -1698,8 +1678,8 @@ mod tests {
         let content: ForwardedRoomKeyContent = export.try_into().unwrap();
 
         let event = DecryptedOlmV1Event::new(
-            alice_id(),
-            alice_id(),
+            alice_device.user_id(),
+            alice_device.user_id(),
             alice_device.ed25519_key().unwrap(),
             None,
             content,
@@ -1719,10 +1699,16 @@ mod tests {
         let machine = get_machine_test_helper().await;
         let account = account();
 
-        let own_device =
-            machine.inner.store.get_device(alice_id(), alice2_device_id()).await.unwrap().unwrap();
+        let own_device = machine
+            .inner
+            .store
+            .get_device(User::Alice.into(), TestDevice::Alt2.into())
+            .await
+            .unwrap()
+            .unwrap();
 
-        let (outbound, inbound) = account.create_group_session_pair_with_defaults(room_id()).await;
+        let (outbound, inbound) =
+            account.create_group_session_pair_with_defaults(TestRoom::Default.into()).await;
 
         // We don't share keys with untrusted devices.
         assert_matches!(
@@ -1734,10 +1720,15 @@ mod tests {
         machine.should_share_key(&own_device, &inbound).await.unwrap();
 
         let bob_device = DeviceData::from_account(&bob_account());
-        machine.inner.store.save_device_data(&[bob_device]).await.unwrap();
+        machine.inner.store.save_device_data(std::slice::from_ref(&bob_device)).await.unwrap();
 
-        let bob_device =
-            machine.inner.store.get_device(bob_id(), bob_device_id()).await.unwrap().unwrap();
+        let bob_device = machine
+            .inner
+            .store
+            .get_device(bob_device.user_id(), bob_device.device_id())
+            .await
+            .unwrap()
+            .unwrap();
 
         // We don't share sessions with other user's devices if no outbound
         // session was provided.
@@ -1780,7 +1771,7 @@ mod tests {
         machine.should_share_key(&bob_device, &inbound).await.unwrap();
 
         let (other_outbound, other_inbound) =
-            account.create_group_session_pair_with_defaults(room_id()).await;
+            account.create_group_session_pair_with_defaults(TestRoom::Default.into()).await;
 
         // But we don't share some other session that doesn't match our outbound
         // session.
@@ -1792,10 +1783,15 @@ mod tests {
         // Finally, let's ensure we don't share the session with a device that
         // rotated its curve25519 key.
         let bob_device = DeviceData::from_account(&bob_account());
-        machine.inner.store.save_device_data(&[bob_device]).await.unwrap();
+        machine.inner.store.save_device_data(std::slice::from_ref(&bob_device)).await.unwrap();
 
-        let bob_device =
-            machine.inner.store.get_device(bob_id(), bob_device_id()).await.unwrap().unwrap();
+        let bob_device = machine
+            .inner
+            .store
+            .get_device(bob_device.user_id(), bob_device.device_id())
+            .await
+            .unwrap()
+            .unwrap();
         assert_matches!(
             machine.should_share_key(&bob_device, &inbound).await,
             Err(KeyForwardDecision::ChangedSenderKey)
@@ -1832,12 +1828,12 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn test_key_share_cycle(algorithm: EventEncryptionAlgorithm) {
         let (alice_machine, group_session, bob_machine) =
-            machines_for_key_share_test_helper(alice_id(), true, algorithm).await;
+            machines_for_key_share_test_helper(User::Alice, true, algorithm).await;
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_event(alice_id(), alice_id(), request);
+        let event = request_to_event(alice_machine.user_id(), alice_machine.user_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
@@ -1858,7 +1854,8 @@ mod tests {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let event: EncryptedToDeviceEvent = request_to_event(alice_id(), alice_id(), request);
+        let event: EncryptedToDeviceEvent =
+            request_to_event(alice_machine.user_id(), alice_machine.user_id(), request);
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Check that alice doesn't have the session.
@@ -1866,7 +1863,7 @@ mod tests {
             alice_machine
                 .inner
                 .store
-                .get_inbound_group_session(room_id(), group_session.session_id())
+                .get_inbound_group_session(TestRoom::Default.into(), group_session.session_id())
                 .await
                 .unwrap()
                 .is_none()
@@ -1906,7 +1903,7 @@ mod tests {
         let session = alice_machine
             .inner
             .store
-            .get_inbound_group_session(room_id(), group_session.session_id())
+            .get_inbound_group_session(TestRoom::Default.into(), group_session.session_id())
             .await
             .unwrap()
             .unwrap();
@@ -1918,7 +1915,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn test_reject_forward_from_another_user() {
         let (alice_machine, group_session, bob_machine) = machines_for_key_share_test_helper(
-            bob_id(),
+            User::Bob,
             true,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
         )
@@ -1927,7 +1924,7 @@ mod tests {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_event(alice_id(), alice_id(), request);
+        let event = request_to_event(alice_machine.user_id(), alice_machine.user_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
@@ -1947,7 +1944,8 @@ mod tests {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let event: EncryptedToDeviceEvent = request_to_event(alice_id(), bob_id(), request);
+        let event: EncryptedToDeviceEvent =
+            request_to_event(alice_machine.user_id(), bob_machine.user_id(), request);
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Check that alice doesn't have the session.
@@ -1955,7 +1953,7 @@ mod tests {
             alice_machine
                 .inner
                 .store
-                .get_inbound_group_session(room_id(), group_session.session_id())
+                .get_inbound_group_session(TestRoom::Default.into(), group_session.session_id())
                 .await
                 .unwrap()
                 .is_none()
@@ -2072,7 +2070,7 @@ mod tests {
         assert!(alice_machine.inner.outgoing_requests.read().is_empty());
 
         let event = RumaToDeviceEvent::new(
-            alice_id().to_owned(),
+            alice_machine.user_id().to_owned(),
             ToDeviceSecretRequestEventContent::new(
                 RequestAction::Request(SecretRequestAction::new(SecretName::CrossSigningMasterKey)),
                 second_account.device_id().into(),
@@ -2115,10 +2113,12 @@ mod tests {
             machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper,
         };
 
-        let alice_id = user_id!("@alice:localhost");
-
-        let (alice_machine, bob_machine) =
-            get_machine_pair_with_setup_sessions_test_helper(alice_id, alice_id, false).await;
+        let (alice_machine, bob_machine) = get_machine_pair_with_setup_sessions_test_helper(
+            User::Alice.into(),
+            User::Alice.into(),
+            false,
+        )
+        .await;
 
         let key_requests = GossipMachine::request_missing_secrets(
             bob_machine.user_id(),
@@ -2145,12 +2145,12 @@ mod tests {
         );
 
         let bob_device = alice_machine
-            .get_device(alice_id, bob_machine.device_id(), None)
+            .get_device(alice_machine.user_id(), bob_machine.device_id(), None)
             .await
             .unwrap()
             .unwrap();
         let alice_device = bob_machine
-            .get_device(alice_id, alice_machine.device_id(), None)
+            .get_device(alice_machine.user_id(), alice_machine.device_id(), None)
             .await
             .unwrap()
             .unwrap();
@@ -2216,7 +2216,7 @@ mod tests {
     #[cfg(feature = "automatic-room-key-forwarding")]
     async fn test_key_share_cycle_without_session() {
         let (alice_machine, group_session, bob_machine) = machines_for_key_share_test_helper(
-            alice_id(),
+            User::Alice,
             false,
             EventEncryptionAlgorithm::MegolmV1AesSha2,
         )
@@ -2225,7 +2225,7 @@ mod tests {
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
-        let event = request_to_event(alice_id(), alice_id(), request);
+        let event = request_to_event(alice_machine.user_id(), alice_machine.user_id(), request);
 
         alice_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
@@ -2273,7 +2273,7 @@ mod tests {
         alice_machine.inner.store.save_sessions(&[alice_session]).await.unwrap();
         bob_machine.inner.store.save_sessions(&[bob_session]).await.unwrap();
 
-        bob_machine.retry_keyshare(alice_id(), alice_device_id());
+        bob_machine.retry_keyshare(alice_machine.user_id(), alice_machine.device_id());
         assert!(bob_machine.inner.users_for_key_claim.read().is_empty());
         {
             let bob_cache = bob_machine.inner.store.cache().await.unwrap();
@@ -2287,7 +2287,8 @@ mod tests {
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        let event: EncryptedToDeviceEvent = request_to_event(alice_id(), alice_id(), request);
+        let event: EncryptedToDeviceEvent =
+            request_to_event(alice_machine.user_id(), alice_machine.user_id(), request);
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Check that alice doesn't have the session.
@@ -2295,7 +2296,7 @@ mod tests {
             alice_machine
                 .inner
                 .store
-                .get_inbound_group_session(room_id(), group_session.session_id())
+                .get_inbound_group_session(TestRoom::Default.into(), group_session.session_id())
                 .await
                 .unwrap()
                 .is_none()
@@ -2335,7 +2336,7 @@ mod tests {
         let session = alice_machine
             .inner
             .store
-            .get_inbound_group_session(room_id(), group_session.session_id())
+            .get_inbound_group_session(TestRoom::Default.into(), group_session.session_id())
             .await
             .unwrap()
             .unwrap();
@@ -2354,18 +2355,20 @@ mod tests {
     ) {
         use crate::machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper;
 
-        let alice_id = user_id!("@alice:localhost");
-
-        let (alice_machine, bob_machine) =
-            get_machine_pair_with_setup_sessions_test_helper(alice_id, alice_id, false).await;
+        let (alice_machine, bob_machine) = get_machine_pair_with_setup_sessions_test_helper(
+            User::Alice.into(),
+            User::Alice.into(),
+            false,
+        )
+        .await;
 
         let bob_device = alice_machine
-            .get_device(alice_id, bob_machine.device_id(), None)
+            .get_device(alice_machine.user_id(), bob_machine.device_id(), None)
             .await
             .unwrap()
             .unwrap();
         let alice_device = bob_machine
-            .get_device(alice_id, alice_machine.device_id(), None)
+            .get_device(alice_machine.user_id(), alice_machine.device_id(), None)
             .await
             .unwrap()
             .unwrap();
