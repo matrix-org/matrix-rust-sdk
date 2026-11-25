@@ -909,6 +909,7 @@ mod tests {
         assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
     };
 
+    #[cfg(not(target_family = "wasm"))]
     #[async_test]
     async fn test_logout_shuts_down_the_event_cache() {
         use std::ops::ControlFlow;
