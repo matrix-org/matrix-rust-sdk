@@ -86,11 +86,14 @@ impl ImagePack {
 ///
 /// The packs of the same room are sorted by state key. A pack that would appear
 /// more than once is only returned the first time.
-/// Packs without images are skipped.
+/// Packs without images are skipped, see [`image_packs()`] to manage them.
 ///
 /// All the packs are read from the local state of their rooms, which the
 /// [`RoomListService`](crate::RoomListService) requests.
-pub async fn image_packs(room: &Room, space_service: &SpaceService) -> Result<Vec<ImagePack>> {
+pub async fn available_image_packs(
+    room: &Room,
+    space_service: &SpaceService,
+) -> Result<Vec<ImagePack>> {
     let client = room.client();
     let enabled_packs = enabled_packs(&client).await?;
     let mut packs = Vec::new();
@@ -115,9 +118,23 @@ pub async fn image_packs(room: &Room, space_service: &SpaceService) -> Result<Ve
         }
     }
 
-    // Keep only the first occurrence of each pack, identified by its room and
-    // state key.
-    Ok(packs.into_iter().unique_by(|pack| (pack.room_id.clone(), pack.state_key.clone())).collect())
+    Ok(packs
+        .into_iter()
+        // Packs without images have nothing to offer.
+        .filter(|pack| !pack.content.images.is_empty())
+        // Keep only the first occurrence of each pack, identified by its room
+        // and state key.
+        .unique_by(|pack| (pack.room_id.clone(), pack.state_key.clone()))
+        .collect())
+}
+
+/// Get all the image packs defined in a room's state, including the ones
+/// without images, to manage them.
+///
+/// They are sorted by state key.
+pub async fn image_packs(room: &Room) -> Result<Vec<ImagePack>> {
+    let enabled_packs = enabled_packs(&room.client()).await?;
+    Ok(image_packs_from(room, room.get_state_events_static().await?, &enabled_packs).collect())
 }
 
 /// Get the packs that the user enabled globally through their
@@ -148,10 +165,8 @@ fn image_packs_from(
     events
         .into_iter()
         .filter_map(move |raw| match raw.deserialize() {
-            // Packs without images have nothing to offer.
-            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(mut event)))
-                if !event.content.images.is_empty() =>
-            {
+            // Deleted packs, with an empty content, fail to deserialize.
+            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(mut event))) => {
                 let is_enabled_globally = enabled_state_keys
                     .is_some_and(|state_keys| state_keys.contains_key(&event.state_key));
 

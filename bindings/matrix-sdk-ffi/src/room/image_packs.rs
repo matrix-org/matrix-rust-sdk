@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use matrix_sdk_ui::image_packs::{ImagePack as SdkImagePack, image_packs};
+use matrix_sdk_ui::image_packs::{ImagePack as SdkImagePack, available_image_packs};
 
 use super::Room;
 use crate::{error::ClientError, ruma::ImageInfo, spaces::SpaceService};
@@ -104,7 +104,7 @@ impl Room {
         &self,
         space_service: Arc<SpaceService>,
     ) -> Result<Vec<ImagePack>, ClientError> {
-        Ok(image_packs(&self.inner, &space_service.inner)
+        Ok(available_image_packs(&self.inner, &space_service.inner)
             .await?
             .into_iter()
             .map(Into::into)
