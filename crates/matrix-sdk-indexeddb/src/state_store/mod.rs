@@ -65,7 +65,9 @@ mod migrations;
 
 pub use self::migrations::MigrationConflictStrategy;
 use self::migrations::{upgrade_inner_db, upgrade_meta_db};
-use crate::{error::GenericError, serializer::safe_encode::traits::SafeEncode};
+use crate::{
+    durability::ReadwriteDurable, error::GenericError, serializer::safe_encode::traits::SafeEncode,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IndexeddbStateStoreError {
@@ -754,7 +756,7 @@ impl_state_store!({
             ),
         };
 
-        let tx = self.inner.transaction(keys::KV).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(keys::KV).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::KV)?;
 
@@ -768,7 +770,7 @@ impl_state_store!({
     async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
         let encoded_key = self.encode_kv_data_key(key);
 
-        let tx = self.inner.transaction(keys::KV).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(keys::KV).readwrite_durable().build()?;
         let obj = tx.object_store(keys::KV)?;
 
         obj.delete(&encoded_key).build()?;
@@ -833,7 +835,7 @@ impl_state_store!({
         }
 
         let stores: Vec<&'static str> = stores.into_iter().collect();
-        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(stores).readwrite_durable().build()?;
 
         if let Some(s) = &changes.sync_token {
             tx.object_store(keys::KV)?
@@ -1550,8 +1552,7 @@ impl_state_store!({
 
         let prev = self.get_custom_value_for_js(&jskey).await?;
 
-        let tx =
-            self.inner.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(keys::CUSTOM).readwrite_durable().build()?;
 
         tx.object_store(keys::CUSTOM)?
             .put(&self.serialize_value(&value)?)
@@ -1567,8 +1568,7 @@ impl_state_store!({
 
         let prev = self.get_custom_value_for_js(&jskey).await?;
 
-        let tx =
-            self.inner.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(keys::CUSTOM).readwrite_durable().build()?;
 
         tx.object_store(keys::CUSTOM)?.delete(&jskey).build()?;
 
@@ -1603,8 +1603,7 @@ impl_state_store!({
             v
         };
 
-        let tx =
-            self.inner.transaction(all_stores).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(all_stores).readwrite_durable().build()?;
 
         for store_name in direct_stores {
             tx.object_store(store_name)?.delete(&self.encode_key(store_name, room_id)).build()?;
@@ -1643,11 +1642,7 @@ impl_state_store!({
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::ROOM_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::ROOM_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
@@ -1690,11 +1685,7 @@ impl_state_store!({
     ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::ROOM_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::ROOM_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
@@ -1738,7 +1729,7 @@ impl_state_store!({
         let tx = self
             .inner
             .transaction([keys::ROOM_SEND_QUEUE, keys::DEPENDENT_SEND_QUEUE])
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
@@ -1774,7 +1765,7 @@ impl_state_store!({
         let prev = self
             .inner
             .transaction(keys::ROOM_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?
             .object_store(keys::ROOM_SEND_QUEUE)?
             .get(&encoded_key)
@@ -1799,11 +1790,7 @@ impl_state_store!({
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::ROOM_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::ROOM_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::ROOM_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
@@ -1824,11 +1811,7 @@ impl_state_store!({
     }
 
     async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>> {
-        let tx = self
-            .inner
-            .transaction(keys::ROOM_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::ROOM_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
@@ -1854,11 +1837,7 @@ impl_state_store!({
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::DEPENDENT_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::DEPENDENT_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
@@ -1896,11 +1875,7 @@ impl_state_store!({
     ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::DEPENDENT_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::DEPENDENT_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
@@ -1939,11 +1914,7 @@ impl_state_store!({
     ) -> Result<usize> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::DEPENDENT_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::DEPENDENT_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
@@ -1978,11 +1949,7 @@ impl_state_store!({
     ) -> Result<bool> {
         let encoded_key = self.encode_key(keys::DEPENDENT_SEND_QUEUE, room_id);
 
-        let tx = self
-            .inner
-            .transaction(keys::DEPENDENT_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::DEPENDENT_SEND_QUEUE).readwrite_durable().build()?;
 
         let obj = tx.object_store(keys::DEPENDENT_SEND_QUEUE)?;
 
@@ -2017,7 +1984,7 @@ impl_state_store!({
         let prev = self
             .inner
             .transaction(keys::DEPENDENT_SEND_QUEUE)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?
             .object_store(keys::DEPENDENT_SEND_QUEUE)?
             .get(&encoded_key)
@@ -2033,11 +2000,7 @@ impl_state_store!({
         &self,
         updates: Vec<(&RoomId, &EventId, StoredThreadSubscription)>,
     ) -> Result<()> {
-        let tx = self
-            .inner
-            .transaction(keys::THREAD_SUBSCRIPTIONS)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx = self.inner.transaction(keys::THREAD_SUBSCRIPTIONS).readwrite_durable().build()?;
         let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
 
         for (room_id, thread_id, subscription) in updates {
@@ -2109,11 +2072,8 @@ impl_state_store!({
     async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
-        let transaction = self
-            .inner
-            .transaction(keys::THREAD_SUBSCRIPTIONS)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let transaction =
+            self.inner.transaction(keys::THREAD_SUBSCRIPTIONS).readwrite_durable().build()?;
         transaction.object_store(keys::THREAD_SUBSCRIPTIONS)?.delete(&encoded_key).await?;
         transaction.commit().await?;
 

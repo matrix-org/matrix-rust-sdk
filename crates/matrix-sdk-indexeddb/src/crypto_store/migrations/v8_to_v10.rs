@@ -15,9 +15,7 @@
 //! Migration code that moves from inbound_group_sessions2 to
 //! inbound_group_sessions3, shrinking the values stored in each record.
 
-use indexed_db_futures::{
-    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
-};
+use indexed_db_futures::{Build, error::OpenDbError, query_source::QuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use wasm_bindgen::JsValue;
@@ -31,6 +29,7 @@ use crate::{
             v7::InboundGroupSessionIndexedDbObject2,
         },
     },
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -67,7 +66,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
 
     let txn = db
         .transaction([old_keys::INBOUND_GROUP_SESSIONS_V2, keys::INBOUND_GROUP_SESSIONS_V3])
-        .with_mode(TransactionMode::Readwrite)
+        .readwrite_durable()
         .build()?;
 
     let inbound_group_sessions2 = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;

@@ -15,9 +15,7 @@
 //! Migration code that moves from `backup_keys.backup_key_v1` to
 //! `backup_keys.backup_version_v1`, switching to a new serialization format.
 
-use indexed_db_futures::{
-    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
-};
+use indexed_db_futures::{Build, error::OpenDbError, query_source::QuerySource};
 use wasm_bindgen::JsValue;
 
 use crate::{
@@ -25,6 +23,7 @@ use crate::{
         keys,
         migrations::{MigrationDb, do_schema_upgrade, old_keys},
     },
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -35,7 +34,7 @@ pub(crate) async fn data_migrate(
     serializer: &SafeEncodeSerializer,
 ) -> crate::crypto_store::Result<()> {
     let db = MigrationDb::new(name, 11).await?;
-    let txn = db.transaction(keys::BACKUP_KEYS).with_mode(TransactionMode::Readwrite).build()?;
+    let txn = db.transaction(keys::BACKUP_KEYS).readwrite_durable().build()?;
     let store = txn.object_store(keys::BACKUP_KEYS)?;
 
     let bv = store.get(&JsValue::from_str(old_keys::BACKUP_KEY_V1)).await?;

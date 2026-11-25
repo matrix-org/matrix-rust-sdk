@@ -19,9 +19,7 @@
 //! Then we move the data into the new store.
 //! The migration 6->7 deletes the old store inbound_group_sessions.
 
-use indexed_db_futures::{
-    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
-};
+use indexed_db_futures::{Build, error::OpenDbError, query_source::QuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use wasm_bindgen::JsValue;
@@ -32,6 +30,7 @@ use crate::{
         Result, keys,
         migrations::{MigrationDb, add_nonunique_index, do_schema_upgrade, old_keys, v7},
     },
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -60,7 +59,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     // it.
     let txn = db
         .transaction([old_keys::INBOUND_GROUP_SESSIONS_V1, old_keys::INBOUND_GROUP_SESSIONS_V2])
-        .with_mode(TransactionMode::Readwrite)
+        .readwrite_durable()
         .build()?;
 
     let old_store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1)?;

@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use indexed_db_futures::{
-    Build, error::OpenDbError, prelude::QuerySource, transaction::TransactionMode,
-};
+use indexed_db_futures::{Build, error::OpenDbError, prelude::QuerySource};
 use matrix_sdk_crypto::GossippedSecret;
 use wasm_bindgen::JsValue;
 
 use super::{MigrationDb, old_keys};
 use crate::{
     crypto_store::{Result, keys, migrations::do_schema_upgrade},
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -40,7 +39,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     // The new store has been made for secrets; time to populate it.
     let txn = db
         .transaction([old_keys::SECRETS_INBOX_V1, keys::SECRETS_INBOX_V2])
-        .with_mode(TransactionMode::Readwrite)
+        .readwrite_durable()
         .build()?;
 
     let old_store = txn.object_store(old_keys::SECRETS_INBOX_V1)?;
