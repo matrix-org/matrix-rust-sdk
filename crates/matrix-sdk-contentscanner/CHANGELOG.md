@@ -1,3 +1,12 @@
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Implemented `ContentScanner::get_media_content_with_config` to match the new
+  function in the `MediaFetcher` trait. With this, you can retrieve the content
+  of some `MediaSource` providing a custom `RequestConfig` to handle retries or
+  timeouts. ([#7061](https://github.com/matrix-org/matrix-rust-sdk/pull/7061))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.

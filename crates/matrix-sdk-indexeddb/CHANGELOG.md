@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Added `find_events_before_timestamp` to query that index directly.
+  ([#7040](https://github.com/matrix-org/matrix-rust-sdk/pull/7040))
+- Added a new index to the `events` object store of the `EventCacheStore`
+  implementation for tracking whether an `Event` is out-of-band or not. This
+  provides a quick way to check whether a given `Event` has been stored
+  out-of-band without having to deserialize the entire `Event` from the
+  database. ([#7072](https://github.com/matrix-org/matrix-rust-sdk/pull/7072))
+- Implement `MediaStore::media_sizes`, and return the size of the media store
+  from `MediaStore::get_size`.
+  ([#7311](https://github.com/matrix-org/matrix-rust-sdk/pull/7311))
+
+### Changed
+
+- Prevent unnecessary writes to the `events` store in `add_event` and
+  `put_event` and add benchmarks to illustrate performance improvement when
+  processing `Update::PushItems` and `Update::ReplaceItem` in `EventCacheStore`.
+  ([#7384](https://github.com/matrix-org/matrix-rust-sdk/pull/7384))
+- Events stored in the event cache are now indexed by their room, (possibly
+  hashed) `state_key`, if any, and timestamp in a new
+  `events_state_key_timestamp` index. Empty state keys are indexed too, so they
+  can be told apart from events that aren't state events. This allows
+  efficiently querying events older than a given timestamp while filtering on
+  their `state_key`.
+
+  The database migration to version 11 empties the event cache, so it will be
+  repopulated from the server.
+  ([#7443](https://github.com/matrix-org/matrix-rust-sdk/pull/7443))
+
+### Fixed
+
+- Ensure `EventCacheStore` implementation filters incomplete `Event`s rather
+  than failing immediately when handling `Update::PushItems` and
+  `Update::ReplaceItem`.
+  ([#7055](https://github.com/matrix-org/matrix-rust-sdk/pull/7055))
+- Ensure that all stores of the `EventCacheStore` implementation are cleared
+  when migrating to `Version::V9`, as the changes from
+  [#7072](https://github.com/matrix-org/matrix-rust-sdk/pull/7072) modify the
+  logic for determining whether an `Event` is stored out-of-band. Additionally,
+  the stores are cleared before adding the `out-of-band` index, as this leads to
+  a more performant migration.
+  ([#7212](https://github.com/matrix-org/matrix-rust-sdk/pull/7212))
+- Added a `versionchange` handler to close open connections to the IndexedDB
+  database when its version changes, such as during database deletion on logout.
+
+  This should mitigate issues where open connections persist across sessions,
+  causing the application to hang when creating the database.
+  ([#7469](https://github.com/matrix-org/matrix-rust-sdk/pull/7469))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.

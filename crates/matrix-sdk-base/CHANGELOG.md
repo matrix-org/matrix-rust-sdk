@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Removed
+
+- Remove `DependentQueuedRequestKind::RedactEvent`, which nothing has written
+  since `RedactEventWithReason` was introduced.
+  ([#6959](https://github.com/matrix-org/matrix-rust-sdk/pull/6959))
+- [**breaking**] Remove `RoomInfo::fully_read_event_id`,
+  `Room::fully_read_event_id` and `RoomInfoNotableUpdateReasons::FULLY_READ`:
+  the `m.fully_read` marker can point to an event that isn't rendered in a
+  timeline. Use `matrix_sdk_ui::timeline::Timeline::fully_read_event_id` or
+  `Timeline::subscribe_fully_read_event_id` instead.
+  ([#7360](https://github.com/matrix-org/matrix-rust-sdk/pull/7360))
+
+### Added
+
+- Add `CancellableIntoFutureExt` extension trait for wrapping an `IntoFuture` in
+  a `Cancellable` future that can be canceled cooperatively.
+  ([#6677](https://github.com/matrix-org/matrix-rust-sdk/pull/6677))
+- Add support for sticky events
+  ([MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354))
+  behind the `unstable-msc4354` feature. The sticky events of a room are folded
+  into an in-memory map, available through `Room::sticky_events()` with
+  `StickyEvents::live()` and `StickyEvents::subscribe()`.
+  ([#7014](https://github.com/matrix-org/matrix-rust-sdk/pull/7014))
+- `ThreadInfo` gains 2 new fields: `number_of_replies` and `latest_event`. They
+  are helpful to rebuild a thread summary.
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+- Added `EventCacheStore::find_events_before_timestamp` to query events older
+  than a given timestamp. Results are deduplicated events in order from oldest
+  to newest. ([#7040](https://github.com/matrix-org/matrix-rust-sdk/pull/7040))
+- Add `QueueWedgeError::ExpiredAccessToken` for a send queue request that
+  couldn't go out because the homeserver rejected the session's access token.
+  ([#7140](https://github.com/matrix-org/matrix-rust-sdk/pull/7140))
+- Add `MediaStore::media_sizes`, which returns the size of the stored
+  representations of a set of media.
+  ([#7311](https://github.com/matrix-org/matrix-rust-sdk/pull/7311))
+- Add `BaseClient::receive_fetched_global_profiles` (behind the
+  `unstable-msc4536` feature) and `StateStore::get_missing_global_profiles` to
+  save global profiles fetched outside of a sync response, and track the
+  unavailable ones.
+  ([#7320](https://github.com/matrix-org/matrix-rust-sdk/pull/7320))
+- Added the `StateStoreDataKey::RetentionConfiguration` and
+  `StateStoreDataValue::RetentionConfiguration` variants, and the
+  `RetentionConfigurationResponse` type, to persist the homeserver's message
+  retention configuration
+  ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)) in
+  the state store.
+  ([#7475](https://github.com/matrix-org/matrix-rust-sdk/pull/7475))
+
+### Changed
+
+- `Room::members` is faster for large rooms: each member's display name is
+  normalized once instead of twice, and the member events and profiles are read
+  from the state store concurrently instead of one after the other.
+  `Room::members` and `Room::get_member` also no longer read presence events,
+  which `RoomMember` never exposed. The returned members are unchanged.
+  ([#7004](https://github.com/matrix-org/matrix-rust-sdk/pull/7004))
+- `EventCacheStore::load_thread_info` takes a new parameter:
+  `create_default_if_missing`. The method also returns an `Option<ThreadInfo>`
+  instead of a non-optional.
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+- Under the `unstable-msc4354` feature, `QueuedRequestKind::Event` now has an
+  optional `sticky_duration` member.
+  ([#7108](https://github.com/matrix-org/matrix-rust-sdk/pull/7108))
+- [**breaking**] `Client::subscribe_to_ignore_user_list_changes()` subscribes to
+  a `Vec<OwnedUserId>` rather than a `Vec<String>`. The strings were already
+  Matrix user IDs but this change makes it obvious.
+  ([#7159](https://github.com/matrix-org/matrix-rust-sdk/pull/7159))
+- Make `livekit_alias` optional on RTC member events.
+  ([#7335](https://github.com/matrix-org/matrix-rust-sdk/pull/7335))
+- `BaseClient::activate()` now always notifies subscribers of
+  `BaseClient::subscribe_to_ignore_user_list_changes()` with the ignored user
+  list loaded from the store, even if it's empty.
+  ([#7397](https://github.com/matrix-org/matrix-rust-sdk/pull/7397))
+- `StickyEventsUpdate::removed` is now a `Vec<StickyEventRemoval>` and its
+  elements additionally carry the `tombstone` event that replaced the live one,
+  when the reason is `RemovalReason::Replaced`. Furthermore, the new
+  `StickyEvents::unexpired` returns both live events and unexpired tombstones.
+  Finally, the new `sticky::is_tracked` makes the tracking condition for sticky
+  events reusable.
+  ([#7508](https://github.com/matrix-org/matrix-rust-sdk/pull/7508))
+
+### Fixed
+
+- Add integration test to ensure all implementations of `EventCacheStore` filter
+  incomplete `Event`s rather than failing immediately when handling
+  `Update::PushItems` and `Update::ReplaceItem`. Additionally, update
+  `MemoryStore` so that it is compliant with this behavior.
+  ([#7055](https://github.com/matrix-org/matrix-rust-sdk/pull/7055))
+- Restore the ignored user list from the local state store when activating the
+  client, ensuring the application can access previously ignored users
+  immediately after restarting, without waiting for another event update from
+  the server. ([#7352](https://github.com/matrix-org/matrix-rust-sdk/pull/7352))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.
