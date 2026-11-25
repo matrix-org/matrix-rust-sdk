@@ -438,7 +438,14 @@ impl SessionVerificationController {
                     if let Some(current_delegate) = Self::current_delegate(&delegate) {
                         current_delegate.did_cancel();
                     }
+
+                    // The request can't change anymore.
+                    break;
                 }
+                // The request can't change anymore. Stop listening, otherwise this task
+                // would keep the request, and the `Client` it holds, alive forever: the
+                // stream only ends once the request is dropped.
+                VerificationRequestState::Done => break,
                 _ => {}
             }
         }

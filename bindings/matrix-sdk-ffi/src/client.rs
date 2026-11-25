@@ -517,10 +517,16 @@ impl Client {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
         > = Default::default();
-        let controller = session_verification_controller.clone();
+        // The event handlers are owned by the SDK client, and the controller
+        // holds on to the SDK client too: they must only hold a weak
+        // reference to the controller, or the SDK client would never be
+        // dropped.
+        let controller = Arc::downgrade(&session_verification_controller);
         sdk_client.add_event_handler(
             move |event: ToDeviceKeyVerificationRequestEvent| async move {
-                if let Some(session_verification_controller) = &*controller.clone().read().await {
+                let Some(controller) = controller.upgrade() else { return };
+
+                if let Some(session_verification_controller) = &*controller.read().await {
                     session_verification_controller
                         .process_incoming_verification_request(
                             &event.sender,
@@ -531,10 +537,12 @@ impl Client {
             },
         );
 
-        let controller = session_verification_controller.clone();
+        let controller = Arc::downgrade(&session_verification_controller);
         sdk_client.add_event_handler(move |event: OriginalSyncRoomMessageEvent| async move {
+            let Some(controller) = controller.upgrade() else { return };
+
             if let MessageType::VerificationRequest(_) = &event.content.msgtype
-                && let Some(session_verification_controller) = &*controller.clone().read().await
+                && let Some(session_verification_controller) = &*controller.read().await
             {
                 session_verification_controller
                     .process_incoming_verification_request(&event.sender, event.event_id)
@@ -4355,6 +4363,38 @@ mod tests {
         std::thread::spawn(move || drop(ffi_client))
             .join()
             .expect("Client::drop panicked on a non-tokio thread");
+    }
+
+    /// The event handlers registered by `Client::new` must not keep the
+    /// session verification controller alive: the controller holds the SDK
+    /// client, which owns the event handlers, so that would be a reference
+    /// cycle, and the SDK client would never be dropped.
+    #[tokio::test]
+    async fn test_event_handlers_dont_keep_the_session_verification_controller_alive() {
+        use std::sync::Arc;
+
+        use matrix_sdk::{Client, config::RequestConfig};
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+
+        let sdk_client = Client::builder()
+            .homeserver_url("https://example.com")
+            .request_config(RequestConfig::new().disable_retry())
+            .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+            .build()
+            .await
+            .unwrap();
+
+        let ffi_client = super::Client::new(sdk_client.clone(), None, None, None).await.unwrap();
+        let controller_cache = Arc::downgrade(&ffi_client.session_verification_controller);
+
+        drop(ffi_client);
+
+        // The SDK client is still alive, and so are its event handlers, but
+        // they don't keep the controller cache alive anymore.
+        assert!(
+            controller_cache.upgrade().is_none(),
+            "the event handlers should only hold a weak reference to the controller"
+        );
     }
 
     #[cfg(feature = "sqlite")]
