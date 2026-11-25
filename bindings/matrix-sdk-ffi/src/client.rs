@@ -12,6 +12,8 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-prelude")]
+use std::ops::Deref;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
@@ -20,9 +22,6 @@ use std::{
     sync::{Arc, OnceLock},
     time::Duration,
 };
-
-#[cfg(feature = "experimental-prelude")]
-use std::ops::Deref;
 
 use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
@@ -84,8 +83,6 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use oauth2::Scope;
-#[cfg(feature = "experimental-prelude")]
-use ops::Deref;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId,
     RoomOrAliasId, ServerName,
