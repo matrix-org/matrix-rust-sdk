@@ -269,9 +269,9 @@ All notable changes to this project will be documented in this file.
   an `Option<&LatestEvents>` since it depends on the `EventCache`. Finally,
   `Room::event_cache` has been removed to simplify the API.
   ([#7282](https://github.com/matrix-org/matrix-rust-sdk/pull/7282))
-- Upgrades rustl to `0.23.46`, which contains several security fixes:
-
-  [https://github.com/rustls/rustls/releases/tag/v%2F0.23.46][https-github-com-rustls-rustls-releases-tag-v-2f0-23-46]
+- Upgrades rustl to
+  [`0.23.46`](https://github.com/rustls/rustls/releases/tag/v%2F0.23.46), which
+  contains several security fixes.
   ([#7288](https://github.com/matrix-org/matrix-rust-sdk/pull/7288))
 - A global search now opens the search indexes of the rooms concurrently, on
   blocking threads, instead of one by one while searching, which makes the first
