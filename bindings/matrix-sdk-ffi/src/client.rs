@@ -21,6 +21,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "experimental-prelude")]
+use std::ops::Deref;
+
 use anyhow::{Context as _, anyhow};
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
@@ -639,7 +642,7 @@ impl Client {
     }
 
     /// Login using JWT This is an implementation of the custom_login
-    /// <https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom>\
+    /// <https://docs.rs/matrix-sdk/latest/matrix_sdk/matrix_auth/struct.MatrixAuth.html#method.login_custom>
     /// For more information on logging in with JWT:
     /// <https://element-hq.github.io/synapse/latest/jwt.html>
     pub async fn custom_login_with_jwt(
@@ -738,7 +741,6 @@ impl Client {
     ///   and the device ID according to the
     ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
     ///   are always requested.
-    ///
     ///
     ///   [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     pub async fn url_for_oauth(

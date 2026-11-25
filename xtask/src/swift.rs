@@ -258,10 +258,12 @@ fn build_library() -> Result<()> {
     let ffi_library_name = ffi_library_name();
     let ffi_features = ffi_features();
     let ffi_crate = ffi_crate();
+    let cleaned_crate_name = ffi_crate.replace('-', "_");
 
     let root_directory = workspace::root_path()?;
     let target_directory = workspace::target_path()?;
-    let ffi_directory = root_directory.join(format!("bindings/apple/generated/{ffi_crate}"));
+    let ffi_directory =
+        root_directory.join(format!("bindings/apple/generated/{cleaned_crate_name}"));
     let lib_output_dir = target_directory.join("debug");
 
     create_dir_all(ffi_directory.as_path())?;
@@ -481,9 +483,9 @@ fn localize_private_symbols(
     let crate_name = ffi_crate();
     let directory = library.parent().expect("the library lives in a directory");
     let symbols_list = directory.join("private_symbols.txt");
-    let merged_object = directory.join(format!("lib{crate_name}merged.o"));
+    let merged_object = directory.join(format!("lib{crate_name}_merged.o"));
     let objects_directory = directory.join("objects");
-    let remainder = directory.join(format!("lib{crate_name}remainder.a"));
+    let remainder = directory.join(format!("lib{crate_name}_remainder.a"));
 
     std::fs::write(&symbols_list, PRIVATE_SYMBOL_PATTERNS.join("\n") + "\n")?;
 

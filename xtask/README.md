@@ -1,4 +1,4 @@
-# Martrix Rust SDK xtask
+# Matrix Rust SDK xtask
 
 Helper and make utility for testing and building matrix-rust-sdk FFI
 
@@ -17,15 +17,15 @@ In its `main.rs`, add `use xtask::*;` to make the `cargo xtask` commands availab
 ### Custom Configuration
 
 If you are building your own project on top of the matrix-rust-sdk-ffi, you probably need to change
-some configuration this tool uses to identifty which crate to build andwhich features to activate.
+some configuration this tool uses to identify which crate to build and which features to activate.
 You can do that by setting the following parameters in your *workspace* `Cargo.toml` file:
 
 ```toml
 [workspace.metadata.xtask] # this is a new section you need to add
 # this is the main crate that exposes the FFI
 ffi_crate = "my_custom_ffi"
-# these are the features to activate when building the kotlin bindings, comma-separate single strings
+# these are the features to activate when building the kotlin bindings, comma-separated single strings
 kotlin_features = "kotlin1,kotlin-extra"
-# these are the features to activate when building the swift bindings, comma-separate single strings
+# these are the features to activate when building the swift bindings, comma-separated single strings
 swift_features = "apple,secure-key"
 ```
