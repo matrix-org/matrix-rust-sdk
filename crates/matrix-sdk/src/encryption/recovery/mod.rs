@@ -811,9 +811,14 @@ impl IdentityResetHandle {
     /// failed due to required authentication, then delete backups and recovery
     /// and re-enable backups if they were enabled before
     pub async fn reset(&self, auth: AuthData) -> Result<()> {
-        self.cross_signing_reset_handle.auth(auth).await?;
+        // Only delete the backup and recovery if this call committed the
+        // reset. If it was cancelled, or a concurrent call won the race, no
+        // new identity was uploaded by us and there is nothing to clean up.
+        if self.cross_signing_reset_handle.auth(auth).await? {
+            self.client.encryption().recovery().reset_backup_and_recovery().await?;
+        }
 
-        self.client.encryption().recovery().reset_backup_and_recovery().await
+        Ok(())
     }
 
     /// Cancel the ongoing identity reset process

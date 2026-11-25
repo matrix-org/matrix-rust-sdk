@@ -363,7 +363,11 @@ impl CrossSigningResetHandle {
     /// Continue the cross-signing reset by either waiting for the
     /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
-    pub async fn auth(&self, auth: AuthData) -> Result<()> {
+    ///
+    /// Returns `true` if this call completed the reset. Returns `false` if the
+    /// reset was cancelled or if a concurrent call completed it instead, in
+    /// which case no new identity was uploaded by this call.
+    pub async fn auth(&self, auth: AuthData) -> Result<bool> {
         // Poll to see whether the reset has been authorized twice per second.
         const RETRY_EVERY: Duration = Duration::from_millis(500);
 
@@ -373,7 +377,7 @@ impl CrossSigningResetHandle {
         // If someone else has already completed the cross-signing reset before
         // we've even started, then we have nothing to do.
         if *self.is_cancelled.lock().await || self.inner.lock().await.is_none() {
-            return Ok(());
+            return Ok(false);
         }
 
         let mut upload_signing_keys_req: upload_signing_keys::v3::Request = {
@@ -381,7 +385,7 @@ impl CrossSigningResetHandle {
             // Make sure that we don't continue with the reset if someone else
             // has already completed it.
             let Some(handle) = inner.as_ref() else {
-                return Ok(());
+                return Ok(false);
             };
             handle.upload_signing_keys_req().into()
         };
@@ -435,14 +439,14 @@ impl CrossSigningResetHandle {
         // uploaded, since would leave the client and the server in an
         // inconsistent state.
         if !signing_keys_uploaded {
-            return Ok(());
+            return Ok(false);
         }
 
         // Make sure that we don't continue with the reset if someone else has
         // already completed it.
         let mut guard = self.inner.lock().await;
         let Some(handle) = mem::take(&mut *guard) else {
-            return Ok(());
+            return Ok(false);
         };
 
         let upload_signatures_req = handle.commit().await?;
@@ -465,7 +469,7 @@ impl CrossSigningResetHandle {
         // We've already replaced `guard` with `None` above, so we don't need to
         // tidy that up now.
 
-        Ok(())
+        Ok(true)
     }
 
     /// Cancel the ongoing identity reset process
