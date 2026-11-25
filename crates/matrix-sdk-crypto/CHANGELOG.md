@@ -4,6 +4,106 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Add `CryptoStore::delete_next_batch_token()` to explicitly remove an
+  outdated/malformed `to_device` token from the store without replacing it.
+  ([#7135](https://github.com/matrix-org/matrix-rust-sdk/pull/7135))
+- Add `UserDevices::has_other_devices_to_verify_against`, which checks whether
+  the user has a device, other than our own, that could be used for interactive
+  verification.
+
+  For a device to be considered, it must be cross-signed by its owner, able to
+  receive Olm messages, and must not be a dehydrated device.
+  ([#7328](https://github.com/matrix-org/matrix-rust-sdk/pull/7328))
+- Add `OlmMachine::reset_cross_signing()`, which generates a new cross-signing
+  identity without persisting it.
+
+  It returns an `UncommittedCrossSigningReset` handle exposing the signing-keys
+  upload request. Once the server has accepted the upload, calling
+  `UncommittedCrossSigningReset::commit()` stores the new identity in the crypto
+  store and returns the request to upload the signatures for the new keys.
+
+  This lets callers avoid overwriting their identity of record when a reset is
+  abandoned before the server accepts the new keys.
+  `OlmMachine::bootstrap_cross_signing()` is unchanged in behaviour and now uses
+  this API internally.
+  ([#7341](https://github.com/matrix-org/matrix-rust-sdk/pull/7341))
+- `UtdCause` has a new `Malformed` variant, used when an event could not be
+  decrypted because it is malformed or otherwise impossible to decrypt. Clients
+  should indicate that UTDs with this variant are broken and cannot be viewed.
+  ([#7345](https://github.com/matrix-org/matrix-rust-sdk/pull/7345))
+- Expose the capacities of the `CryptoStoreWrapper`'s broadcast channels as
+  constants behind the `testing` feature, so tests in downstream crates can
+  exercise channel overflow behaviour.
+  ([#7476](https://github.com/matrix-org/matrix-rust-sdk/pull/7476))
+
+### Changed
+
+- When using X.509 identity signing, log details about the calculations done in
+  the logic to check signature expiry dates.
+  ([#7289](https://github.com/matrix-org/matrix-rust-sdk/pull/7289))
+- Improvements to the logging written when handling interactive verification.
+  ([#7441](https://github.com/matrix-org/matrix-rust-sdk/pull/7441))
+
+### Fixed
+
+- The inlined HTML script that extracts and renders Mermaid diagrams in the
+  rustdoc has been included in the published crate source. Previously they were
+  not, and the script was referenced in the rustdoc with a path relative to the
+  monorepo root, which failed to resolve when individual crates are published,
+  thus breaking rustdoc build on docs.rs.
+  ([#7058](https://github.com/matrix-org/matrix-rust-sdk/pull/7058))
+- Restore the logging of the user and device ID when creating an OlmMachine
+  ([#7064](https://github.com/matrix-org/matrix-rust-sdk/pull/7064))
+- [**breaking**] Enforce size limits for the rendezvous ID and base homeserver
+  URL in the
+  [MSC4388](https://github.com/matrix-org/matrix-spec-proposals/pull/4388)
+  variant of the QR code.
+  ([#7130](https://github.com/matrix-org/matrix-rust-sdk/pull/7130))
+- Room keys imported from a backup or file export are no longer made
+  undecryptable under the `CrossSignedOrLegacy` trust requirement once the
+  sender's device is fetched via `/keys/query`. Previously, the device lookup
+  replaced the session's sender data with less useful data, dropping its legacy
+  flag, and its events failed with "The sending device is not known".
+  ([#7172](https://github.com/matrix-org/matrix-rust-sdk/pull/7172))
+- [**breaking**] The `shared_history` flag of `m.room_key` contents, exported
+  room keys and backed-up room keys is now (de)serialized as `shared_history`,
+  as defined in the Matrix specification, instead of `m.shared_history`. The
+  previous `m.shared_history` name and the unstable
+  `org.matrix.msc3061.shared_history` name are still accepted when
+  deserializing. Previously, keys from spec-compliant senders were treated as
+  not shareable with newly invited users. Versions of the SDK before this change
+  do not recognize the `shared_history` name, so they read keys, exports, and
+  backups written by this version as not shareable.
+  ([#7190](https://github.com/matrix-org/matrix-rust-sdk/pull/7190))
+- Decrypted `m.room_key` to-device events passed to the application now keep
+  their `shared_history` flag. Previously, the flag was dropped when the session
+  key was zeroized, so applications always saw it as `false`.
+  ([#7256](https://github.com/matrix-org/matrix-rust-sdk/pull/7256))
+- Ignore in-room verification requests addressed to another user, instead of
+  surfacing them to every non-sender member of a room with more than two
+  members. ([#7269](https://github.com/matrix-org/matrix-rust-sdk/pull/7269))
+- SAS verification now cancels with `m.mismatched_commitment` instead of
+  `m.key_mismatch` when the public key in the other side's
+  `m.key.verification.key` event doesn't match the commitment from its
+  `m.key.verification.accept` event, as the spec requires.
+  ([#7270](https://github.com/matrix-org/matrix-rust-sdk/pull/7270))
+- Clarify the docs of `LimitedUrl` and `QrCodeData::new_msc4388()`.
+  `new_msc4388()` encodes the normalized form of the base URL in the QR code,
+  and `LimitedUrl::as_bytes()` returns the exact bytes encoded in the QR code,
+  which MSC4388 requires to be used in the additional authenticated data. These
+  can differ from `LimitedUrl::as_str()` and `LimitedUrl::as_url()`, which
+  return the normalised URL.
+  ([#7434](https://github.com/matrix-org/matrix-rust-sdk/pull/7434))
+- Decryption now retains the sticky marker of
+  [MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354) (the
+  top-level `sticky` or `msc4354_sticky` property of the encrypted envelope) on
+  the decrypted event.
+  ([#7508](https://github.com/matrix-org/matrix-rust-sdk/pull/7508))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 ### Fixed

@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Add `SqliteStoreConfig::synchronous` to set the
+  [`PRAGMA synchronous`](https://www.sqlite.org/pragma.html#pragma_synchronous)
+  mode of the store connections. The default stays `Synchronous::Full`.
+  ([#6948](https://github.com/matrix-org/matrix-rust-sdk/pull/6948))
+- Modified the storage of events to allow finding expired events by timestamp
+  without decrypting every event blob.
+
+  Added `find_events_before_timestamp` to use that index.
+  ([#7040](https://github.com/matrix-org/matrix-rust-sdk/pull/7040))
+- Export `EVENT_CACHE_STORE_DATABASE_NAME` and `MEDIA_STORE_DATABASE_NAME`, the
+  filenames of the event cache and media store databases.
+  ([#7388](https://github.com/matrix-org/matrix-rust-sdk/pull/7388))
+
+### Changed
+
+- Generalized `with_immediate_transaction` and use it for transactions
+  containing writes, including migrations. Not having this when a transaction
+  upgraded from read to write could cause the `busy_timeout` option to be
+  ignored.
+
+  Re-enable a `busy_timeout` option of 2 seconds.
+  ([#7363](https://github.com/matrix-org/matrix-rust-sdk/pull/7363))
+- Events stored in the event cache now record their (possibly hashed)
+  `state_key`, if any, in a new `state_key` column of the `events` table. Empty
+  state keys are stored too, so the column is only `NULL` for events that aren't
+  state events. A new index on `(room_id, state_key, timestamp)` allows
+  efficiently querying events by their `state_key`, optionally restricted to
+  events older than a given timestamp.
+
+  The database migration adding this column empties the event cache, so it will
+  be repopulated from the server.
+  ([#7443](https://github.com/matrix-org/matrix-rust-sdk/pull/7443))
+
+### Fixed
+
+- Redact stored state events without decoding their content, so malformed state
+  does not prevent sync updates from being saved.
+  ([#0](https://github.com/matrix-org/matrix-rust-sdk/pull/0))
+- `PRAGMA cache_size` and `PRAGMA journal_size_limit` are per-connection
+  settings, but they were applied to a single connection when a store was
+  opened. The connection pool manager now applies them to every connection it
+  creates. ([#6948](https://github.com/matrix-org/matrix-rust-sdk/pull/6948))
+- Dropping a SQLite store from a thread that isn't running within a Tokio
+  runtime (e.g. a foreign thread through the FFI bindings) doesn't panic
+  anymore. The store's connections are now dropped within the runtime that was
+  used to open it.
+
+  Added a `SqliteConnections` wrapper (containing the old `SqliteConnections`
+  struct, which is now `SqliteConnectionsInner`) that will ensure SQLite
+  connections are properly dropped in the correct runtime.
+  ([#7286](https://github.com/matrix-org/matrix-rust-sdk/pull/7286))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.

@@ -4,6 +4,331 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Removed
+
+- [**breaking**] Remove `RoomInfo::fully_read_event_id`: the `m.fully_read`
+  marker can point to an event that isn't rendered in a timeline. Use
+  `Timeline::fully_read_event_id` or
+  `Timeline::subscribe_to_fully_read_event_id` instead.
+  ([#7360](https://github.com/matrix-org/matrix-rust-sdk/pull/7360))
+- [**breaking**] `Client::get_url` has been removed. Instead, you should
+  instantiate `HttpClient` and use its `get_url` method.
+  ([#7515](https://github.com/matrix-org/matrix-rust-sdk/pull/7515))
+
+### Added
+
+- Expose `SessionVerificationCancelInfo` (reason, cancel_code, canceled_by_us)
+  from `SessionVerificationController` when a verification request or SAS
+  verification is canceled.
+  ([#6694](https://github.com/matrix-org/matrix-rust-sdk/pull/6694))
+- Added `Room::sendDelayedEvent`, `Room::sendDelayedStateEvent` and
+  `Client::updateDelayedEvent` for delayed events
+  ([MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)),
+  and `Room::sendStickyDelayedEvent` to send a delayed event that becomes sticky
+  ([MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354))
+  once sent. ([#6973](https://github.com/matrix-org/matrix-rust-sdk/pull/6973))
+- Added `Room::stateEvents` to read the current state events of a given type,
+  and `Room::subscribeToStateEvents` to be notified with the full list of state
+  events of that type.
+  ([#6979](https://github.com/matrix-org/matrix-rust-sdk/pull/6979))
+- Added `Client::subscribeToCustomToDeviceMessages` to receive custom to-device
+  messages of the given event types through a `ToDeviceMessageListener`. Each
+  `ToDeviceMessage` carries the decrypted content and, when it arrived
+  encrypted, a new `EventEncryptionInfo`.
+  ([#6980](https://github.com/matrix-org/matrix-rust-sdk/pull/6980))
+- Sticky events
+  ([MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354)) are
+  now enabled by default: the room list sync requests the
+  [MSC4480](https://github.com/matrix-org/matrix-spec-proposals/pull/4480)
+  extension and the SDK tracks the sticky events of each room. No FFI API
+  exposes them yet.
+  ([#7014](https://github.com/matrix-org/matrix-rust-sdk/pull/7014))
+- Expose the send state of our pending edits and redactions on
+  `EventTimelineItem` and of our pending reactions on `ReactionSenderData`, and
+  add `Timeline::retry_send()` / `Timeline::abort_send()` with `SendTarget` to
+  retry or abort them; both return whether there was anything left to act on.
+  ([#7039](https://github.com/matrix-org/matrix-rust-sdk/pull/7039))
+- Add `Client::discoverRtcTransports`, which returns the MatrixRTC transports
+  advertised by the homeserver.
+  ([#7060](https://github.com/matrix-org/matrix-rust-sdk/pull/7060))
+- Add `Room::send_sticky_raw` under the `unstable-msc4354` feature for sending
+  sticky events.
+  ([#7125](https://github.com/matrix-org/matrix-rust-sdk/pull/7125))
+- Added `Timeline::sendAttachment` and `Timeline::editWithAttachment`, which
+  take the kind of attachment as an `AttachmentKind` (image, video, audio, voice
+  message or file) with the metadata that kind needs. `editWithAttachment`
+  replaces the attachment of a message the current user sent, or adds one to a
+  message which had none: the new attachment is uploaded through the send queue,
+  then an edit carrying it is sent.
+  ([#7133](https://github.com/matrix-org/matrix-rust-sdk/pull/7133))
+- Add `QueueWedgeError::ExpiredAccessToken` reported for a local echo that
+  couldn't be sent because the access token was rejected.
+  ([#7140](https://github.com/matrix-org/matrix-rust-sdk/pull/7140))
+- Expose `QrCodeData::to_base64` in the FFI bindings so clients can turn
+  generated QR login data into a base64 string for rendering, matching the
+  existing `to_bytes` accessor.
+  ([#7149](https://github.com/matrix-org/matrix-rust-sdk/pull/7149))
+- Add `extra_content_json` to `GalleryUploadParameters` and each
+  `GalleryItemInfo` variant.
+  ([#7154](https://github.com/matrix-org/matrix-rust-sdk/pull/7154))
+- Add `Room::subscribe_to_message_like_events`, which calls a listener with
+  every message-like event of a given type received via sync.
+  ([#7163](https://github.com/matrix-org/matrix-rust-sdk/pull/7163))
+- `get_element_call_required_permissions` now also requests reading the
+  `io.element.functional_members` state event
+  ([MSC4171](https://github.com/matrix-org/matrix-spec-proposals/pull/4171)), so
+  Element Call can ignore bots and service accounts. Fixes DM ringing.
+  ([#7210](https://github.com/matrix-org/matrix-rust-sdk/pull/7210))
+- Add `Client::has_encrypted_rooms(timeout_ms)`.
+
+  This method reports whether the user has joined at least one encrypted room,
+  asking the homeserver directly if the local cache doesn't already know of one,
+  up to the given timeout. This enables clients to show a less alarming identity
+  reset warning to users who have no encrypted chats.
+  ([#7266](https://github.com/matrix-org/matrix-rust-sdk/pull/7266))
+- `StoreSizes` gained a `search_index` field: the disk size of the search index,
+  as returned by `Client::get_store_sizes`.
+  ([#7268](https://github.com/matrix-org/matrix-rust-sdk/pull/7268))
+- `WidgetCapabilities` gained the `rtc_livekit_get_token` and
+  `rtc_livekit_delegate_delayed_leave` fields, which allow a widget to obtain a
+  LiveKit SFU token from, and delegate a MatrixRTC delayed leave event to, the
+  homeserver
+  ([MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533)).
+  Both are granted by `get_element_call_required_permissions`.
+  ([#7279](https://github.com/matrix-org/matrix-rust-sdk/pull/7279))
+- `Room::send_raw`, `Room::send_state_event_raw` and `Room::send_sticky_raw`
+  take an optional `RequestConfigOverride` to override the client's
+  `retry_limit` and `timeout` for that request, for example to disable automatic
+  retries with `retry_limit = 0`.
+  ([#7312](https://github.com/matrix-org/matrix-rust-sdk/pull/7312))
+- Add `Room::members_fetching_global_profiles` to get the room's members and
+  fetch the missing global profiles of its joined members in the background,
+  using
+  [MSC4536](https://github.com/matrix-org/matrix-spec-proposals/pull/4536),
+  behind the `unstable-msc4536` feature.
+  ([#7320](https://github.com/matrix-org/matrix-rust-sdk/pull/7320))
+- Added `Client::observe_total_unread_notifications`, which calls a
+  `TotalUnreadNotificationsListener` with the total unread notification count
+  right away, then at most once every `min_interval` when the count changes.
+  ([#7337](https://github.com/matrix-org/matrix-rust-sdk/pull/7337))
+- Add `redactionReason` to `EventTimelineItem`: the reason given with the
+  event's redaction, from the server or from our own redaction while it is still
+  pending. ([#7357](https://github.com/matrix-org/matrix-rust-sdk/pull/7357))
+- Add `Timeline::fully_read_event_id` and
+  `Timeline::subscribe_to_fully_read_event_id` to get and observe the ID of the
+  closest visible event at or before the user's `m.fully_read` marker, which may
+  point to an event that isn't rendered (e.g. a reaction or an edit). If the
+  marker's event isn't loaded, or no visible event before it is, this is the
+  marker's own event ID.
+  ([#7360](https://github.com/matrix-org/matrix-rust-sdk/pull/7360))
+- Expose room invite permission configuration through FFI. Clients can set
+  permissions and observe configuration changes.
+  ([#7373](https://github.com/matrix-org/matrix-rust-sdk/pull/7373))
+- Added `Encryption::export_room_keys` and `Encryption::import_room_keys` to the
+  FFI bindings, so that apps can write the room keys to, and read them back
+  from, a passphrase-protected file. Import failures are reported as
+  `RoomKeyImportError`, which is exposed as a flat error (apps receive the
+  variant and its message), and export failures are reported as `ClientError`.
+  ([#7399](https://github.com/matrix-org/matrix-rust-sdk/pull/7399))
+- Added the Circle
+  ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546))
+  video info, gated behind the `unstable-msc4546` feature.
+  ([#7402](https://github.com/matrix-org/matrix-rust-sdk/pull/7402))
+- Add `Client::rtc_livekit_get_token` and
+  `Client::rtc_livekit_delegate_delayed_leave`, as per
+  ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
+  ([#7428](https://github.com/matrix-org/matrix-rust-sdk/pull/7428))
+- Add `SlidingSyncVersion::Stable` for the stable version of MSC4186, with
+  `SlidingSyncVersionBuilder::Stable`,
+  `SlidingSyncVersionBuilder::DiscoverStable` and
+  `SlidingSyncVersionBuilder::Discover`, which picks the stable version if the
+  homeserver advertises it, and the unstable one otherwise.
+  ([#7479](https://github.com/matrix-org/matrix-rust-sdk/pull/7479))
+- Add `Room::image_packs()`, returning the custom emoticon and sticker packs
+  that can be used in a room.
+  ([#7497](https://github.com/matrix-org/matrix-rust-sdk/pull/7497))
+- Added `Room::subscribe_to_effective_retention()` to observe the effective
+  message retention policy of a room
+  ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763))
+  through an `EffectiveRetentionListener`, which receives a
+  `RoomRetentionPolicy`.
+  ([#7501](https://github.com/matrix-org/matrix-rust-sdk/pull/7501))
+- Added `Client::fetch_retention_configuration()` and
+  `Client::retention_configuration()` to get the server's message retention
+  configuration
+  ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)) as
+  a `RetentionConfiguration`. Both return `None` when the homeserver doesn't
+  implement the endpoint.
+  ([#7502](https://github.com/matrix-org/matrix-rust-sdk/pull/7502))
+- `Client::get_media_thumbnail()` takes an optional `animated` parameter,
+  defaulting to `false`, to request an animated thumbnail from the homeserver
+  when the media supports it.
+  ([#7503](https://github.com/matrix-org/matrix-rust-sdk/pull/7503))
+- Add `WidgetCapabilities` gained `send_sticky_event` and
+  `receive_sticky_event`, the sticky event capabilities of
+  [MSC4407](https://github.com/matrix-org/matrix-spec-proposals/pull/4407), and
+  `get_element_call_required_permissions` grants them along with sending and
+  receiving the `m.rtc.member` sticky events.
+  ([#7508](https://github.com/matrix-org/matrix-rust-sdk/pull/7508))
+- Add widget event filter for `m.rtc.encryption_key` to-device message.
+  ([#7510](https://github.com/matrix-org/matrix-rust-sdk/pull/7510))
+- Add an `HttpClient` that can be created with `HttpClient::from_settings()`
+  from the same `HttpSettings` and `RequestConfig` as a `Client`, without
+  logging in. This lets apps fetch resources before a session exists, using the
+  same proxy, user agent and TLS configuration as the SDK, and the same timeouts
+  and retries with exponential backoff. `HttpClient::get_url()` returns the raw
+  bytes of the response. On failure, `HttpClientError::GetUrl` contains the HTTP
+  status code and the body of the error response, when the server responded.
+  Add an optional `read_timeout` to `RequestConfig`, in milliseconds, which
+  defaults to 60 seconds.
+  ([#7515](https://github.com/matrix-org/matrix-rust-sdk/pull/7515))
+- Add `Client::http_client()`, which returns the `HttpClient` already used by
+  the `Client`, so apps can call `HttpClient::get_url()` with the client's HTTP
+  settings, request configuration and concurrency limits instead of constructing
+  a new `HttpClient`.
+  ([#7541](https://github.com/matrix-org/matrix-rust-sdk/pull/7541))
+- Add `Timeline::send_sticker()`, which sends an already uploaded image as a
+  sticker through the send queue, in the timeline's thread if it's a threaded
+  timeline. ([#7543](https://github.com/matrix-org/matrix-rust-sdk/pull/7543))
+- Add `NotificationRoomInfo::can_send_message`, telling whether the current user
+  is allowed to send an `m.room.message` event in the room of the notification,
+  according to the room's power levels. This can be used to decide whether to
+  offer a quick reply action from a notification.
+  ([#7544](https://github.com/matrix-org/matrix-rust-sdk/pull/7544))
+- Add `ImagePack::is_enabled_globally`, telling whether the user enabled the
+  pack in all the rooms.
+  ([#7554](https://github.com/matrix-org/matrix-rust-sdk/pull/7554))
+- Add `Client::run_search_backfill(SearchBackfillStrategy)` which starts a
+  background sweep that back-paginates message history for every room (down to
+  ~3 months, front-loaded by recency) to populate the search index.
+  ([#6842](https://github.com/matrix-org/matrix-rust-sdk/pull/6842))
+- Add `Room::sticky_events` and `Room::subscribe_to_sticky_events` for reading
+  and subscribing to sticky events.
+  ([#7105](https://github.com/matrix-org/matrix-rust-sdk/pull/7105))
+
+### Changed
+
+- [**breaking**] `LoginWithQrCodeHandler::scan`/`::generate` and
+  `GrantLoginWithQrCodeHandler::scan`/`::generate` now return a
+  `LoginWithQrCodeTask` or `GrantLoginWithQrCodeTask` immediately, which is used
+  to `wait` for the login to finish or to `cancel` it cooperatively.
+  ([#6677](https://github.com/matrix-org/matrix-rust-sdk/pull/6677))
+- [**breaking**] `reactions` moves from `MsgLikeContent` to `EventTimelineItem`,
+  so every timeline item exposes its reactions, not only message-like ones.
+  ([#7049](https://github.com/matrix-org/matrix-rust-sdk/pull/7049))
+- [**breaking**] Require a `session` token for `AuthDataPasswordDetails` and
+  `AuthData::OAuth`.
+  ([#7054](https://github.com/matrix-org/matrix-rust-sdk/pull/7054))
+- [**breaking**] `Room::sendRaw` now returns the event ID of the sent event.
+  ([#7094](https://github.com/matrix-org/matrix-rust-sdk/pull/7094))
+- Deprecated `Timeline::sendImage`, `sendVideo`, `sendAudio`, `sendVoiceMessage`
+  and `sendFile` in favor of `Timeline::sendAttachment`.
+  ([#7133](https://github.com/matrix-org/matrix-rust-sdk/pull/7133))
+- [**breaking**] Bumped `rustls-platform-verifier` to `0.7.0` and `jni` to
+  `0.22.4` on Android, and removed the `jvm-getter` dependency. Android clients
+  must now call the new JNI function `org.matrix.rustsdk.Android.init(context)`
+  with the application `Context` before calling `init_platform`, e.g. by
+  declaring:
+
+  ```kotlin
+  package org.matrix.rustsdk
+
+  object Android {
+      @JvmStatic
+      external fun init(context: android.content.Context)
+  }
+  ``` ([#7137](https://github.com/matrix-org/matrix-rust-sdk/pull/7137))
+- `Client::is_report_room_api_supported` now uses the endpoint's version history
+  to decide whether the homeserver supports the report room API. Previously, it
+  returned `true` only when the homeserver explicitly listed Matrix v1.13 in its
+  supported versions.
+  ([#7195](https://github.com/matrix-org/matrix-rust-sdk/pull/7195))
+- [**breaking**] `CrossSigningResetAuthType::Uiaa` now holds a
+  `UiaaCrossSigningResetInfo` with a non-optional `session`, matching
+  `AuthDataPasswordDetails`. `Client::deactivate_account` now takes the user's
+  `password` instead of optional `auth_data`, and performs the whole
+  User-Interactive Authentication flow itself.
+  ([#7259](https://github.com/matrix-org/matrix-rust-sdk/pull/7259))
+- [**breaking**] `ClientBuilder::with_search_index_store`'s `password` parameter
+  is renamed to `key`: it must be a high-entropy key, as it is no longer
+  stretched. ([#7268](https://github.com/matrix-org/matrix-rust-sdk/pull/7268))
+- `ClientBuilder::system_is_memory_constrained` now disables the Event Cache and
+  the Latest Events, e.g. in a notification service extension.
+  ([#7282](https://github.com/matrix-org/matrix-rust-sdk/pull/7282))
+- [**breaking**]
+  `SessionVerificationControllerDelegate::did_accept_verification_request` is
+  now only called when the other side accepted a verification request we sent,
+  not when we accept an incoming one.
+  ([#7292](https://github.com/matrix-org/matrix-rust-sdk/pull/7292))
+- [**breaking**] `encryption::Encryption::enable_recovery` now takes an optional
+  `SecretStorageKey`, rather than an optional passphrase. This means that
+  recovery can be enabled using a pre-generated key, rather than only being able
+  to generate the key while enabling recovery. Recovery can still be enabled
+  using a passphrase by using `SecretStorageKey::new_from_passphrase`.
+  ([#7329](https://github.com/matrix-org/matrix-rust-sdk/pull/7329))
+- [**breaking**] `service_url` on `RtcTransport` is now deprecated and optional.
+  It should only be used when backwards compatibility to previous versions of
+  MSC4195 is required. A new optional property `url` is added in its stead and
+  contains the SFU's WebSocket URL.
+  ([#7362](https://github.com/matrix-org/matrix-rust-sdk/pull/7362))
+- `Client::clear_caches` now also deletes the search index, and the event cache
+  store and media store files, instead of only applying the media retention
+  policy. It closes all the stores before deleting their files, so no database
+  is deleted while in use.
+  ([#7388](https://github.com/matrix-org/matrix-rust-sdk/pull/7388))
+- Fold both `livekit` and `m.livekit` into `RtcTransport::LiveKit`.
+  ([#7405](https://github.com/matrix-org/matrix-rust-sdk/pull/7405))
+- [**breaking**] `SlidingSyncVersion::Native`,
+  `SlidingSyncVersionBuilder::Native` and
+  `SlidingSyncVersionBuilder::DiscoverNative` are renamed to
+  `SlidingSyncVersion::Unstable`, `SlidingSyncVersionBuilder::Unstable` and
+  `SlidingSyncVersionBuilder::DiscoverUnstable`, as they refer to the unstable
+  version of MSC4186.
+  ([#7479](https://github.com/matrix-org/matrix-rust-sdk/pull/7479))
+- [**breaking**] `RtcTransport::LiveKit` is now only the `m.livekit` transport
+  type, and its `url` is no longer optional. The legacy `livekit` type is
+  exposed as the new `RtcTransport::LegacyLiveKit` variant, so that clients can
+  tell which version of MSC4195 a transport is meant for.
+  ([#7513](https://github.com/matrix-org/matrix-rust-sdk/pull/7513))
+- [**breaking**] `ClientBuilder::proxy()`, `ClientBuilder::user_agent()`,
+  `ClientBuilder::disable_ssl_verification()`,
+  `ClientBuilder::add_root_certificates()` and
+  `ClientBuilder::disable_built_in_root_certificates()` have been replaced by
+  `ClientBuilder::http_settings()`, which takes an `HttpSettings` record holding
+  all of these options. Root certificates are now passed as `HttpCertificate`
+  objects, created with `HttpCertificate::from_bytes()` from DER or PEM data, so
+  an invalid certificate is reported when it's created rather than when the
+  client is built. Timeouts are still set with
+  `ClientBuilder::request_config()`.
+  ([#7515](https://github.com/matrix-org/matrix-rust-sdk/pull/7515))
+
+### Fixed
+
+- Keep the bundled SQLite private to the Apple `MatrixSDKFFI` framework. Its
+  symbols were exported from the static library, so an app that also links the
+  system `libsqlite3` could have the linker resolve the SDK's SQLite calls from
+  the system library instead. With the iOS 27 SDK, which exports newer functions
+  such as `sqlite3_set_errmsg`, the app then crashed at launch on older systems
+  with `Symbol not found: _sqlite3_set_errmsg`. The Swift build now binds those
+  references inside the library and hides the definitions.
+  ([#7041](https://github.com/matrix-org/matrix-rust-sdk/pull/7041))
+- When granting a QR code login, `m.login.protocol_accepted` is now sent to the
+  new device before the `WaitingForAuth` progress state is emitted, instead of
+  after `ContinuationMessageSender.confirm()` is called. Previously the new
+  device did not show its user code or poll for the access token until the
+  existing device had resumed and confirmed.
+  ([#7267](https://github.com/matrix-org/matrix-rust-sdk/pull/7267))
+- [**breaking**] `SessionVerificationController::start_sas_verification` is now
+  a no-op if the other side already started the SAS verification, instead of
+  replacing the already accepted SAS flow with a new one.
+  ([#7292](https://github.com/matrix-org/matrix-rust-sdk/pull/7292))
+- `Encryption::has_devices_to_verify_against` no longer counts the current
+  device. Previously, a cross-signed device would count itself, so the method
+  could return `true` even when the user had no other devices.
+  ([#7328](https://github.com/matrix-org/matrix-rust-sdk/pull/7328))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.
