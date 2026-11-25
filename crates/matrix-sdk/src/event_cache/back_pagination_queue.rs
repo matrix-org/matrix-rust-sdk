@@ -196,7 +196,7 @@ struct BackPaginationQueueInner {
     /// This only tracks handle lifetimes; the scheduler stays authoritative for
     /// whether a request actually coalesces onto an existing run.
     cancellations: Mutex<HashMap<RequestCoalescingKey, SharedCancellation>>,
-    _task: matrix_sdk_base::task_monitor::BackgroundTaskHandle,
+    task: matrix_sdk_base::task_monitor::BackgroundTaskHandle,
 }
 
 /// The cancellation of a single coalescable run.
@@ -238,7 +238,7 @@ impl BackPaginationQueue {
             inner: Arc::new(BackPaginationQueueInner {
                 sender,
                 cancellations: Mutex::new(HashMap::new()),
-                _task: task,
+                task,
             }),
         }
     }
@@ -262,6 +262,15 @@ impl BackPaginationQueue {
             .map_err(|_| BackPaginationQueueError::ShutDown)?;
 
         Ok(BackPaginationHandle { guard, completion: Some(completion_rx) })
+    }
+
+    /// Stop the queue for good.
+    ///
+    /// This aborts its executor, which cancels the running requests and drops
+    /// the queued ones. New requests are rejected with
+    /// [`BackPaginationQueueError::ShutDown`].
+    pub(super) fn shut_down(&self) {
+        self.inner.task.abort();
     }
 }
 

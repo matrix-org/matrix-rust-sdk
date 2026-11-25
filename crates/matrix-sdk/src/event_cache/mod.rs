@@ -32,7 +32,10 @@ use std::{
     fmt,
     num::NonZeroUsize,
     ops::Deref,
-    sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{
+        Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use matrix_sdk_base::{
@@ -51,7 +54,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
-use tracing::{instrument, trace};
+use tracing::{info, instrument, trace};
 
 use crate::{
     Client,
@@ -187,10 +190,10 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 /// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
     /// Task that listens to updates to the user's ignored list.
-    _ignore_user_list_update_task: BackgroundTaskHandle,
+    ignore_user_list_update_task: BackgroundTaskHandle,
 
     /// The task used to automatically shrink the linked chunks.
-    _auto_shrink_linked_chunk_task: BackgroundTaskHandle,
+    auto_shrink_linked_chunk_task: BackgroundTaskHandle,
 
     /// A background task listening to room and send queue updates, and
     /// automatically subscribing the user to threads when needed, based on the
@@ -198,7 +201,7 @@ pub struct EventCacheDropHandles {
     ///
     /// One important constraint is that there is only one such task per
     /// [`EventCache`], so it does listen to _all_ rooms at the same time.
-    _thread_subscriber_task: BackgroundTaskHandle,
+    thread_subscriber_task: BackgroundTaskHandle,
 
     /// A background task listening to room updates, and automatically handling
     /// search index operations add/remove/edit depending on the event type.
@@ -206,11 +209,15 @@ pub struct EventCacheDropHandles {
     /// One important constraint is that there is only one such task per
     /// [`EventCache`], so it does listen to _all_ rooms at the same time.
     #[cfg(feature = "experimental-search")]
-    _search_indexing_task: BackgroundTaskHandle,
+    search_indexing_task: BackgroundTaskHandle,
 
     /// The task used to automatically redecrypt UTDs.
     #[cfg(feature = "e2e-encryption")]
     redecryptor: OnceLock<redecryptor::Redecryptor>,
+
+    /// Whether [`EventCacheDropHandles::abort_all`] has been called, in which
+    /// case no task must be spawned anymore.
+    is_shut_down: AtomicBool,
 }
 
 impl EventCacheDropHandles {
@@ -287,15 +294,33 @@ impl EventCacheDropHandles {
         }
 
         Self {
-            _ignore_user_list_update_task: ignore_user_list_update_task,
-            _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
+            ignore_user_list_update_task,
+            auto_shrink_linked_chunk_task,
             // It is initialised with `EventCache::initialise_redecryptor`. See this method to learn
             // more.
             #[cfg(feature = "e2e-encryption")]
             redecryptor: OnceLock::new(),
-            _thread_subscriber_task: thread_subscriber_task,
+            thread_subscriber_task,
             #[cfg(feature = "experimental-search")]
-            _search_indexing_task: search_indexing_task,
+            search_indexing_task,
+            is_shut_down: AtomicBool::new(false),
+        }
+    }
+
+    /// Abort all the tasks, and prevent new ones from being spawned.
+    fn abort_all(&self) {
+        self.is_shut_down.store(true, Ordering::SeqCst);
+
+        self.ignore_user_list_update_task.abort();
+        self.auto_shrink_linked_chunk_task.abort();
+        self.thread_subscriber_task.abort();
+
+        #[cfg(feature = "experimental-search")]
+        self.search_indexing_task.abort();
+
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(redecryptor) = self.redecryptor.get() {
+            redecryptor.abort();
         }
     }
 }
@@ -409,6 +434,11 @@ impl EventCache {
     /// It returns an error if the `Client` has been dropped.
     #[cfg(feature = "e2e-encryption")]
     pub(crate) fn initialise_redecryptor(&self) -> Result<()> {
+        if self.drop_handles.is_shut_down.load(Ordering::SeqCst) {
+            tracing::debug!("The event cache has been shut down, not starting the redecryptor");
+            return Ok(());
+        }
+
         let client = self.inner.client()?;
         let receiver =
             self.inner.redecryption_channels.decryption_request_receiver.lock().take().expect(
@@ -425,6 +455,26 @@ impl EventCache {
         });
 
         Ok(())
+    }
+
+    /// Stop all the background work of the event cache, for good.
+    ///
+    /// This is meant to be called once the session has ended, e.g. after a
+    /// logout: the automatic back-paginations, the redecryption of UTDs, the
+    /// search indexing and the other background tasks would otherwise keep
+    /// running, and keep the [`Client`] alive, for a session that can't make
+    /// any request anymore.
+    ///
+    /// The event cache can still be read, but nothing will update it in the
+    /// background anymore.
+    pub(crate) fn shut_down(&self) {
+        info!("Shutting down the event cache");
+
+        if let Some(back_pagination_queue) = self.inner.back_pagination_queue.get() {
+            back_pagination_queue.shut_down();
+        }
+
+        self.drop_handles.abort_all();
     }
 
     /// Subscribes to updates that a thread subscription has been sent.
@@ -858,6 +908,81 @@ mod tests {
     use crate::test_utils::{
         assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
     };
+
+    #[async_test]
+    async fn test_logout_shuts_down_the_event_cache() {
+        use std::ops::ControlFlow;
+
+        use matrix_sdk_common::timeout::timeout;
+
+        use super::back_pagination_queue::{
+            BackPaginationQueueError, BackPaginationRequest, Priority,
+        };
+        use crate::test_utils::mocks::MatrixMockServer;
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        server.mock_logout().ok().mock_once().mount().await;
+
+        let event_cache = client.event_cache().unwrap();
+        let back_pagination_queue = event_cache
+            .back_pagination_queue()
+            .expect("the back-pagination queue should be enabled");
+        let drop_handles = event_cache.drop_handles.clone();
+
+        assert!(drop_handles.ignore_user_list_update_task.is_finished().not());
+
+        client.logout().await.unwrap();
+
+        // All the background tasks are aborted…
+        timeout(
+            async {
+                while !(drop_handles.ignore_user_list_update_task.is_finished()
+                    && drop_handles.auto_shrink_linked_chunk_task.is_finished()
+                    && drop_handles.thread_subscriber_task.is_finished())
+                {
+                    sleep(Duration::from_millis(10)).await;
+                }
+            },
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("the event cache tasks should be aborted after a logout");
+
+        #[cfg(feature = "experimental-search")]
+        assert!(drop_handles.search_indexing_task.is_finished());
+
+        // … and the back-pagination queue doesn't accept new requests anymore.
+        timeout(
+            async {
+                loop {
+                    let request = BackPaginationRequest {
+                        room_id: room_id!("!galette:saucisse.bzh").to_owned(),
+                        priority: Priority::Normal,
+                        stop: Box::new(|_| ControlFlow::Continue(())),
+                        batch_size: 10,
+                        max_batches: None,
+                    };
+
+                    if let Err(BackPaginationQueueError::ShutDown) =
+                        back_pagination_queue.enqueue(request)
+                    {
+                        break;
+                    }
+
+                    sleep(Duration::from_millis(10)).await;
+                }
+            },
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("the back-pagination queue should be shut down after a logout");
+    }
 
     #[async_test]
     async fn test_get_event_by_id() {
