@@ -1348,5 +1348,16 @@ async fn test_reset_identity_cancelled() {
     assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
     assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
 
+    // Calling reset() after the cancellation must not delete them either,
+    // since no new identity gets uploaded by the cancelled handle.
+    assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
+    reset_handle
+        .reset(uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned()))
+        .await
+        .expect("Resetting after a cancellation should not return an error");
+
+    assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
+    assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
+
     server.verify().await;
 }
