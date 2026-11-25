@@ -17,16 +17,18 @@
 //!
 //! [Image packs]: https://spec.matrix.org/v1.19/client-server-api/#image-packs
 
+use std::collections::BTreeMap;
+
 use itertools::Itertools;
 use matrix_sdk::{
-    Result, Room, RoomState,
+    Client, Result, Room, RoomState,
     deserialized_responses::{RawSyncOrStrippedState, SyncOrStrippedState},
 };
 use ruma::{
     OwnedRoomId,
     events::{
         SyncStateEvent,
-        image_pack::rooms::ImagePackRoomsEventContent,
+        image_pack::rooms::{ImagePackRoomsEventContent, RoomImagePackMeta},
         room::image_pack::{PackUsage, RoomImagePackEventContent},
     },
 };
@@ -47,6 +49,9 @@ pub struct ImagePack {
     /// If the pack doesn't have a display name or an avatar, those of its room
     /// are used, as the spec recommends.
     pub content: RoomImagePackEventContent,
+    /// Whether the user enabled the pack globally, through their
+    /// `m.image_pack.rooms` account data.
+    pub is_enabled_globally: bool,
 }
 
 impl ImagePack {
@@ -87,33 +92,26 @@ impl ImagePack {
 /// [`RoomListService`](crate::RoomListService) requests.
 pub async fn image_packs(room: &Room, space_service: &SpaceService) -> Result<Vec<ImagePack>> {
     let client = room.client();
+    let enabled_packs = enabled_packs(&client).await?;
     let mut packs = Vec::new();
 
-    if let Some(raw) = client.account().account_data::<ImagePackRoomsEventContent>().await? {
-        // Any client can write this account data, so a malformed one is ignored
-        // rather than hiding the packs of the room and its spaces too.
-        let rooms = raw.deserialize().map(|content| content.rooms).unwrap_or_else(|error| {
-            warn!("Ignoring malformed m.image_pack.rooms account data: {error}");
-            Default::default()
-        });
+    for (room_id, state_keys) in &enabled_packs {
+        let Some(pack_room) =
+            client.get_room(room_id).filter(|room| room.state() == RoomState::Joined)
+        else {
+            continue;
+        };
 
-        for (room_id, state_keys) in rooms {
-            let Some(pack_room) =
-                client.get_room(&room_id).filter(|room| room.state() == RoomState::Joined)
-            else {
-                continue;
-            };
-
-            let events = pack_room.get_state_events_for_keys_static(state_keys.keys()).await?;
-            packs.extend(image_packs_from(&pack_room, events));
-        }
+        let events = pack_room.get_state_events_for_keys_static(state_keys.keys()).await?;
+        packs.extend(image_packs_from(&pack_room, events, &enabled_packs));
     }
 
-    packs.extend(image_packs_from(room, room.get_state_events_static().await?));
+    packs.extend(image_packs_from(room, room.get_state_events_static().await?, &enabled_packs));
 
     for space_id in space_service.joined_ancestors_of(room.room_id()).await {
         if let Some(space) = client.get_room(&space_id) {
-            packs.extend(image_packs_from(&space, space.get_state_events_static().await?));
+            let events = space.get_state_events_static().await?;
+            packs.extend(image_packs_from(&space, events, &enabled_packs));
         }
     }
 
@@ -122,18 +120,41 @@ pub async fn image_packs(room: &Room, space_service: &SpaceService) -> Result<Ve
     Ok(packs.into_iter().unique_by(|pack| (pack.room_id.clone(), pack.state_key.clone())).collect())
 }
 
+/// Get the packs that the user enabled globally through their
+/// `m.image_pack.rooms` account data, by room and state key.
+async fn enabled_packs(
+    client: &Client,
+) -> Result<BTreeMap<OwnedRoomId, BTreeMap<String, RoomImagePackMeta>>> {
+    let Some(raw) = client.account().account_data::<ImagePackRoomsEventContent>().await? else {
+        return Ok(BTreeMap::new());
+    };
+
+    // Any client can write this account data, so a malformed one is ignored
+    // rather than hiding the packs of the room and its spaces too.
+    Ok(raw.deserialize().map(|content| content.rooms).unwrap_or_else(|error| {
+        warn!("Ignoring malformed m.image_pack.rooms account data: {error}");
+        Default::default()
+    }))
+}
+
 /// Turn a room's `m.room.image_pack` state events into image packs.
 fn image_packs_from(
     room: &Room,
     events: Vec<RawSyncOrStrippedState<RoomImagePackEventContent>>,
+    enabled_packs: &BTreeMap<OwnedRoomId, BTreeMap<String, RoomImagePackMeta>>,
 ) -> impl Iterator<Item = ImagePack> {
+    let enabled_state_keys = enabled_packs.get(room.room_id());
+
     events
         .into_iter()
-        .filter_map(|raw| match raw.deserialize() {
+        .filter_map(move |raw| match raw.deserialize() {
             // Packs without images have nothing to offer.
             Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(mut event)))
                 if !event.content.images.is_empty() =>
             {
+                let is_enabled_globally = enabled_state_keys
+                    .is_some_and(|state_keys| state_keys.contains_key(&event.state_key));
+
                 // Use the room's name and avatar for the pack's missing ones.
                 let meta = &mut event.content.pack;
                 meta.display_name = meta.display_name.take().or_else(|| room.name());
@@ -143,6 +164,7 @@ fn image_packs_from(
                     room_id: room.room_id().to_owned(),
                     state_key: event.state_key,
                     content: event.content,
+                    is_enabled_globally,
                 })
             }
             _ => None,
@@ -162,7 +184,12 @@ mod tests {
     fn pack(usage: &[PackUsage]) -> ImagePack {
         let mut content = RoomImagePackEventContent::new(BTreeMap::new());
         content.pack.usage = BTreeSet::from_iter(usage.iter().cloned());
-        ImagePack { room_id: owned_room_id!("!room:localhost"), state_key: String::new(), content }
+        ImagePack {
+            room_id: owned_room_id!("!room:localhost"),
+            state_key: String::new(),
+            content,
+            is_enabled_globally: false,
+        }
     }
 
     #[test]

@@ -103,7 +103,7 @@ async fn test_image_packs() {
     // enabled already, then the ones of its spaces, closest first. The packs
     // of the left room and the ones of the other room that aren't enabled are
     // skipped, as is the empty pack. The packs without a name use the name of
-    // their room, when it's known.
+    // their room, when it's known. Only the enabled packs are flagged as such.
     let packs = packs
         .iter()
         .map(|pack| {
@@ -112,17 +112,18 @@ async fn test_image_packs() {
                 pack.state_key.as_str(),
                 pack.content.images.keys().next().unwrap().as_str(),
                 pack.content.pack.display_name.as_deref(),
+                pack.is_enabled_globally,
             )
         })
         .collect::<Vec<_>>();
     assert_eq!(
         packs,
         [
-            (DEFAULT_TEST_ROOM_ID.as_str(), "local", "local", Some("Emojis")),
-            (other_room_id.as_str(), "global", "global", None),
-            (DEFAULT_TEST_ROOM_ID.as_str(), "room_only", "room_only", Some("Room only")),
-            (space_id.as_str(), "space", "space", None),
-            (parent_space_id.as_str(), "parent_space", "parent_space", None),
+            (DEFAULT_TEST_ROOM_ID.as_str(), "local", "local", Some("Emojis"), true),
+            (other_room_id.as_str(), "global", "global", None, true),
+            (DEFAULT_TEST_ROOM_ID.as_str(), "room_only", "room_only", Some("Room only"), false),
+            (space_id.as_str(), "space", "space", None, false),
+            (parent_space_id.as_str(), "parent_space", "parent_space", None, false),
         ]
     );
 }
