@@ -6,6 +6,7 @@ mod common;
 mod delayed_events;
 mod joined;
 mod left;
+mod members_changes;
 mod notification_mode;
 mod pinned_events;
 mod spaces;

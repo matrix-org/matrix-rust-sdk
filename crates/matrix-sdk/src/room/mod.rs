@@ -16,7 +16,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     future::Future,
     ops::Deref,
     sync::Arc,
@@ -716,7 +716,7 @@ impl Room {
             loop {
                 match room_updates.recv().await {
                     Ok(update) => {
-                        if !has_state_events_of_type(&update, &event_type) {
+                        if !has_state_events_of_types(&update, std::slice::from_ref(&event_type)) {
                             continue;
                         }
                     }
@@ -728,6 +728,64 @@ impl Room {
                 }
 
                 yield room.get_state_events(event_type.clone()).await;
+            }
+        }
+    }
+
+    /// Subscribe to changes of this room's members.
+    ///
+    /// The returned stream yields whenever something happened that may change
+    /// the members returned by [`members_no_sync()`][Self::members_no_sync]:
+    ///
+    /// - an `m.room.member` state event is received in a sync response,
+    /// - an `m.room.power_levels` state event is received in a sync response,
+    ///   as it changes the members' power levels and roles,
+    /// - the global profile of one of the members changes, see
+    ///   [`Client::subscribe_to_global_profile_updates()`].
+    ///
+    /// The stream carries no payload: the members should be reloaded with
+    /// [`members_no_sync()`][Self::members_no_sync] when it yields. A reload
+    /// may find that nothing changed.
+    ///
+    /// This is a simple substitution for the lack of a reactive room members
+    /// API.
+    ///
+    /// The stream never ends on its own; drop it to stop the subscription.
+    pub fn subscribe_to_members_changes(&self) -> impl Stream<Item = ()> + use<> {
+        let room = self.clone();
+        let mut room_updates = self.subscribe_to_updates();
+        let mut global_profile_updates = self.client.subscribe_to_global_profile_updates();
+
+        stream! {
+            loop {
+                tokio::select! {
+                    update = room_updates.recv() => match update {
+                        Ok(update) => {
+                            if has_state_events_of_types(
+                                &update,
+                                &[StateEventType::RoomMember, StateEventType::RoomPowerLevels],
+                            ) {
+                                yield ();
+                            }
+                        }
+                        // Sync responses were missed because they weren't
+                        // consumed fast enough, any of them could have changed
+                        // the members.
+                        Err(broadcast::error::RecvError::Lagged(_)) => yield (),
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    },
+
+                    user_ids = global_profile_updates.recv() => match user_ids {
+                        Ok(user_ids) => {
+                            if room.has_any_member(&user_ids).await {
+                                yield ();
+                            }
+                        }
+                        // Same as above, for the global profiles.
+                        Err(broadcast::error::RecvError::Lagged(_)) => yield (),
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    },
+                }
             }
         }
     }
@@ -1368,6 +1426,24 @@ impl Room {
         memberships: RoomMemberships,
     ) -> Result<Vec<OwnedUserId>> {
         Ok(self.inner.human_member_ids(memberships).await?)
+    }
+
+    /// Whether any of the given users has a member event in this room, in any
+    /// membership state.
+    ///
+    /// A user whose member event can't be read from the store is skipped.
+    async fn has_any_member(&self, user_ids: &BTreeSet<OwnedUserId>) -> bool {
+        let store = self.client.state_store();
+
+        for user_id in user_ids {
+            match store.get_member_event(self.room_id(), user_id).await {
+                Ok(Some(_)) => return true,
+                Ok(None) => {}
+                Err(error) => warn!(%user_id, "Failed to read the member event: {error}"),
+            }
+        }
+
+        false
     }
 
     /// Sets the display name of the current user within this room.
@@ -5082,10 +5158,10 @@ pub struct RoomMemberWithSenderInfo {
     pub sender_info: Option<RoomMember>,
 }
 
-/// Whether a room update reports state events of the given type, in the state
-/// section of the sync response (state events found in the timeline are not
-/// considered).
-fn has_state_events_of_type(update: &RoomUpdate, event_type: &StateEventType) -> bool {
+/// Whether a room update reports state events of any of the given types, in the
+/// state section of the sync response (state events found in the timeline are
+/// not considered).
+fn has_state_events_of_types(update: &RoomUpdate, event_types: &[StateEventType]) -> bool {
     // We only care about the state of rooms we are in.
     let RoomUpdate::Joined { updates, .. } = update else {
         return false;
@@ -5097,7 +5173,7 @@ fn has_state_events_of_type(update: &RoomUpdate, event_type: &StateEventType) ->
         raw.get_field::<StateEventType>("type")
             .ok()
             .flatten()
-            .is_some_and(|received_type| received_type == *event_type)
+            .is_some_and(|received_type| event_types.contains(&received_type))
     })
 }
 
