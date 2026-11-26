@@ -45,6 +45,9 @@ mod utd;
 mod utils;
 mod widget;
 
+#[cfg(feature = "experimental-prelude")]
+pub mod prelude;
+
 use matrix_sdk::ruma::events::room::message::RoomMessageEventContentWithoutRelation;
 
 use self::{

@@ -8246,6 +8246,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "camino",
+ "cargo_metadata",
  "clap",
  "fs_extra",
  "indexmap",
