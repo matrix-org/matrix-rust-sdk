@@ -24,8 +24,11 @@ use ruma::{
 use strass::assert_let;
 use stream_assert::assert_next_matches;
 
-use super::TestTimeline;
-use crate::timeline::{VirtualTimelineItem, traits::RoomDataProvider as _};
+use super::{TestRoomDataProvider, TestTimeline, TestTimelineBuilder};
+use crate::timeline::{
+    TimelineReadReceiptTracking, VirtualTimelineItem, controller::TimelineSettings,
+    event_item::RemoteEventOrigin, traits::RoomDataProvider as _,
+};
 
 #[async_test]
 async fn test_date_divider() {
@@ -243,6 +246,7 @@ async fn test_read_marker_on_hidden_event() {
     let f = &timeline.factory;
 
     let event_id_a = owned_event_id!("$a");
+    let event_id_b = owned_event_id!("$b");
     let reaction_id = owned_event_id!("$reaction");
 
     // Timeline: [date-divider, A, B], with a (hidden) reaction to A between A
@@ -251,7 +255,10 @@ async fn test_read_marker_on_hidden_event() {
     timeline
         .handle_live_event(f.reaction(&event_id_a, "+1").sender(User::Bob).event_id(&reaction_id))
         .await;
-    timeline.handle_live_event(f.text_msg("B").sender(User::Bob)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(User::Bob).event_id(&event_id_b)).await;
+
+    let mut fully_read = timeline.controller.fully_read_event_id.subscribe();
+    assert_eq!(fully_read.get(), None);
 
     // The fully read event is the reaction, which isn't rendered: the read
     // marker goes after the closest previous visible event, A.
@@ -261,5 +268,69 @@ async fn test_read_marker_on_hidden_event() {
     let items = timeline.controller.items().await;
     assert_eq!(items.len(), 4);
     assert_eq!(items[1].as_event().unwrap().event_id(), Some(&*event_id_a));
+    assert!(items[2].is_read_marker());
+
+    // The fully read event ID is resolved to the closest previous visible
+    // event.
+    assert_eq!(fully_read.next().now_or_never(), Some(Some(Some(event_id_a.clone()))));
+    assert_eq!(timeline.controller.fully_read_event_id.get(), Some(event_id_a));
+
+    // If the fully read event isn't loaded, its ID is published as is.
+    let unknown_id = owned_event_id!("$unknown");
+    timeline.controller.handle_fully_read_marker(unknown_id.clone()).await;
+    assert_eq!(fully_read.next().now_or_never(), Some(Some(Some(unknown_id))));
+
+    // A hidden event at the end of the timeline (caught up) is resolved too.
+    let reaction_to_b_id = owned_event_id!("$reaction_to_b");
+    timeline
+        .handle_live_event(
+            f.reaction(&event_id_b, "+1").sender(User::Bob).event_id(&reaction_to_b_id),
+        )
+        .await;
+    timeline.controller.handle_fully_read_marker(reaction_to_b_id).await;
+    assert_eq!(fully_read.next().now_or_never(), Some(Some(Some(event_id_b))));
+    assert!(fully_read.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_fully_read_event_id_is_kept_across_timeline_resets() {
+    let event_id_a = owned_event_id!("$a");
+    let event_id_b = owned_event_id!("$b");
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(TestRoomDataProvider::default().with_fully_read_marker(event_id_a.clone()))
+        .settings(TimelineSettings {
+            track_read_receipts: TimelineReadReceiptTracking::AllEvents,
+            ..Default::default()
+        })
+        .build()
+        .await;
+
+    let f = &timeline.factory;
+    let events = || {
+        [
+            f.text_msg("A").sender(User::Bob).event_id(&event_id_a).into_event(),
+            f.text_msg("B").sender(User::Bob).event_id(&event_id_b).into_event(),
+        ]
+    };
+
+    timeline
+        .controller
+        .replace_with_initial_remote_events(events(), RemoteEventOrigin::Cache)
+        .await;
+
+    let mut fully_read = timeline.controller.fully_read_event_id.subscribe();
+    assert_eq!(fully_read.get(), Some(event_id_a.clone()));
+
+    // Resetting the timeline with the same events, e.g. after the event cache
+    // lagged, doesn't publish any update, not even a temporary `None`.
+    timeline
+        .controller
+        .replace_with_initial_remote_events(events(), RemoteEventOrigin::Cache)
+        .await;
+    assert!(fully_read.next().now_or_never().is_none());
+
+    // The read marker item is placed again.
+    let items = timeline.controller.items().await;
     assert!(items[2].is_read_marker());
 }

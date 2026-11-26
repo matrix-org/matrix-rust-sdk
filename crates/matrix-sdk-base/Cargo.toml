@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-base"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.19.1"
+version = "0.20.0"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -88,7 +88,7 @@ as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }
 async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
-decancer = { version = "3.3.3", default-features = false }
+decancer = { version = "4.0.0", default-features = false }
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true

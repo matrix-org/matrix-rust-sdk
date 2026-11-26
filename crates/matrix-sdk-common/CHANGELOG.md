@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Added `TtlValue::has_expired_after()` to check whether a `TtlValue` has
+  expired using a custom TTL instead of the default one.
+  ([#7475](https://github.com/matrix-org/matrix-rust-sdk/pull/7475))
+
+### Changed
+
+- The `TimelineEvent::thread_summary` field has been removed. The size of
+  `TimelineEvent` is now 32 bytes smaller, scoring at 120 bytes (152 bytes
+  before)!
+
+  There are new methods: `thread_summary`, `thread_summary_with_latest_event`
+  and `is_thread_root`. A big notice has been added about the thread summary
+  where it is now **read-only** and **immutable**! It won't be updated. Use
+  `EventCache::thread_info` to get an accurate data.
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.

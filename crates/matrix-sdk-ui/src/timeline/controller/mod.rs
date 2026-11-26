@@ -20,6 +20,7 @@ use std::{
 };
 
 use as_variant::as_variant;
+use eyeball::SharedObservable;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
@@ -236,6 +237,10 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room> {
 
     /// Settings applied to this timeline.
     pub(super) settings: TimelineSettings,
+
+    /// The ID of the closest visible event at or before the user's
+    /// `m.fully_read` marker.
+    pub(super) fully_read_event_id: SharedObservable<Option<OwnedEventId>>,
 }
 
 #[derive(Clone)]
@@ -451,7 +456,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         };
 
         let focus = Arc::new(focus);
-        let state = Arc::new(RwLock::new(TimelineState::new(
+        let state = TimelineState::new(
             event_cache.clone(),
             focus.clone(),
             room_data_provider.own_user_id().to_owned(),
@@ -460,9 +465,11 @@ impl<P: RoomDataProvider> TimelineController<P> {
             unable_to_decrypt_hook,
             is_room_encrypted,
             None,
-        )));
+        );
+        let fully_read_event_id = state.meta.fully_read_event_id.clone();
+        let state = Arc::new(RwLock::new(state));
 
-        Ok(Self { state, focus, room_data_provider, settings })
+        Ok(Self { state, focus, room_data_provider, settings, fully_read_event_id })
     }
 
     /// Listens to encryption state changes for the room in

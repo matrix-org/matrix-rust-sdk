@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-ffi"
-version = "0.19.1"
+version = "0.20.0"
 edition = "2024"
 keywords = ["matrix", "chat", "messaging", "ffi"]
 license = "Apache-2.0"
@@ -79,7 +79,7 @@ matrix-sdk-sqlite = { workspace = true, optional = true, features = ["uniffi"] }
 matrix-sdk-contentscanner = { workspace = true, features = ["uniffi", "e2e-encryption"] }
 matrix-sdk-ui = { workspace = true, features = ["uniffi", "unstable-msc4426"] }
 matrix-sdk-crypto = { workspace = true, optional = true }
-mime = { version = "0.3.17", default-features = false }
+mime = { version = "0.3.18", default-features = false }
 ruma = { workspace = true, features = [
     "html",
     "unstable-msc3488",
@@ -122,7 +122,7 @@ tracing-appender.workspace = true
 tracing-core.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
-uuid = { version = "1.26.1", default-features = false, features = ["std", "v4"] }
+uuid = { version = "1.29.3", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
 zxcvbn.workspace = true
 oauth2.workspace = true

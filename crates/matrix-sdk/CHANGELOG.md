@@ -4,6 +4,582 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- Add `RoomSendQueue::edit_with_attachment()`, which replaces the attachment of
+  a message the current user sent, or adds one to a message which had none. The
+  new attachment is uploaded through the send queue like `send_attachment()`
+  does, then an `m.replace` edit carrying it is sent.
+  ([#6921](https://github.com/matrix-org/matrix-rust-sdk/pull/6921))
+- Added a public API for delayed events
+  ([MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)),
+  using the dedicated `/delayed_event` endpoint: `into_delayed` turns a
+  `Room::send_raw` or `Room::send_state_event_raw` call into a delayed send, and
+  `Client::update_delayed_event` cancels / restarts / sends a scheduled event.
+  With the `unstable-msc4354` feature, a delayed message-like event can also be
+  made sticky by calling `with_sticky_duration` before `into_delayed`.
+  ([#6973](https://github.com/matrix-org/matrix-rust-sdk/pull/6973))
+- Added `Room::subscribe_to_state_events`, a stream that yields the full current
+  list of state events of a given type in this room.
+  ([#6979](https://github.com/matrix-org/matrix-rust-sdk/pull/6979))
+- Added `Client::subscribe_to_custom_to_device_messages`, a stream of the custom
+  to-device messages received by this client, optionally restricted to a list of
+  event types, yielded as `ToDeviceMessage`s carrying the decrypted event and,
+  for a message that arrived encrypted, its `EncryptionInfo`.
+  ([#6980](https://github.com/matrix-org/matrix-rust-sdk/pull/6980))
+- Add support for the sticky events sliding sync extension
+  ([MSC4480](https://github.com/matrix-org/matrix-spec-proposals/pull/4480))
+  behind the `unstable-msc4354` feature, enabled with
+  `SlidingSyncBuilder::with_sticky_events_extension()`.
+  ([#7014](https://github.com/matrix-org/matrix-rust-sdk/pull/7014))
+- `EventCache::thread_info` is a new method to retrieve the `ThreadInfo` of a
+  particular thread in a particular room.
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+- A reaction or redaction that failed to send can be retried with
+  `SendHandle::unwedge()`, on the handle returned when it was queued.
+  ([#7039](https://github.com/matrix-org/matrix-rust-sdk/pull/7039))
+- `OAuthCrossSigningResetInfo` has a new `as_auth_data()` function to create
+  UIAA `AuthData` for passing to a reset handle's `auth()` function.
+  ([#7054](https://github.com/matrix-org/matrix-rust-sdk/pull/7054))
+- Added `MediaFetcher::get_media_content_with_config`. With this, you can
+  retrieve the content of some `MediaSource` providing a custom `RequestConfig`
+  to handle retries or timeouts. Also implemented it for `DefaultMediaFetcher`.
+  ([#7061](https://github.com/matrix-org/matrix-rust-sdk/pull/7061))
+- In the send queue code, added `SendHandle::transaction_id` which exposes the
+  underlying `TransactionId` used for sending the associated event.
+  ([#7069](https://github.com/matrix-org/matrix-rust-sdk/pull/7069))
+- `RoomSendQueue::send` and `RoomSendQueue::send_raw` now optionally support
+  sending the event as sticky via the `with_sticky_duration` builder function on
+  the returned future.
+  ([#7108](https://github.com/matrix-org/matrix-rust-sdk/pull/7108))
+- `HttpError` when sending a request that will cause a retry will be logged and
+  display the 'retry after' time.
+  ([#7128](https://github.com/matrix-org/matrix-rust-sdk/pull/7128))
+- Add `GalleryConfig::extra_content` and `GalleryItemInfo::extra_content` for
+  custom gallery and item fields.
+  ([#7154](https://github.com/matrix-org/matrix-rust-sdk/pull/7154))
+- Added support for the MSC4388 variant of the QR code login. The feature can be
+  enabled using the `unstable-msc4388` feature flag.
+  ([#7186](https://github.com/matrix-org/matrix-rust-sdk/pull/7186))
+- Added `Client::wait_for_sync()`, which returns a future that'll complete
+  whenever a sync response has been processed by the client. Works with both
+  sync v2 and simplified slidying sync.
+  ([#7242](https://github.com/matrix-org/matrix-rust-sdk/pull/7242))
+- The preexisting, private `WeakClient` struct is now public. This weak
+  reference to a `Client` is useful when spawning a background task that
+  shouldn't keep the `Client` alive. It can be created with
+  `Client::downgrade(&self)`.
+  ([#7244](https://github.com/matrix-org/matrix-rust-sdk/pull/7244))
+- Add `Client::has_encrypted_rooms`, which reports whether the user has joined
+  at least one encrypted room (ignoring spaces, invites, knocks and left rooms).
+
+  This method consults the local cache first, falling back to asking the
+  homeserver directly if it lacks this information locally, up to a
+  caller-supplied timeout.
+
+  This lets clients show a less alarming identity reset warning to users who
+  have no encrypted chats.
+  ([#7266](https://github.com/matrix-org/matrix-rust-sdk/pull/7266))
+- `EventCache::run_search_backfill` now first indexes the events already saved
+  in the event cache store, once, filling in search indexes that missed events
+  or were recreated. `StoreSizes` also gained a `search_index` field: the disk
+  size of the search index, as returned by `Client::get_store_sizes`.
+  ([#7268](https://github.com/matrix-org/matrix-rust-sdk/pull/7268))
+- The widget driver now supports the `org.matrix.msc4533.rtc_livekit_get_token`
+  and `org.matrix.msc4533.rtc_livekit_delegate_delayed_leave` widget actions and
+  capabilities from
+  [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533),
+  which proxy the homeserver's `/rtc/livekit/get_token` and
+  `/rtc/livekit/delegate_delayed_leave` endpoints
+  ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)) to
+  the widget. `Capabilities` gained the `rtc_livekit_get_token` and
+  `rtc_livekit_delegate_delayed_leave` fields.
+  ([#7279](https://github.com/matrix-org/matrix-rust-sdk/pull/7279))
+- Add `ClientBuilder::with_event_cache()` to enable/disable the `EventCache` and
+  the `LatestEvents`. It reduces memory usage in processes that don't need it,
+  e.g. a notification service extension. Clients created with
+  `Client::notification_client` inherit this setting from their parent.
+  ([#7282](https://github.com/matrix-org/matrix-rust-sdk/pull/7282))
+- `SyncSettings` now have a new boolean field `throttle_sync_loop`, true by
+  default (to mimic the previous behavior). When this flag is set, then all the
+  sync v2 loops will be throttled to handle at most one sync response per
+  second. The involved methods are:
+
+  - `Client::sync()`
+  - `Client::sync_with_callback()`
+  - `Client::sync_with_result_callback()`
+  - `Client::sync_stream()`
+
+  ([#7298](https://github.com/matrix-org/matrix-rust-sdk/pull/7298))
+- `OAuthSession` now implements `Serialize` and `Deserialize`, so an OAuth 2.0
+  session can be persisted and restored with `OAuth::restore_session()`, like
+  `MatrixSession` for the Matrix authentication API. The fields of its `user`
+  are flattened. For tests, the `whoami` mock gained `ok_with_user_id()`, to
+  answer with a given user ID.
+  ([#7316](https://github.com/matrix-org/matrix-rust-sdk/pull/7316))
+- Add `Room::fetch_missing_global_profiles_in_background` to fetch the missing
+  global profiles of a room's joined members using
+  [MSC4536](https://github.com/matrix-org/matrix-spec-proposals/pull/4536),
+  behind the `unstable-msc4536` feature.
+  ([#7320](https://github.com/matrix-org/matrix-rust-sdk/pull/7320))
+- Added `Client::observe_total_unread_notifications`, a stream of the total
+  unread notification count across joined rooms. It returns the current value
+  right away, then recomputes it at most once every `min_interval` when rooms
+  change, emitting only when the count differs.
+  ([#7337](https://github.com/matrix-org/matrix-rust-sdk/pull/7337))
+- Add support for configuring, fetching and observing room invite permissions
+  using `m.invite_permission_config`. See the
+  [Matrix specification](https://spec.matrix.org/v1.19/client-server-api/#minvite_permission_config).
+  ([#7373](https://github.com/matrix-org/matrix-rust-sdk/pull/7373))
+- Added `Client::media_metrics` and `Room::media_metrics`, returning the number
+  of media events and the size of their cached representations, grouped by media
+  type. ([#7375](https://github.com/matrix-org/matrix-rust-sdk/pull/7375))
+- Add `SearchIndex::clear`, to delete all the room indexes from memory and disk,
+  while keeping the other files in the search index directory.
+  ([#7388](https://github.com/matrix-org/matrix-rust-sdk/pull/7388))
+- `RoomKeyImportError` can now be exposed through UniFFI when the `uniffi`
+  feature is enabled. It is registered as a flat error, so bindings can return
+  it directly and foreign code receives the variant together with its error
+  message. ([#7399](https://github.com/matrix-org/matrix-rust-sdk/pull/7399))
+- Added the Circle
+  ([MSC4546](https://github.com/matrix-org/matrix-spec-proposals/pull/4546))
+  video info, gated behind the `unstable-msc4546` feature.
+  ([#7402](https://github.com/matrix-org/matrix-rust-sdk/pull/7402))
+- Add `Client::rtc_livekit_get_token` and
+  `Client::rtc_livekit_delegate_delayed_leave`, which call the homeserver's
+  `/rtc/livekit/get_token` and `/rtc/livekit/delegate_delayed_leave` endpoints
+  as per
+  ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)).
+  ([#7428](https://github.com/matrix-org/matrix-rust-sdk/pull/7428))
+- The homeserver's message retention configuration
+  ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)) is
+  now cached in the `Client` with a TTL of 6 hours, and persisted in the state
+  store so it is available after a restart without connectivity. Added
+  `Client::retention_configuration()` to get it from the cache, refreshing it if
+  it is missing or has expired, and
+  `Client::subscribe_to_retention_configuration()` to observe its changes.
+
+  Also added `MatrixMockServer::mock_get_retention_configuration()` to mock the
+  endpoint in tests.
+  ([#7475](https://github.com/matrix-org/matrix-rust-sdk/pull/7475))
+- Add `sliding_sync::Version::Stable` for the stable version of MSC4186, with
+  `VersionBuilder::Stable` and `VersionBuilder::DiscoverStable`.
+  `VersionBuilder::Discover` picks the stable version if the homeserver
+  advertises it, the unstable one otherwise, and fails with
+  `VersionBuilderError::NoVersionIsSet` if neither is advertised.
+  `Client::available_sliding_sync_versions` now reports the stable version too.
+  Requests are still sent to the unstable endpoint.
+  ([#7479](https://github.com/matrix-org/matrix-rust-sdk/pull/7479))
+- Added `Room::subscribe_to_effective_retention()` to observe the effective
+  message retention policy of a room
+  ([MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)),
+  returning a stream of `Option<RoomRetentionEventContent>`.
+  ([#7501](https://github.com/matrix-org/matrix-rust-sdk/pull/7501))
+- Expose `HttpSettings` and `HttpClient` on non-wasm targets, so an HTTP client
+  can be created outside of a `Client` while sharing its configuration and
+  behaviour. `HttpClient::with_settings()` builds one from `HttpSettings`
+  (proxy, user agent, TLS verification and root certificates) and a default
+  `RequestConfig`, which also provides its timeouts. `HttpClient::send_raw()`
+  sends an arbitrary HTTP request and returns the body of the response, using
+  the same retries with exponential backoff and concurrent request limits as the
+  Matrix API requests.
+  ([#7515](https://github.com/matrix-org/matrix-rust-sdk/pull/7515))
+- Use the stable `/rtc/livekit/get_token` and
+  `/rtc/livekit/delegate_delayed_leave` endpoints as per
+  [MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195) if
+  the homeserver advertises the `org.matrix.msc4195.stable` feature.
+  ([#7527](https://github.com/matrix-org/matrix-rust-sdk/pull/7527))
+- Add `Account::set_image_pack_enabled_globally()`, which enables or disables an
+  [image pack](https://spec.matrix.org/v1.19/client-server-api/#image-packs) in
+  all the rooms through the `m.image_pack.rooms` account data.
+  ([#7553](https://github.com/matrix-org/matrix-rust-sdk/pull/7553))
+- Populate the search index through the
+  `EventCache::run_search_backfill(SearchBackfillStrategy)` which sweeps every
+  room down to a 3-month floor, front-loaded by recency.
+  ([#6842](https://github.com/matrix-org/matrix-rust-sdk/pull/6842))
+- Allow sending events as sticky as per
+  [MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354).
+  Stickiness is enabled via `SendMessageLikeEvent::with_sticky_duration`.
+  Whether or not the homeserver actually supports sticky events can be checked
+  with `Client::supports_sticky_events`.
+  ([#7106](https://github.com/matrix-org/matrix-rust-sdk/pull/7106))
+- Support sticky events
+  ([MSC4354](https://github.com/matrix-org/matrix-spec-proposals/pull/4354)) in
+  the widget driver as per
+  [MSC4407](https://github.com/matrix-org/matrix-spec-proposals/pull/4407),
+  behind the `unstable-msc4354` feature flag. `Capabilities` gained
+  `send_sticky_event` and `receive_sticky_event`. This requires the client to
+  sync with simplified sliding sync.
+  ([#7508](https://github.com/matrix-org/matrix-rust-sdk/pull/7508))
+
+### Changed
+
+- [**breaking**] `LoginWithQrCode`, `LoginWithGeneratedQrCode`,
+  `GrantLoginWithScannedQrCode` and `GrantLoginWithGeneratedQrCode` no longer
+  borrow from the `Client` and QR code data, so they can be moved into spawned
+  tasks, e.g. when cancelling them cooperatively with
+  `CancellableIntoFutureExt::cancellable`.
+  ([#6677](https://github.com/matrix-org/matrix-rust-sdk/pull/6677))
+- The `event_cache::RoomEventCacheUpdate` enum gains a new `UpdateThreadSummary`
+  variant. In the same vain, the `event_cache::ThreadEventCacheUpdate` enum
+  gains a new `UpdateSummary` variant. The `ThreadSummary` is not optional. Both
+  variants represent an update about a `ThreadSummary` as the name suggests.
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+- [**breaking**] The `auth` parameter of `CrossSigningResetHandle::auth` and
+  `IdentityResetHandle::auth` is now required.
+  ([#7054](https://github.com/matrix-org/matrix-rust-sdk/pull/7054))
+- `SendReactionHandle` and `SendRedactionHandle` have been removed: `SendHandle`
+  covers reactions and redactions too. `RoomSendQueue::redact()`,
+  `SendHandle::react()` and the `React` and `Redaction` variants of
+  `LocalEchoContent` now all hand out a plain `SendHandle`.
+  ([#7103](https://github.com/matrix-org/matrix-rust-sdk/pull/7103))
+- [**breaking**] `RoomSendQueue::send_raw` now returns a `SendRawEvent` future.
+  ([#7108](https://github.com/matrix-org/matrix-rust-sdk/pull/7108))
+- [**breaking**] Introduce a `MessageDecodeError` enum and move the `Utf8` and
+  `Json` error variants from `SecureChannelError` into it.
+  ([#7123](https://github.com/matrix-org/matrix-rust-sdk/pull/7123))
+- [**breaking**] Introduce a `DecryptionError` enum and move the `EciesError`
+  under it. ([#7124](https://github.com/matrix-org/matrix-rust-sdk/pull/7124))
+- The OAuth 2.0 login flows now request the stable `urn:matrix:client:api:*` and
+  `urn:matrix:client:device:<device_id>` scopes (introduced in Matrix v1.15),
+  instead of the unstable `urn:matrix:org.matrix.msc2967.client:*` variants.
+  ([#7134](https://github.com/matrix-org/matrix-rust-sdk/pull/7134))
+- [**breaking**] `Client::subscribe_to_ignore_user_list_changes()` subscribes to
+  a `Vec<OwnedUserId>` rather than a `Vec<String>`. The strings were already
+  Matrix user IDs but this change makes it obvious.
+  ([#7159](https://github.com/matrix-org/matrix-rust-sdk/pull/7159))
+- The `EventCache` is now always enabled. Before, one had to call
+  `EventCache::subscribe` to enable it. The `EventCache::subscribe` and the
+  `EventCache::has_subscribed` methods have been removed. Consequently, the
+  `EventCacheError::NotSubscribedYet` variant has been removed too.
+  ([#7170](https://github.com/matrix-org/matrix-rust-sdk/pull/7170))
+- [**breaking**] `CrossSigningResetAuthType::Uiaa` now holds a
+  `UiaaCrossSigningResetInfo`, which guarantees a UIAA `session()` and exposes
+  the full `UiaaInfo` via `auth_info()`, plus an `as_password_auth_data()`
+  helper. ([#7259](https://github.com/matrix-org/matrix-rust-sdk/pull/7259))
+- [**breaking**] Message search results are now sorted by timestamp, newest
+  first, instead of by relevance score. `SearchResult::events`,
+  `Room::search_messages` and `GlobalSearchBuilder::build` now yield the event's
+  `MilliSecondsSinceUnixEpoch` timestamp in place of the `f32` score.
+  ([#7260](https://github.com/matrix-org/matrix-rust-sdk/pull/7260))
+- [**breaking**] `Client::event_cache` now returns an `Option<&EventCache>` if
+  the `EventCache` has been disabled. Also, `Client::latest_events` also returns
+  an `Option<&LatestEvents>` since it depends on the `EventCache`. Finally,
+  `Room::event_cache` has been removed to simplify the API.
+  ([#7282](https://github.com/matrix-org/matrix-rust-sdk/pull/7282))
+- Upgrades rustl to
+  [`0.23.46`](https://github.com/rustls/rustls/releases/tag/v%2F0.23.46), which
+  contains several security fixes.
+  ([#7288](https://github.com/matrix-org/matrix-rust-sdk/pull/7288))
+- A global search now opens the search indexes of the rooms concurrently, on
+  blocking threads, instead of one by one while searching, which makes the first
+  global search much faster for accounts with many rooms.
+  ([#7304](https://github.com/matrix-org/matrix-rust-sdk/pull/7304))
+- [**breaking**] `Room::send_state_event_raw` now always returns a
+  `SendRawStateEvent`, even without the `experimental-encrypted-state-events`
+  feature (instead of the result -event_id- directly), so a custom
+  `RequestConfig` can be set with `SendRawStateEvent::with_request_config`.
+  ([#7312](https://github.com/matrix-org/matrix-rust-sdk/pull/7312))
+- `encryption::recovery::futures::*` and
+  `encryption::secret_storage::futures::CreateStore` have a new `with_key`
+  method that can be used to create secret storage with a pre-generated key,
+  rather than only being able to generate the key while enabling recovery.
+  ([#7329](https://github.com/matrix-org/matrix-rust-sdk/pull/7329))
+- `Encryption::reset_cross_signing()` no longer writes the new cross-signing
+  identity to the crypto store before the server has accepted it.
+
+  The new identity is now generated up front, uploaded, and only persisted once
+  the `/keys/device_signing/upload` request succeeds, including when the upload
+  is gated behind user-interactive authentication and completed later through
+  `CrossSigningResetHandle::auth()`. Cancelling or abandoning the reset now
+  leaves the account in its original state, and
+  `CrossSigningResetHandle::auth()` can be safely retried if committing the new
+  identity or uploading the device signatures fails part-way.
+
+  This is a partial fix for the identity-reset half of
+  [element-hq/element-meta#3344](https://github.com/element-hq/element-meta/issues/3344).
+  ([#7341](https://github.com/matrix-org/matrix-rust-sdk/pull/7341))
+- [**breaking**] `OAuth::msc_4388_rendezvous_server_supported()` is now only
+  available when the `unstable-msc4388` feature is enabled. The
+  `unstable-msc4388` feature of Ruma is also no longer enabled unconditionally;
+  it is now enabled by the SDK's `unstable-msc4388` feature.
+  ([#7416](https://github.com/matrix-org/matrix-rust-sdk/pull/7416))
+- [**breaking**] `Client::get_retention_configuration()` has been renamed to
+  `Client::fetch_retention_configuration()`. It always makes a request to the
+  homeserver, and now also updates the cached retention configuration.
+  - [**breaking**] `Room::effective_retention()` takes a new
+    `can_refresh_global_configuration` parameter and uses the cached homeserver
+    retention configuration. If the parameter is `false`, no request is made and
+    the cached value is used even if it has expired, returning `None` if it was
+    never fetched.
+
+  ([#7475](https://github.com/matrix-org/matrix-rust-sdk/pull/7475))
+- [**breaking**] `sliding_sync::Version::Native`, `VersionBuilder::Native`,
+  `VersionBuilder::DiscoverNative` and
+  `VersionBuilderError::NativeVersionIsUnset` are renamed to
+  `Version::Unstable`, `VersionBuilder::Unstable`,
+  `VersionBuilder::DiscoverUnstable` and
+  `VersionBuilderError::UnstableVersionIsUnset`, as they refer to the unstable
+  version of MSC4186.
+  ([#7479](https://github.com/matrix-org/matrix-rust-sdk/pull/7479))
+- [**breaking**] `Client::fetch_retention_configuration()` and
+  `Client::retention_configuration()` now return an `Option`, which is `None`
+  instead of an error when the homeserver doesn't implement the endpoint.
+  ([#7502](https://github.com/matrix-org/matrix-rust-sdk/pull/7502))
+- [**breaking**] `Client::http_client()` now returns the `HttpClient` used by
+  the `Client`, including its `RequestConfig` retry and concurrency limits,
+  instead of the underlying `reqwest::Client`. Use the new `HttpClient::raw()`
+  to get the `reqwest::Client`.
+  ([#7541](https://github.com/matrix-org/matrix-rust-sdk/pull/7541))
+
+### Fixed
+
+- Sliding sync connections with the E2EE extension now send the outgoing E2EE
+  requests right after handling a sync response, instead of waiting for the next
+  sync request. This fixes SAS verification stalling for up to a long-poll
+  timeout per step.
+  ([#6753](https://github.com/matrix-org/matrix-rust-sdk/pull/6753))
+- When native authentication is used, any failure of
+  `POST /_matrix/client/v3/refresh` signed the user out, including a timeout or
+  a 5xx from a proxy sitting in front of the homeserver. Only a client-error
+  response now broadcasts `SessionChange::UnknownToken`, matching the OAuth 2.0
+  path, which signs the user out solely on `invalid_grant`.
+  ([#7038](https://github.com/matrix-org/matrix-rust-sdk/pull/7038))
+- An unrecoverable send error no longer disables the room's send queue. The
+  failed request is wedged, which already blocks the room's queue while
+  preserving ordering, so unwedging or aborting it is now enough to get the
+  queue going again; previously the client also had to call
+  `RoomSendQueue::set_enabled(true)`.
+  ([#7039](https://github.com/matrix-org/matrix-rust-sdk/pull/7039))
+- Unread counts are now recomputed when a back-pagination loads a read receipt's
+  target event from the local store, not just when it is fetched from the
+  network. Previously a room kept a stale count until an unrelated sync
+  recomputed it, whether the target sat in a never-loaded chunk or in one
+  unloaded after a limited sync.
+  ([#7048](https://github.com/matrix-org/matrix-rust-sdk/pull/7048))
+- The inlined HTML script that extracts and renders Mermaid diagrams in the
+  rustdoc has been included in the published crate source. Previously they were
+  not, and the script was referenced in the rustdoc with a path relative to the
+  monorepo root, which failed to resolve when individual crates are published,
+  thus breaking rustdoc build on docs.rs.
+  ([#7058](https://github.com/matrix-org/matrix-rust-sdk/pull/7058))
+- Remove outdated `to_device` token when switching from sync v3 to Sliding Sync
+  on synapse. ([#7135](https://github.com/matrix-org/matrix-rust-sdk/pull/7135))
+- A send queue request no longer wedges when refreshing the access token fails
+  for an undefinitive reason, such as a transport failure or a server 500. Only
+  a refresh token the server actually rejects marks the request as unrecoverable
+  and anything else leaves it queued to be sent again. A request the send queue
+  wedged because the homeserver rejected the access token is now unwedged as
+  soon as the session has a working one again.
+  ([#7140](https://github.com/matrix-org/matrix-rust-sdk/pull/7140))
+- A thread reply that arrives bundled inside an undecryptable thread root is now
+  decrypted as soon as it is saved, given that it previously failed to decrypt
+  for an unknown reason and we now have the key.
+  ([#7146](https://github.com/matrix-org/matrix-rust-sdk/pull/7146))
+- [**breaking**] `QrAuthMessage::LoginProtocol` now carries a
+  `LoginProtocolData`, so an `m.login.protocol` message for an unsupported
+  protocol is answered with an `unsupported_protocol` failure instead of failing
+  to deserialize. Over MSC4388 channels the device authorization grant fields
+  are now sent next to the `protocol` field, as in the latest MSC4108, and a
+  device authorization grant nested in a `device_authorization_grant` field is
+  rejected as an unexpected message.
+  `QrAuthMessage::authorization_grant_login_protocol()` is no longer public.
+  ([#7157](https://github.com/matrix-org/matrix-rust-sdk/pull/7157))
+- [**breaking**] The `homeserver` field of `QrAuthMessage::LoginFailure` and
+  `QRCodeLoginError::LoginFailure` is now an `Option<String>` instead of an
+  `Option<Url>`. MSC4108 defines this field as a server name, such as
+  `matrix.org`, so an `m.login.failure` message carrying a server name
+  previously failed to deserialize. Both server names and homeserver URLs, as
+  sent by older implementations, are now accepted, and either can be passed to
+  `ClientBuilder::server_name_or_homeserver_url()`.
+  ([#7158](https://github.com/matrix-org/matrix-rust-sdk/pull/7158))
+- Editing the caption of a queued media event or gallery no longer drops the
+  custom fields added with `extra_content`, including those of the gallery's
+  items. When the media is already being sent, the follow-up edit keeps them in
+  its `m.new_content`. The local echo keeps them too.
+  ([#7169](https://github.com/matrix-org/matrix-rust-sdk/pull/7169))
+- `utils::is_room_alias_format_valid` now accepts valid room aliases whose
+  server name has a port or is an IPv6 literal, such as `#room:example.org:8448`
+  or `#room:[::1]`. Previously, it rejected any alias that contained more than
+  one `:`. ([#7197](https://github.com/matrix-org/matrix-rust-sdk/pull/7197))
+- `Client::total_unread_notifications` no longer counts joined spaces and old
+  room versions whose successor is joined, left or banned. Room lists hide these
+  rooms, so their notifications couldn't be cleared and kept the badge stuck.
+  ([#7203](https://github.com/matrix-org/matrix-rust-sdk/pull/7203))
+- The `EventCache` receives its `RoomUpdates` directly from the sync response
+  flow, instead of via the `Client::subscribe_to_all_room_updates` channel.
+
+  Receiving `RoomUpdates` via `Client::subscribe_to_all_room_updates` poses
+  several problems. First off, this entire workflow is async, making things
+  harder to debug. Second, if the `EventCache` fails at some point, it will not
+  make the sync flow to fail. So in the case of Sliding Sync, the `pos` value is
+  persisted as if no problem happened. In this particular example, for the
+  end-user, the experience is terrible as messages can be missing! Now, if it
+  fails, it makes the entire sync response flow to fail.
+  ([#7204](https://github.com/matrix-org/matrix-rust-sdk/pull/7204))
+- `Media::get_media_file()` no longer kills the app on 32-bit Android 8 to 10
+  devices. It reopened its temporary file with `NamedTempFile::reopen()`, which
+  calls the `statx` system call on 32-bit platforms since `tempfile` 3.24.0, and
+  the seccomp filter of these Android versions terminates any app using it.
+  ([#7228](https://github.com/matrix-org/matrix-rust-sdk/pull/7228))
+- The send queue no longer wedges a reaction the server rejects with
+  `M_DUPLICATE_ANNOTATION`, which happens when the same reaction was already
+  sent, for example from another device while this one was offline. The reaction
+  is dropped instead, so it no longer blocks every later message in the room.
+  ([#7236](https://github.com/matrix-org/matrix-rust-sdk/pull/7236))
+- Don't consider most HTTP error codes (400-600) retryable. Instead, a small
+  subset of them will be considered retryable and the rest permanent failures.
+  ([#7237](https://github.com/matrix-org/matrix-rust-sdk/pull/7237))
+- When granting a login with a generated QR code using MSC4388, the existing
+  device now sends its access token when creating the rendezvous session.
+  Previously, this failed on homeservers that only allow authenticated users to
+  create rendezvous sessions, even though
+  `msc_4388_rendezvous_server_supported()` had reported support.
+  ([#7239](https://github.com/matrix-org/matrix-rust-sdk/pull/7239))
+- QR code login using the MSC4388 variant now always exchanges the
+  `m.login.protocols` message, and the new device logs in to the homeserver it
+  names. This is incompatible with previous SDK versions when the existing
+  device generated the QR code.
+  ([#7241](https://github.com/matrix-org/matrix-rust-sdk/pull/7241))
+- When granting a QR code login using the MSC4388 variant, the login is aborted
+  early with the new `QRCodeGrantLoginError::NoSupportedProtocols` error if the
+  authorization server doesn't support the device authorization grant.
+  ([#7249](https://github.com/matrix-org/matrix-rust-sdk/pull/7249))
+- Don't take into account push actions of redacted events in
+  `ReadReceipts::process_event`.
+  ([#7258](https://github.com/matrix-org/matrix-rust-sdk/pull/7258))
+- Prevent a memory leak by avoiding a reference cycle to `Client` instances in
+  the `LatestEvents` submodule (`listen_to_updates_task`).
+  ([#7263](https://github.com/matrix-org/matrix-rust-sdk/pull/7263))
+- When granting a QR code login, `m.login.protocol_accepted` is now sent to the
+  new device before `GrantLoginProgress::WaitingForAuth` is emitted, instead of
+  after the `ContinuationMessageSender` is confirmed. Previously the new device
+  did not show its user code or poll for the access token until the existing
+  device had resumed and confirmed.
+  ([#7267](https://github.com/matrix-org/matrix-rust-sdk/pull/7267))
+- The search indexer no longer drops events when many rooms are updated at once
+  (e.g. a large sync), which left those messages unsearchable.
+  ([#7268](https://github.com/matrix-org/matrix-rust-sdk/pull/7268))
+- An HTTP-date `Retry-After` value on rate-limited responses is now respected
+  when retrying a request, instead of falling back to the exponential backoff.
+  ([#7271](https://github.com/matrix-org/matrix-rust-sdk/pull/7271))
+- The event cache now shrinks a room back to its last chunk after a background
+  back-pagination (read receipts, latest events, search backfill) when nothing
+  is subscribed to it, instead of keeping every paginated event in memory.
+
+  Cancelling the creation of a room's or a thread's event cache no longer leaves
+  it half-created, which made every later attempt fail with
+  `CacheStateAlreadyExists`.
+  ([#7313](https://github.com/matrix-org/matrix-rust-sdk/pull/7313))
+- Automatic back-pagination no longer runs for spaces, which have no messages to
+  find, nor for rooms the user hasn't joined.
+  ([#7314](https://github.com/matrix-org/matrix-rust-sdk/pull/7314))
+- When looking for the latest event using `Builder::new_remote`, we will try to
+  back paginate in the store events too for up to 10 chunks.
+
+  This fixes an issue uncovered when shrinking the linked chunk for a room after
+  it's been automatically back paginated, which in turn triggered a selection of
+  new latest events for the room: however, since the code only supported
+  searching for this latest event candidate in the in-memory events, and we just
+  shrunk that, sometimes this just-selected event was missing because it wasn't
+  in this first chunk, which triggered another automatic back pagination
+  attempt, in a loop of back pagination -> latest event selection -> back
+  pagination, etc.
+  ([#7318](https://github.com/matrix-org/matrix-rust-sdk/pull/7318))
+- A session that bootstraps or resets cross-signing now sees
+  `Encryption::verification_state()` become `Verified` as soon as the signatures
+  are uploaded, instead of staying `Unverified` until the next sync. The state
+  also stays `Unknown`, rather than briefly reporting `Unverified`, while our
+  own identity isn't known yet.
+  ([#7325](https://github.com/matrix-org/matrix-rust-sdk/pull/7325))
+- `Encryption::has_devices_to_verify_against` no longer counts the current
+  device. Previously, a cross-signed device would count itself, so the method
+  could return `true` even when the user had no other devices.
+  ([#7328](https://github.com/matrix-org/matrix-rust-sdk/pull/7328))
+- Drop events with no event type before they reach the cache.
+
+  This prevents a divergence between the in-memory events and the stored events
+  in the cache, which led to some operations replacing or removing the wrong
+  items. ([#7371](https://github.com/matrix-org/matrix-rust-sdk/pull/7371))
+- When the `EventCache` fails to handle a room update (e.g. `JoinedRoomUpdate`),
+  it no longer ignores the error. Errors are forwarded to the caller. It will
+  stop the sync flow, and thus, in the case of Sliding Sync for example, will
+  forbid the `pos` value to be persisted.
+
+  This fix has raised another problem with the `NotificationClient`:
+  `EventCache` and `LatestEvents` were cloned from the original parent `Client`.
+  This is no longer the case: `NotificationClient` always has `EventCache` and
+  `LatestEvents` disabled.
+  ([#7374](https://github.com/matrix-org/matrix-rust-sdk/pull/7374))
+- When either `RoomEventCacheState` or `ThreadEventCacheState` shrink their
+  linked chunk to its first chunk, sometimes this operation can fail: we guard
+  against this, so this is not problematic. However, when this happens and the
+  metadata _can_ be loaded, that metadata will be kept, and trying to use this
+  cache will try using a newly created empty chunk with the stale metadata of a
+  previously existing chunk that's no longer there, and that ends up causing the
+  panic:
+
+  ```text
+  internal error: entered unreachable code: Inserting new chunk with no previous nor next chunk identifiers is impossible
+  ```
+
+  The fix seems to be to just discard the stale metadata, which will be
+  re-created for the empty linked chunk anyway.
+  ([#7389](https://github.com/matrix-org/matrix-rust-sdk/pull/7389))
+- The search index is now fed by its own unbounded channel instead of
+  subscribing to the event cache's linked chunk update broadcast channel. Under
+  bursts of updates, the indexer could lag behind that channel and skip updates,
+  leaving their events unindexed for good.
+
+  Events that were unable to decrypt when received, and got decrypted later on,
+  are now indexed for search.
+  ([#7390](https://github.com/matrix-org/matrix-rust-sdk/pull/7390))
+- The event cache no longer clears all rooms when the client is activated (e.g.
+  when restoring a session) with a non-empty ignored user list in the store.
+  Loading the stored ignored user list was mistaken for the user ignoring or
+  unignoring someone.
+  ([#7397](https://github.com/matrix-org/matrix-rust-sdk/pull/7397))
+- Fix Megolm session not being invalidated when a user kicks or bans another
+  room member themselves.
+
+  All membership events sent by the current user were ignored, which allowed the
+  existing session to remain valid after another member was removed from the
+  room. ([#7411](https://github.com/matrix-org/matrix-rust-sdk/pull/7411))
+- Fix the wasm build when the unstable-msc4426 feature is enabled
+  ([#7429](https://github.com/matrix-org/matrix-rust-sdk/pull/7429))
+- `Client::create_room` no longer retries its request, since room creation is
+  not idempotent and retrying could create duplicate rooms.
+  ([#7453](https://github.com/matrix-org/matrix-rust-sdk/pull/7453))
+- Events related to a thread root are now included in the threaded timeline if
+  they were received during sync.
+  ([#7464](https://github.com/matrix-org/matrix-rust-sdk/pull/7464))
+- Forgetting a room no longer empties the event caches of other rooms.
+  ([#7467](https://github.com/matrix-org/matrix-rust-sdk/pull/7467))
+- The event cache could send timeline `VectorDiff`s out of order when the send
+  queue, a sync, or a back-pagination from disk changed the same room or thread
+  concurrently, leading subscribers such as the timeline to show an event twice
+  or to remove the wrong one. Timeline diffs are now always sent while the event
+  cache state lock is held.
+  ([#7468](https://github.com/matrix-org/matrix-rust-sdk/pull/7468))
+- Room keys received from the `OlmMachine` are now collected in a dedicated task
+  while the event cache's redecryptor (R2D2) is busy, and processed once it
+  becomes available.
+
+  Previously, a busy redecryptor - for example, one working through a large
+  batch of events - could lag behind the room key broadcast channel and miss
+  keys, leaving events in the timeline undecrypted even though their keys had
+  arrived. ([#7476](https://github.com/matrix-org/matrix-rust-sdk/pull/7476))
+- Unread counts for threads are now recomputed when a back-pagination loads a
+  read receipt's target event from the local store.
+  ([#7478](https://github.com/matrix-org/matrix-rust-sdk/pull/7478))
+- Only report the current own `beacon_info` from
+  `Client::observe_own_beacon_info_updates`, and stop `LiveLocationsObserver`
+  from briefly dropping or replacing a share when older `beacon_info` events are
+  replayed in a sync timeline.
+  ([#7487](https://github.com/matrix-org/matrix-rust-sdk/pull/7487))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 ### Fixed
@@ -1968,3 +2544,5 @@ Additions:
   field to a tracing span.
 
 [https-github-com-matrix-org-matrix-spec-proposals-pull-3814]: https://github.com/matrix-org/matrix-spec-proposals/pull/3814
+
+[https-github-com-rustls-rustls-releases-tag-v-2f0-23-46]: https://github.com/rustls/rustls/releases/tag/v%2F0.23.46

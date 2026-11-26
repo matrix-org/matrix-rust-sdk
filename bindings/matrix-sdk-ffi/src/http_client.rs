@@ -24,8 +24,8 @@ use crate::client_builder::RequestConfig;
 /// [`RequestConfig`] as the ones used by a `Client`, including its retry
 /// behaviour, certificates, user-agent, etc.
 #[derive(uniffi::Object)]
-struct HttpClient {
-    inner: matrix_sdk::HttpClient,
+pub struct HttpClient {
+    pub(crate) inner: matrix_sdk::HttpClient,
 }
 
 #[matrix_sdk_ffi_macros::export]

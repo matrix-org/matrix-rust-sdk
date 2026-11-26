@@ -6,14 +6,14 @@ license = "Apache-2.0"
 name = "matrix-sdk-search"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 rust-version.workspace = true
-version = "0.19.1"
+version = "0.20.0"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [dependencies]
-aes = { version = "0.9.3", default-features = false }
+aes = { version = "0.9.4", default-features = false }
 ctr = { version = "0.10.1", default-features = false}
 hmac = { workspace = true, features = ["zeroize"] }
 hkdf.workspace = true

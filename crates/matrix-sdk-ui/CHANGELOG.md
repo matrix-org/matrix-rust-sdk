@@ -4,6 +4,139 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.20.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.20.0) - 2026-11-25
+
+### Added
+
+- `RoomListService` enables the sticky events sliding sync extension
+  ([MSC4480](https://github.com/matrix-org/matrix-spec-proposals/pull/4480))
+  when built with the `unstable-msc4354` feature.
+  ([#7014](https://github.com/matrix-org/matrix-rust-sdk/pull/7014))
+- The `timeline::TimelineFocusKind` enum gains a new method: `room_id`. It is a
+  small thing, but it can be useful in some cases!
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+- Add `Timeline::retry_send()` and `Timeline::abort_send()`, with `SendTarget`,
+  to retry or abort a pending edit, redaction, or reaction on an item, or the
+  item itself while it's a local echo. Aborting the last pending edit puts the
+  message, or the poll's question, back to what it was before. Both return
+  whether there was anything of that kind left to act on.
+  ([#7039](https://github.com/matrix-org/matrix-rust-sdk/pull/7039))
+- Add `EncryptedMessage::utd_cause()`, which returns the `UtdCause` for
+  un-decryptable events received via a Megolm session, so clients can tell users
+  why a message could not be decrypted. It returns `None` for events received
+  via Olm or an unknown algorithm.
+  ([#7122](https://github.com/matrix-org/matrix-rust-sdk/pull/7122))
+- Add `Timeline::edit_with_attachment()`, which replaces the attachment of a
+  message the current user sent, or adds one to a message which had none,
+  through the send queue.
+  ([#7127](https://github.com/matrix-org/matrix-rust-sdk/pull/7127))
+- Add custom gallery and item fields to `Timeline::send_gallery`.
+  ([#7154](https://github.com/matrix-org/matrix-rust-sdk/pull/7154))
+- Add `EventTimelineItem::redaction_reason()`, the reason given with the event's
+  redaction: from the server's `redacted_because`, or from our own redaction
+  while it is still pending.
+  ([#7357](https://github.com/matrix-org/matrix-rust-sdk/pull/7357))
+- Add `Timeline::fully_read_event_id` and
+  `Timeline::subscribe_fully_read_event_id` to get and observe the ID of the
+  closest visible event at or before the user's `m.fully_read` marker, which may
+  point to an event that isn't rendered (e.g. a reaction or an edit). If the
+  marker's event isn't loaded, or no visible event before it is, this is the
+  marker's own event ID.
+  ([#7360](https://github.com/matrix-org/matrix-rust-sdk/pull/7360))
+- Add `image_packs::image_packs()`, which returns the
+  [image packs](https://spec.matrix.org/v1.19/client-server-api/#image-packs)
+  that can be used in a room: the packs enabled globally through
+  `m.image_pack.rooms`, followed by the room's own packs and the packs of the
+  joined spaces it belongs to.
+  ([#7497](https://github.com/matrix-org/matrix-rust-sdk/pull/7497))
+- Add `SpaceService::joined_ancestors_of()`, which returns all the joined spaces
+  a room or space descends from.
+  ([#7497](https://github.com/matrix-org/matrix-rust-sdk/pull/7497))
+- Add `NotificationItem::can_send_message`, telling whether the current user is
+  allowed to send an `m.room.message` event in the room of the notification,
+  according to the room's power levels.
+  ([#7544](https://github.com/matrix-org/matrix-rust-sdk/pull/7544))
+- Add `ImagePack::is_enabled_globally`, telling whether the user enabled the
+  pack in all the rooms through their `m.image_pack.rooms` account data.
+  ([#7554](https://github.com/matrix-org/matrix-rust-sdk/pull/7554))
+
+### Changed
+
+- In a `Timeline`, a `MsgLikeContent::thread_summary` is **no longer** set to
+  `None` if all in-thread events are redacted. Instead,
+  `ThreadSummary::num_replies` becomes `0` and `ThreadSummary::latest_reply`
+  becomes `None`. A `MsgLikeContent::thread_summary` is `None` if and only if
+  the event is **not** a thread root.
+  ([#7034](https://github.com/matrix-org/matrix-rust-sdk/pull/7034))
+- [**breaking**] Reactions move from `TimelineItemContent::reactions()` back to
+  `EventTimelineItem::reactions()`, returning a reference instead of an
+  `Option`. Only the `MsgLike` variant could hold them, so an annotation on a
+  membership change, a profile change, another state event, a call invite or an
+  unparsable event was dropped. MSC2677 makes any event type eligible for an
+  annotation. ([#7049](https://github.com/matrix-org/matrix-rust-sdk/pull/7049))
+- [**breaking**] The `votes` field from `PollResult` is now a map of `String` to
+  `Vec<OwnedUserId>` rather than `Vec<String>`. The strings were already Matrix
+  user IDs but this change makes it obvious.
+  ([#7161](https://github.com/matrix-org/matrix-rust-sdk/pull/7161))
+- Rooms without a latest event are no longer sorted after every room having one
+  in the room list. They get a timestamp back-filled from the rooms around them
+  by recency stamp. Rooms with the same timestamp are ordered by their
+  recency stamp.
+  ([#7377](https://github.com/matrix-org/matrix-rust-sdk/pull/7377))
+- Room info notable updates are now handled in batches by the room list. All the
+  updates already waiting are processed at once, at most once per room. A
+  burst of updates reorders the list in one go instead of room by room.
+  ([#7379](https://github.com/matrix-org/matrix-rust-sdk/pull/7379))
+- The `RoomListService` now requests the `m.room.image_pack` state events of all
+  rooms, so that the image packs of a room and of its spaces are available
+  locally. ([#7497](https://github.com/matrix-org/matrix-rust-sdk/pull/7497))
+- Migrated from the unmaintained chrono crate to jiff. This is an internal
+  change only.
+  ([#7525](https://github.com/matrix-org/matrix-rust-sdk/pull/7525))
+
+### Fixed
+
+- A pending edit now follows the send queue's updates to its content, so an edit
+  replacing an attachment points at the uploaded media as soon as the upload is
+  done, instead of a local cache entry that no longer exists.
+  ([#6921](https://github.com/matrix-org/matrix-rust-sdk/pull/6921))
+- A redacted timeline item keeps the redacted event's raw JSON again, so the
+  redaction's `unsigned.redacted_because` (and its reason) is available on a
+  live timeline, not only on one rebuilt from the cache.
+  ([#7213](https://github.com/matrix-org/matrix-rust-sdk/pull/7213))
+- Reply previews of a redacted message keep the redacted message's own sender
+  and timestamp instead of showing the redactor as its author.
+  ([#7234](https://github.com/matrix-org/matrix-rust-sdk/pull/7234))
+- When a user sends the same reaction from two devices, the timeline keeps
+  showing it even if the local copy fails or is aborted. Before, it disappeared
+  or showed as failed.
+  ([#7236](https://github.com/matrix-org/matrix-rust-sdk/pull/7236))
+- Fix a race in `Timeline` creation where events received while the timeline was
+  being built could be added twice, resulting in duplicated items.
+  ([#7284](https://github.com/matrix-org/matrix-rust-sdk/pull/7284))
+- The timeline's read marker is now displayed when the `m.fully_read` event
+  isn't rendered (e.g. a reaction or an edit), after the closest previous
+  visible event.
+  ([#7355](https://github.com/matrix-org/matrix-rust-sdk/pull/7355))
+- Fix a bug where the `Timeline` was cleared but was containing at least a local
+  event and at least a remote event not mapped to any timeline item (like a
+  reaction). The mapping between timeline items and remote events could become
+  broken. This is fixed by introducing a new
+  `ObservableItemsTransaction::clear_remotes_only` method to clean up the code
+  in `TimelineStateTransaction::clear` and to address the problem correctly.
+  ([#7372](https://github.com/matrix-org/matrix-rust-sdk/pull/7372))
+- The room list no longer ignores room info updates that only change the bump
+  stamp, so a room without a latest event now moves when its bump stamp changes.
+  ([#7379](https://github.com/matrix-org/matrix-rust-sdk/pull/7379))
+- Fix a bug where `SyncService` enters offline mode when an access token is
+  revoked, instead of terminating with an error.
+  ([#7425](https://github.com/matrix-org/matrix-rust-sdk/pull/7425))
+- In offline mode, `SyncService` now waits 1 second instead of 100 milliseconds
+  between `/versions` requests when the server returns an error that isn't
+  retried with exponential backoff. This avoids hammering the homeserver while
+  waiting to come back online.
+  ([#7484](https://github.com/matrix-org/matrix-rust-sdk/pull/7484))
+
 ## [0.19.1](https://github.com/matrix-org/matrix-rust-sdk/tree/0.19.1) - 2026-09-18
 
 No significant changes.

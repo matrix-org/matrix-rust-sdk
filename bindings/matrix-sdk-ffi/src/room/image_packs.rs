@@ -38,6 +38,9 @@ pub struct ImagePack {
     pub is_emoticon_pack: bool,
     /// Whether the pack's images can be sent as stickers.
     pub is_sticker_pack: bool,
+    /// Whether the user enabled the pack globally, making it usable in all
+    /// the rooms.
+    pub is_enabled_globally: bool,
     /// An attribution for the pack, crediting its original author or source
     /// for example.
     pub attribution: Option<String>,
@@ -72,6 +75,7 @@ impl From<SdkImagePack> for ImagePack {
             state_key: pack.state_key,
             is_emoticon_pack,
             is_sticker_pack,
+            is_enabled_globally: pack.is_enabled_globally,
             display_name: meta.display_name,
             avatar_url: meta.avatar_url.map(|url| url.to_string()),
             attribution: meta.attribution,
