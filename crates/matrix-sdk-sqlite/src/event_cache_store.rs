@@ -716,6 +716,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 21 {
+        debug!("Upgrading database to version 21");
+        conn.with_immediate_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/021_events_room_session_index.sql"
+            ))?;
+            txn.set_db_version(21)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
