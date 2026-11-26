@@ -69,12 +69,43 @@ enum SwiftCommand {
         #[clap(long)]
         ios_deployment_target: Option<String>,
 
-        /// The wachOS deployment target to use when building the framework.
+        /// The watchOS deployment target to use when building the framework.
         ///
         /// Defaults to not being set, which implies that the build will use the
         /// default values provided by the Rust and Xcode toolchains.
         #[clap(long)]
         watchos_deployment_target: Option<String>,
+    },
+
+    /// Builds the Crypto SDK for Swift as an XCFramework.
+    BuildCryptoFramework {
+        /// Build with the release profile
+        #[clap(long)]
+        release: bool,
+
+        /// Build with a custom profile, takes precedence over `--release`
+        #[clap(long)]
+        profile: Option<String>,
+
+        /// Build the given target. This option can be specified multiple times
+        /// to build more than one. Omitting this option will build all
+        /// supported targets.
+        #[clap(long)]
+        target: Option<Vec<String>>,
+
+        /// The macOS deployment target to use when building the framework.
+        ///
+        /// Defaults to not being set, which implies that the build will use the
+        /// default values provided by the Rust and Xcode toolchains.
+        #[clap(long)]
+        macos_deployment_target: Option<String>,
+
+        /// The iOS deployment target to use when building the framework.
+        ///
+        /// Defaults to not being set, which implies that the build will use the
+        /// default values provided by the Rust and Xcode toolchains.
+        #[clap(long)]
+        ios_deployment_target: Option<String>,
     },
 }
 
@@ -110,6 +141,21 @@ impl SwiftArgs {
                     macos_deployment_target.as_deref(),
                     ios_deployment_target.as_deref(),
                     watchos_deployment_target.as_deref(),
+                )
+            }
+            SwiftCommand::BuildCryptoFramework {
+                release,
+                profile,
+                target: targets,
+                macos_deployment_target,
+                ios_deployment_target,
+            } => {
+                let profile = profile.as_deref().unwrap_or(if release { "release" } else { "dev" });
+                build_crypto_xcframework(
+                    profile,
+                    targets,
+                    macos_deployment_target.as_deref(),
+                    ios_deployment_target.as_deref(),
                 )
             }
         }
@@ -173,6 +219,9 @@ const STRIPPED_PROFILE: &str = "small-release-stripped";
 
 /// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
+
+/// The base name of the Crypto FFI library.
+const CRYPTO_FFI_LIBRARY_NAME: &str = "libmatrix_sdk_crypto_ffi.a";
 
 /// The features enabled for the FFI library.
 const FFI_FEATURES: &str = "sentry";
@@ -313,18 +362,7 @@ fn build_xcframework(
     create_dir_all(headers_module_dir.clone())?;
     create_dir_all(swift_dir.clone())?;
 
-    let targets = if let Some(triples) = targets {
-        triples
-            .iter()
-            .map(|t| {
-                TARGETS.iter().find(|target| target.triple == *t).expect("Invalid target specified")
-            })
-            .collect()
-    } else if tier3_targets {
-        TARGETS.iter().collect()
-    } else {
-        TARGETS.iter().filter(|target| target.status == TargetStatus::TopTier).collect()
-    };
+    let targets = resolve_targets(targets, tier3_targets);
 
     let platform_build_paths = if prebuilt {
         prebuilt_targets(targets, profile)?
@@ -337,11 +375,11 @@ fn build_xcframework(
             watchos_deployment_target,
         )?
     };
-    let libs = lipo_platform_libraries(&platform_build_paths, &generated_dir)?;
+    let libs = lipo_platform_libraries(&platform_build_paths, &generated_dir, FFI_LIBRARY_NAME)?;
 
     println!("-- Generating uniffi files");
-    let uniffi_lib_path = platform_build_paths.values().next().unwrap().first().unwrap().clone();
-    generate_uniffi(&uniffi_lib_path, &generated_dir)?;
+    let uniffi_lib_path = platform_build_paths.values().next().unwrap().first().unwrap();
+    generate_uniffi(uniffi_lib_path, &generated_dir)?;
 
     move_files("h", &generated_dir, &headers_module_dir)?;
     consolidate_modulemap_files(&generated_dir, &headers_module_dir)?;
@@ -400,6 +438,126 @@ fn build_xcframework(
     Ok(())
 }
 
+fn build_crypto_xcframework(
+    profile: &str,
+    targets: Option<Vec<String>>,
+    macos_deployment_target: Option<&str>,
+    ios_deployment_target: Option<&str>,
+) -> Result<()> {
+    let root_dir = workspace::root_path()?;
+    let generated_dir = root_dir.join("generated");
+
+    // Cleanup destination folder
+    let _ = remove_dir_all(&generated_dir);
+    create_dir_all(&generated_dir)?;
+
+    let headers_dir = generated_dir.join("headers");
+    let swift_dir = generated_dir.join("Sources");
+    create_dir_all(&headers_dir)?;
+    create_dir_all(&swift_dir)?;
+
+    let targets = resolve_targets(targets, false);
+    let platform_build_paths =
+        build_crypto_targets(targets, profile, macos_deployment_target, ios_deployment_target)?;
+    let libs =
+        lipo_platform_libraries(&platform_build_paths, &generated_dir, CRYPTO_FFI_LIBRARY_NAME)?;
+
+    println!("-- Generating uniffi files");
+    let uniffi_lib_path = platform_build_paths.values().next().unwrap().first().unwrap();
+    generate_uniffi(uniffi_lib_path, &generated_dir)?;
+
+    move_files("h", &generated_dir, &headers_dir)?;
+    merge_modulemap_files(&generated_dir, &headers_dir)?;
+    move_files("swift", &generated_dir, &swift_dir)?;
+
+    println!("-- Generating MatrixSDKCryptoFFI.xcframework framework");
+    let xcframework_path = generated_dir.join("MatrixSDKCryptoFFI.xcframework");
+    if xcframework_path.exists() {
+        remove_dir_all(&xcframework_path)?;
+    }
+
+    let sh = sh();
+    let mut cmd = cmd!(sh, "xcodebuild -create-xcframework");
+    for p in libs {
+        cmd = cmd.arg("-library").arg(p).arg("-headers").arg(&headers_dir);
+    }
+    cmd.arg("-output").arg(&xcframework_path).run()?;
+
+    // Clean up intermediate files
+    remove_dir_all(&headers_dir)?;
+    let lipo_dir = generated_dir.join("lipo");
+    if lipo_dir.exists() {
+        remove_dir_all(&lipo_dir)?;
+    }
+
+    // Zip up framework, sources and LICENSE, ready to be uploaded to GitHub
+    // Releases and used by MatrixSDKCrypto.podspec
+    let license_copy = generated_dir.join("LICENSE");
+    copy(root_dir.join("LICENSE"), &license_copy)?;
+    {
+        let _dir = sh.push_dir(&generated_dir);
+        cmd!(sh, "zip -r MatrixSDKCryptoFFI.zip MatrixSDKCryptoFFI.xcframework Sources LICENSE")
+            .run()?;
+    }
+    remove_file(license_copy)?;
+
+    println!("-- All done and hunky dory. Enjoy!");
+
+    Ok(())
+}
+
+/// Resolves the requested target triples into [`Target`] definitions.
+fn resolve_targets(targets: Option<Vec<String>>, tier3_targets: bool) -> Vec<&'static Target> {
+    if let Some(triples) = targets {
+        triples
+            .iter()
+            .map(|t| {
+                TARGETS.iter().find(|target| target.triple == *t).expect("Invalid target specified")
+            })
+            .collect()
+    } else if tier3_targets {
+        TARGETS.iter().collect()
+    } else {
+        TARGETS.iter().filter(|target| target.status == TargetStatus::TopTier).collect()
+    }
+}
+
+/// Builds the Crypto SDK for the specified targets and profile.
+fn build_crypto_targets(
+    targets: Vec<&Target>,
+    profile: &str,
+    macos_deployment_target: Option<&str>,
+    ios_deployment_target: Option<&str>,
+) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
+    let sh = sh();
+
+    let _env_guard1 =
+        macos_deployment_target.map(|target| sh.push_env("MACOSX_DEPLOYMENT_TARGET", target));
+    let _env_guard2 =
+        ios_deployment_target.map(|target| sh.push_env("IPHONEOS_DEPLOYMENT_TARGET", target));
+
+    for target in &targets {
+        let triple = target.triple;
+
+        println!("-- Building for {}", target.description);
+        if target.status == TargetStatus::TopTier {
+            cmd!(sh, "rustup run stable cargo rustc -p matrix-sdk-crypto-ffi --lib --crate-type staticlib --target {triple} --profile {profile}")
+                .run()?;
+        } else {
+            cmd!(sh, "rustup run nightly cargo rustc -p matrix-sdk-crypto-ffi --lib --crate-type staticlib -Zbuild-std --target {triple} --profile {profile}")
+                .run()?;
+        }
+    }
+
+    let mut platform_build_paths = HashMap::new();
+    for target in targets {
+        let path = build_path_for_target(target, profile, CRYPTO_FFI_LIBRARY_NAME)?;
+        platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new).push(path);
+    }
+
+    Ok(platform_build_paths)
+}
+
 /// Builds the SDK for the specified targets and profile.
 fn build_targets(
     targets: Vec<&Target>,
@@ -443,7 +601,7 @@ fn build_targets(
     // for that platform.
     let mut platform_build_paths = HashMap::new();
     for target in targets {
-        let path = build_path_for_target(target, profile)?;
+        let path = build_path_for_target(target, profile, FFI_LIBRARY_NAME)?;
         let strip_debug_info = profile == STRIPPED_PROFILE;
         localize_private_symbols(&path, target, strip_debug_info)?;
         let paths = platform_build_paths.entry(target.platform.clone()).or_insert_with(Vec::new);
@@ -461,7 +619,7 @@ fn prebuilt_targets(
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let mut platform_build_paths = HashMap::new();
     for target in targets {
-        let path = build_path_for_target(target, profile)?;
+        let path = build_path_for_target(target, profile, FFI_LIBRARY_NAME)?;
         if !path.exists() {
             return Err(format!("no prebuilt library for {} at {path}", target.description).into());
         }
@@ -599,17 +757,22 @@ fn crate_of(member: &str) -> &str {
 }
 
 /// The path of the built library for a specific target and profile.
-fn build_path_for_target(target: &Target, profile: &str) -> Result<Utf8PathBuf> {
+fn build_path_for_target(
+    target: &Target,
+    profile: &str,
+    library_name: &str,
+) -> Result<Utf8PathBuf> {
     // The builtin dev profile has its files stored under target/debug, all
     // other targets have matching directory names
     let profile_dir_name = if profile == "dev" { "debug" } else { profile };
-    Ok(workspace::target_path()?.join(target.triple).join(profile_dir_name).join(FFI_LIBRARY_NAME))
+    Ok(workspace::target_path()?.join(target.triple).join(profile_dir_name).join(library_name))
 }
 
 /// Lipo's together the libraries for each platform into a single library.
 fn lipo_platform_libraries(
     platform_build_paths: &HashMap<Platform, Vec<Utf8PathBuf>>,
     generated_dir: &Utf8Path,
+    library_name: &str,
 ) -> Result<Vec<Utf8PathBuf>> {
     let mut libs = Vec::new();
     let sh = sh();
@@ -624,7 +787,7 @@ fn lipo_platform_libraries(
         let output_folder = generated_dir.join("lipo").join(platform.lib_folder_name());
         create_dir_all(&output_folder)?;
 
-        let output_path = output_folder.join(FFI_LIBRARY_NAME);
+        let output_path = output_folder.join(library_name);
         let mut cmd = cmd!(sh, "lipo -create");
         for path in paths {
             cmd = cmd.arg(path);
@@ -745,5 +908,35 @@ fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Res
 
     let modulemap = lines.join("\n") + "\n";
     std::fs::write(destination.join("module.modulemap"), modulemap)?;
+    Ok(())
+}
+
+/// Merges all `*.modulemap` files in the source directory into a single
+/// `module.modulemap` file in the destination directory without renaming their
+/// modules.
+fn merge_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Result<()> {
+    let mut modulemap_paths = Vec::new();
+
+    for entry in source.read_dir_utf8()? {
+        let entry = entry?;
+
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some("modulemap") {
+                modulemap_paths.push(path.to_path_buf());
+            }
+        }
+    }
+
+    modulemap_paths.sort();
+
+    let mut merged = String::new();
+    for path in modulemap_paths {
+        merged.push_str(&std::fs::read_to_string(&path)?);
+        merged.push('\n');
+        remove_file(path)?;
+    }
+
+    std::fs::write(destination.join("module.modulemap"), merged)?;
     Ok(())
 }
