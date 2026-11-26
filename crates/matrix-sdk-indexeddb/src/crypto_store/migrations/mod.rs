@@ -315,7 +315,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use gloo_utils::format::JsValueSerdeExt;
-    use indexed_db_futures::{database::VersionChangeEvent, transaction::TransactionMode};
+    use indexed_db_futures::database::VersionChangeEvent;
     use matrix_sdk_common::{
         deserialized_responses::WithheldCode, js_tracing::make_tracing_subscriber,
     };
@@ -337,6 +337,7 @@ mod tests {
     use crate::{
         IndexeddbCryptoStore,
         crypto_store::{InboundGroupSessionIndexedDbObject, keys, migrations::*},
+        durability::ReadwriteDurable,
     };
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

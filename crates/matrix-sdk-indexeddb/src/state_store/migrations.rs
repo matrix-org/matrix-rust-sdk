@@ -871,7 +871,7 @@ mod tests {
         error::Error,
         object_store::ObjectStore,
         prelude::*,
-        transaction::{Transaction, TransactionMode},
+        transaction::Transaction,
     };
     use matrix_sdk_base::{
         RoomMemberships, RoomState, StateStore, StateStoreDataKey, StoreError,
@@ -901,6 +901,7 @@ mod tests {
     use super::{CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, MigrationConflictStrategy, old_keys};
     use crate::{
         IndexeddbStateStore, IndexeddbStateStoreError,
+        durability::ReadwriteDurable,
         serializer::safe_encode::traits::SafeEncode,
         state_store::{Result, encode_key, keys, serialize_value},
     };
