@@ -41,12 +41,12 @@ TBD
 
 This FFI is not published yet, but you can extend it by depending on
 this crate via a git dependency. To be able to get access to the actual inner/
-rust types, make sure to enable the experimental `experimental-preludes`
+rust types, make sure to enable the experimental `experimental-prelude`
 feature:
 
 ```toml
 [dependencies]
-matrix-sdk-ffi = { git = "https://github.com/matrix-org/matrix-rust-sdk", features = ["experimental-preludes"] }
+matrix-sdk-ffi = { git = "https://github.com/matrix-org/matrix-rust-sdk", features = ["experimental-prelude"] }
 ```
 
 Once you have that you can use the
