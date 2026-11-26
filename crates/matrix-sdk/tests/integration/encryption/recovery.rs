@@ -1282,3 +1282,82 @@ async fn test_reset_identity() {
 
     server.verify().await;
 }
+
+#[async_test]
+async fn test_reset_identity_cancelled() {
+    let user_id = user_id!("@example:morpheus.localhost");
+    let (client, server) = test_client(user_id).await;
+
+    enable(user_id, &client, &server, true).await;
+
+    // At this point both backups and recovery should be enabled
+    assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
+    assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
+
+    // Neither the backup nor secret storage may be touched if the
+    // cross-signing reset doesn't get past the authentication step.
+    Mock::given(method("DELETE"))
+        .and(path("_matrix/client/r0/room_keys/version/1"))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(0)
+        .named("room_keys/version DELETE")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
+        )))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(0)
+        .named("m.secret_storage.default_key PUT")
+        .mount(&server)
+        .await;
+
+    let _guard = Mock::given(method("POST"))
+        .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "flows": [
+                {
+                    "stages": [
+                        "m.login.password"
+                    ]
+                }
+            ],
+            "params": {},
+            "session": "oFIJVvtEOCKmRUTYKTYIIPHL"
+        })))
+        .expect(1)
+        .named("Initial cross-signing upload attempt")
+        .mount_as_scoped(&server)
+        .await;
+
+    let reset_handle = client
+        .encryption()
+        .recovery()
+        .reset_identity()
+        .await
+        .unwrap()
+        .expect("We should have received a reset handle");
+
+    reset_handle.cancel().await;
+
+    // Backups and recovery were left untouched by the cancelled reset.
+    assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
+    assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
+
+    // Calling reset() after the cancellation must not delete them either,
+    // since no new identity gets uploaded by the cancelled handle.
+    assert_let!(CrossSigningResetAuthType::Uiaa(uiaa_info) = reset_handle.auth_type());
+    reset_handle
+        .reset(uiaa_info.as_password_auth_data(user_id.to_owned().into(), "1234".to_owned()))
+        .await
+        .expect("Resetting after a cancellation should not return an error");
+
+    assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
+    assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
+
+    server.verify().await;
+}

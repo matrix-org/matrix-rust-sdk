@@ -108,77 +108,6 @@ impl RoomUpdates {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use assert_matches::assert_matches;
-    use ruma::room_id;
-
-    use super::{
-        InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, RoomUpdates,
-    };
-
-    #[test]
-    fn test_room_updates_iter_all_room_ids() {
-        let room_id_0 = room_id!("!r0");
-        let room_id_1 = room_id!("!r1");
-        let room_id_2 = room_id!("!r2");
-        let room_id_3 = room_id!("!r3");
-        let room_id_4 = room_id!("!r4");
-        let room_id_5 = room_id!("!r5");
-        let room_id_6 = room_id!("!r6");
-        let room_id_7 = room_id!("!r7");
-        let room_updates = RoomUpdates {
-            left: {
-                let mut left = BTreeMap::new();
-                left.insert(room_id_0.to_owned(), LeftRoomUpdate::default());
-                left.insert(room_id_1.to_owned(), LeftRoomUpdate::default());
-                left
-            },
-            joined: {
-                let mut joined = BTreeMap::new();
-                joined.insert(room_id_2.to_owned(), JoinedRoomUpdate::default());
-                joined.insert(room_id_3.to_owned(), JoinedRoomUpdate::default());
-                joined
-            },
-            invited: {
-                let mut invited = BTreeMap::new();
-                invited.insert(room_id_4.to_owned(), InvitedRoomUpdate::default());
-                invited.insert(room_id_5.to_owned(), InvitedRoomUpdate::default());
-                invited
-            },
-            knocked: {
-                let mut knocked = BTreeMap::new();
-                knocked.insert(room_id_6.to_owned(), KnockedRoomUpdate::default());
-                knocked.insert(room_id_7.to_owned(), KnockedRoomUpdate::default());
-                knocked
-            },
-        };
-
-        let mut iter = room_updates.iter_all_room_ids();
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_0));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_1));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_2));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_3));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_4));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_5));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_6));
-        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_7));
-        assert!(iter.next().is_none());
-    }
-
-    #[test]
-    fn test_empty_room_updates() {
-        let room_updates = RoomUpdates::default();
-
-        let mut iter = room_updates.iter_all_room_ids();
-        assert!(iter.next().is_none());
-
-        assert!(room_updates.is_empty());
-    }
-}
-
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for RoomUpdates {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -428,5 +357,76 @@ impl fmt::Debug for Notification {
             .field("actions", &self.actions)
             .field("event", &event_debug)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use assert_matches::assert_matches;
+    use ruma::room_id;
+
+    use super::{
+        InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, RoomUpdates,
+    };
+
+    #[test]
+    fn test_room_updates_iter_all_room_ids() {
+        let room_id_0 = room_id!("!r0");
+        let room_id_1 = room_id!("!r1");
+        let room_id_2 = room_id!("!r2");
+        let room_id_3 = room_id!("!r3");
+        let room_id_4 = room_id!("!r4");
+        let room_id_5 = room_id!("!r5");
+        let room_id_6 = room_id!("!r6");
+        let room_id_7 = room_id!("!r7");
+        let room_updates = RoomUpdates {
+            left: {
+                let mut left = BTreeMap::new();
+                left.insert(room_id_0.to_owned(), LeftRoomUpdate::default());
+                left.insert(room_id_1.to_owned(), LeftRoomUpdate::default());
+                left
+            },
+            joined: {
+                let mut joined = BTreeMap::new();
+                joined.insert(room_id_2.to_owned(), JoinedRoomUpdate::default());
+                joined.insert(room_id_3.to_owned(), JoinedRoomUpdate::default());
+                joined
+            },
+            invited: {
+                let mut invited = BTreeMap::new();
+                invited.insert(room_id_4.to_owned(), InvitedRoomUpdate::default());
+                invited.insert(room_id_5.to_owned(), InvitedRoomUpdate::default());
+                invited
+            },
+            knocked: {
+                let mut knocked = BTreeMap::new();
+                knocked.insert(room_id_6.to_owned(), KnockedRoomUpdate::default());
+                knocked.insert(room_id_7.to_owned(), KnockedRoomUpdate::default());
+                knocked
+            },
+        };
+
+        let mut iter = room_updates.iter_all_room_ids();
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_0));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_1));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_2));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_3));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_4));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_5));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_6));
+        assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_7));
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_empty_room_updates() {
+        let room_updates = RoomUpdates::default();
+
+        let mut iter = room_updates.iter_all_room_ids();
+        assert!(iter.next().is_none());
+
+        assert!(room_updates.is_empty());
     }
 }
