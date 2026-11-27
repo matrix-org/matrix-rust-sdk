@@ -165,7 +165,6 @@ fn image_packs_from(
     events
         .into_iter()
         .filter_map(move |raw| match raw.deserialize() {
-            // Deleted packs, with an empty content, fail to deserialize.
             Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(mut event))) => {
                 let is_enabled_globally = enabled_state_keys
                     .is_some_and(|state_keys| state_keys.contains_key(&event.state_key));
@@ -182,6 +181,8 @@ fn image_packs_from(
                     is_enabled_globally,
                 })
             }
+            // Packs are deleted by sending an empty content, which fails to
+            // deserialize, so they're skipped here along with the redacted ones.
             _ => None,
         })
         // The store returns state events in no particular order.
