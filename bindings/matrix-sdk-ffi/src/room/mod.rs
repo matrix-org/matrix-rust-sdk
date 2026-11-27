@@ -611,6 +611,39 @@ impl Room {
         })))
     }
 
+    /// Subscribe to changes of this room's members.
+    ///
+    /// The listener is called whenever something happened that may change the
+    /// members returned by [`Room::members_no_sync`]:
+    ///
+    /// - an `m.room.member` state event is received in a sync response,
+    /// - an `m.room.power_levels` state event is received in a sync response,
+    ///   as it changes the members' power levels and roles,
+    /// - the global profile of one of the members changes.
+    ///
+    /// The listener carries no payload: the members should be reloaded with
+    /// [`Room::members_no_sync`] when it is called. A reload may find that
+    /// nothing changed.
+    ///
+    /// This is a simple substitution for the lack of a reactive room members
+    /// API.
+    ///
+    /// Use the returned [`TaskHandle`] to cancel the subscription.
+    pub fn subscribe_to_members_changes(
+        self: Arc<Self>,
+        listener: Box<dyn RoomMembersChangesListener>,
+    ) -> Arc<TaskHandle> {
+        let changes = self.inner.subscribe_to_members_changes();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let mut changes = pin!(changes);
+
+            while changes.next().await.is_some() {
+                listener.on_change();
+            }
+        })))
+    }
+
     /// Redacts an event from the room.
     ///
     /// # Arguments
@@ -1635,6 +1668,13 @@ fn to_state_events(raw_events: Vec<RawAnySyncOrStrippedState>) -> Vec<RoomStateE
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait RoomStateEventsListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, events: Vec<RoomStateEvent>);
+}
+
+/// A listener for the changes of a room's members, registered with
+/// [`Room::subscribe_to_members_changes`].
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait RoomMembersChangesListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_change(&self);
 }
 
 /// A listener for receiving call decline events in a room.
