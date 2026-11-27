@@ -7109,6 +7109,41 @@ pub(crate) mod tests {
             );
         }
 
+        // Server limits + a room retention policy are combined: the room
+        // retention one is clamped to the server limits.
+        {
+            client.clear_retention_configuration();
+
+            // The retention policy of tbe room_with_retention is 1 day, but the
+            // server limit says the max lifetime can be at most 1 minute, so
+            // its effective max lifetime is 1 minute.
+            //
+            // On the other hand, there is no default policy, so no retention is
+            // applied to room_without_retention.
+            let max_lifetime_limit = Duration::from_mins(1);
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::default(),
+                    RetentionLimits::new(
+                        None,
+                        Some(
+                            LifetimeLimits::from_range(Duration::ZERO..max_lifetime_limit).unwrap(),
+                        ),
+                    ),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let mut expired = client.find_expired_events(now).await.unwrap();
+            expired.sort();
+            assert_eq!(
+                expired,
+                vec![event_id!("$old").to_owned(), event_id!("$recent").to_owned()]
+            );
+        }
+
         // Other errors are propagated.
         {
             client.clear_retention_configuration();
