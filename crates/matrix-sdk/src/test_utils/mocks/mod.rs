@@ -2023,6 +2023,14 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, UpdatePresenceEndpoint)
     }
 
+    /// Create a prebuilt mock for the endpoint used to get the presence of a
+    /// user.
+    pub fn mock_get_presence(&self, user_id: &UserId) -> MockEndpoint<'_, GetPresenceEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path(format!("/_matrix/client/v3/presence/{user_id}/status")));
+        self.mock_endpoint(mock, GetPresenceEndpoint)
+    }
+
     /// Create a prebuilt mock for the endpoint used to discover the MatrixRTC
     /// transports.
     pub fn mock_get_rtc_transports(&self) -> MockEndpoint<'_, GetRtcTransportsEndpoint> {
@@ -6021,6 +6029,16 @@ impl<'a> MockEndpoint<'a, UpdatePresenceEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `GET /_matrix/client/v3/presence/{userId}/status`.
+pub struct GetPresenceEndpoint;
+
+impl<'a> MockEndpoint<'a, GetPresenceEndpoint> {
+    /// Returns a successful response with the given presence state.
+    pub fn ok(self, presence: &PresenceState) -> MatrixMock<'a> {
+        self.ok_json(json!({ "presence": presence.as_str() }))
     }
 }
 

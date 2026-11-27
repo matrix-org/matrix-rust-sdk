@@ -45,6 +45,7 @@ use matrix_sdk::{
         api::client::{
             account::request_openid_token,
             discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
+            presence::get_presence,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             retention::{RoomIdOrAllRooms, get_retention_configuration},
             room::{Visibility, create_room},
@@ -1346,6 +1347,12 @@ impl Client {
         immediate: bool,
     ) -> Result<(), ClientError> {
         Ok(self.inner.set_presence(presence.into(), None, immediate).await?)
+    }
+
+    /// Fetch the presence of a user from the homeserver.
+    pub async fn fetch_presence(&self, user_id: String) -> Result<PresenceInfo, ClientError> {
+        let user_id = <&UserId>::try_from(user_id.as_str())?;
+        Ok(self.inner.fetch_presence(user_id).await?.into())
     }
 
     /// Sets the [ClientDelegate] which will inform about authentication errors.
@@ -3255,6 +3262,31 @@ impl From<search_users::v3::Response> for SearchUsersResults {
     fn from(value: search_users::v3::Response) -> Self {
         let results: Vec<UserProfile> = value.results.iter().map(UserProfile::from).collect();
         SearchUsersResults { results, limited: value.limited }
+    }
+}
+
+/// A user's presence, as reported by the homeserver.
+#[derive(uniffi::Record)]
+pub struct PresenceInfo {
+    pub presence: PresenceState,
+    /// The user's status message, if they set one.
+    pub status_msg: Option<String>,
+    /// Whether the user is currently active.
+    pub currently_active: Option<bool>,
+    /// How long ago, in milliseconds, the user last performed an action.
+    pub last_active_ago_ms: Option<u64>,
+}
+
+impl From<get_presence::v3::Response> for PresenceInfo {
+    fn from(response: get_presence::v3::Response) -> Self {
+        Self {
+            presence: response.presence.into(),
+            status_msg: response.status_msg,
+            currently_active: response.currently_active,
+            last_active_ago_ms: response
+                .last_active_ago
+                .map(|ago| ago.as_millis().try_into().unwrap_or(u64::MAX)),
+        }
     }
 }
 
