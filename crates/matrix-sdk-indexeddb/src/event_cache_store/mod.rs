@@ -701,7 +701,8 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             .get_events_with_state_key_before_timestamp(room_id, state_key.as_deref(), cutoff_ms)
             .await?;
 
-        // The same event can be in several linked chunks.
+        // The same event can be in several linked chunks, since the primary key
+        // consists of (chunk_id, event_id), which allows duplicates.
         Ok(events
             .into_iter()
             .unique_by(|event| event.event_id().map(ToOwned::to_owned))
