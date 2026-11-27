@@ -3544,6 +3544,7 @@ impl Client {
                 .effective_retention_with_server_config(&config)
                 .and_then(|retention| retention.max_lifetime())
             else {
+                // There is no max_lifetime so nothing to do for this room
                 continue;
             };
 
@@ -4718,7 +4719,8 @@ pub(crate) mod tests {
             FeatureFlag, MatrixVersion,
             client::{
                 retention::{
-                    RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits,
+                    RoomIdOrAllRooms,
+                    get_retention_configuration::msc1763::{LifetimeLimits, RetentionLimits},
                 },
                 room::create_room::v3::Request as CreateRoomRequest,
                 rtc::{LiveKitRtcTransport, RtcTransport},
@@ -6981,7 +6983,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_find_expired_events() {
         const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
-        let now = MilliSecondsSinceUnixEpoch(uint!(864_000_000)); // 10 days.
+        let now = MilliSecondsSinceUnixEpoch(UInt::new(ONE_DAY_MS * 10).unwrap()); // 10 days.
         let now_ms = u64::from(now.get());
 
         let server = MatrixMockServer::new().await;

@@ -45,6 +45,7 @@ indexed_db_futures = { workspace = true, features = [
     "indices",
     "streams",
 ]}
+itertools.workspace = true
 js-sys.workspace = true
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }

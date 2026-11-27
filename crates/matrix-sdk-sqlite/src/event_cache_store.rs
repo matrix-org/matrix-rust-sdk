@@ -1837,7 +1837,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         state_key: Option<String>,
         cutoff_ms: u64,
     ) -> Result<Vec<Event>, Self::Error> {
-        let _timer = timer!("method");
+        let _timer = timer!(tracing::Level::TRACE, "find_events_with_state_key_before_timestamp");
 
         let encryption = self.encryption.clone();
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);

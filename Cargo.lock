@@ -3825,6 +3825,7 @@ dependencies = [
  "gloo-utils",
  "growable-bloom-filter",
  "hkdf",
+ "itertools 0.15.0",
  "js-sys",
  "matrix-sdk-base",
  "matrix-sdk-common",
