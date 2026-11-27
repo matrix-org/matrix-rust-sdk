@@ -14,20 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use indexed_db_futures::{Build, error::OpenDbError, transaction::TransactionMode};
+use indexed_db_futures::{Build, error::OpenDbError};
 
 use super::MigrationDb;
 use crate::{
     crypto_store::{Result, keys, migrations::do_schema_upgrade},
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
 pub(crate) async fn data_migrate(name: &str, _: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 14).await?;
-    let transaction = db
-        .transaction(keys::RECEIVED_ROOM_KEY_BUNDLES)
-        .with_mode(TransactionMode::Readwrite)
-        .build()?;
+    let transaction =
+        db.transaction(keys::RECEIVED_ROOM_KEY_BUNDLES).readwrite_durable().build()?;
     let store = transaction.object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?;
 
     // The schema didn't actually change, we just changed the objects that are

@@ -18,9 +18,7 @@ limitations under the License.
 //! "withheld" session data, then migrate the existing data into it, swapping
 //! the key around; finally, we drop the old table.
 
-use indexed_db_futures::{
-    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
-};
+use indexed_db_futures::{Build, error::OpenDbError, query_source::QuerySource};
 use matrix_sdk_crypto::store::types::RoomKeyWithheldEntry;
 use tracing::{debug, info, warn};
 use wasm_bindgen::JsValue;
@@ -28,6 +26,7 @@ use wasm_bindgen::JsValue;
 use super::{MigrationDb, old_keys};
 use crate::{
     crypto_store::{Result, keys, migrations::do_schema_upgrade},
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -46,7 +45,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
 
     let txn = db
         .transaction([old_keys::DIRECT_WITHHELD_INFO, keys::WITHHELD_SESSIONS])
-        .with_mode(TransactionMode::Readwrite)
+        .readwrite_durable()
         .build()?;
 
     let old_store = txn.object_store(old_keys::DIRECT_WITHHELD_INFO)?;

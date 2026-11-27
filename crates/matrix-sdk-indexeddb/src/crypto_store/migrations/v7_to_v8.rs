@@ -15,9 +15,7 @@
 //! Migration code that modifies the data inside inbound_group_sessions2,
 //! ensuring that the keys are correctly encoded for this new store name.
 
-use indexed_db_futures::{
-    Build, error::OpenDbError, query_source::QuerySource, transaction::TransactionMode,
-};
+use indexed_db_futures::{Build, error::OpenDbError, query_source::QuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use wasm_bindgen::JsValue;
@@ -28,6 +26,7 @@ use crate::{
         Result,
         migrations::{MigrationDb, do_schema_upgrade, old_keys, v7},
     },
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -38,10 +37,7 @@ use crate::{
 pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 8).await?;
 
-    let txn = db
-        .transaction(old_keys::INBOUND_GROUP_SESSIONS_V2)
-        .with_mode(TransactionMode::Readwrite)
-        .build()?;
+    let txn = db.transaction(old_keys::INBOUND_GROUP_SESSIONS_V2).readwrite_durable().build()?;
 
     let store = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
 

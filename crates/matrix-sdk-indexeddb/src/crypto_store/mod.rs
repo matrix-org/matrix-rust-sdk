@@ -63,6 +63,7 @@ use wasm_bindgen::JsValue;
 
 use crate::{
     crypto_store::migrations::open_and_upgrade_db,
+    durability::ReadwriteDurable,
     error::GenericError,
     serializer::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError},
 };
@@ -844,7 +845,7 @@ impl_crypto_store! {
             return Ok(());
         }
 
-        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(stores).readwrite_durable().build()?;
 
         let account_pickle = if let Some(account) = changes.account {
             *self.static_account.write().unwrap() = Some(account.static_data().clone());
@@ -881,7 +882,7 @@ impl_crypto_store! {
             return Ok(());
         }
 
-        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = self.inner.transaction(stores).readwrite_durable().build()?;
 
         indexeddb_changes.apply(&tx).await?;
 
@@ -1021,7 +1022,7 @@ impl_crypto_store! {
 
     async fn delete_next_batch_token(&self) -> Result<()> {
         let transaction =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+            self.inner.transaction(keys::CORE).readwrite_durable().build()?;
         transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(keys::NEXT_BATCH_TOKEN)).build()?;
         transaction.commit().await?;
         Ok(())
@@ -1265,7 +1266,7 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
 
         let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
@@ -1293,7 +1294,7 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
 
         if let Some(mut cursor) =
@@ -1322,7 +1323,7 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction(keys::TRACKED_USERS)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
         let os = tx.object_store(keys::TRACKED_USERS)?;
 
@@ -1433,7 +1434,7 @@ impl_crypto_store! {
         let transaction = self
             .inner
             .transaction(keys::SECRETS_INBOX_V2)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
         transaction.object_store(keys::SECRETS_INBOX_V2)?.delete(&range).build()?;
         transaction.commit().await?;
@@ -1487,7 +1488,7 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction(keys::GOSSIP_REQUESTS)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
         tx.object_store(keys::GOSSIP_REQUESTS)?.delete(jskey).build()?;
         tx.commit().await.map_err(|e| e.into())
@@ -1680,7 +1681,7 @@ impl_crypto_store! {
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
         let transaction =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+            self.inner.transaction(keys::CORE).readwrite_durable().build()?;
         transaction
             .object_store(keys::CORE)?
             .put(&self.serializer.serialize_value(&value)?)
@@ -1693,7 +1694,7 @@ impl_crypto_store! {
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
         let transaction =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
+            self.inner.transaction(keys::CORE).readwrite_durable().build()?;
         transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(key)).build()?;
         transaction.commit().await?;
         Ok(())
@@ -1710,7 +1711,7 @@ impl_crypto_store! {
         let txn = self
             .inner
             .transaction(keys::LEASE_LOCKS)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()?;
         let object_store = txn.object_store(keys::LEASE_LOCKS)?;
 
@@ -1847,8 +1848,7 @@ async fn save_store_cipher(
     db: &Database,
     export: &Vec<u8>,
 ) -> Result<(), IndexeddbCryptoStoreError> {
-    let tx: Transaction<'_> =
-        db.transaction("matrix-sdk-crypto").with_mode(TransactionMode::Readwrite).build()?;
+    let tx: Transaction<'_> = db.transaction("matrix-sdk-crypto").readwrite_durable().build()?;
     let ob = tx.object_store("matrix-sdk-crypto")?;
 
     ob.put(&JsValue::from_serde(&export)?)

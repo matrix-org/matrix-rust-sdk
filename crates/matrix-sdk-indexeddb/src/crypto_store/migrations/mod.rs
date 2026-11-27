@@ -315,7 +315,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use gloo_utils::format::JsValueSerdeExt;
-    use indexed_db_futures::{database::VersionChangeEvent, transaction::TransactionMode};
+    use indexed_db_futures::database::VersionChangeEvent;
     use matrix_sdk_common::{
         deserialized_responses::WithheldCode, js_tracing::make_tracing_subscriber,
     };
@@ -337,6 +337,7 @@ mod tests {
     use crate::{
         IndexeddbCryptoStore,
         crypto_store::{InboundGroupSessionIndexedDbObject, keys, migrations::*},
+        durability::ReadwriteDurable,
     };
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -454,7 +455,7 @@ mod tests {
 
     async fn create_transaction<'a>(db: &'a Database, db_prefix: &str) -> Transaction<'a> {
         let store_name = format!("{db_prefix}_store");
-        db.transaction(&store_name).with_mode(TransactionMode::Readwrite).build().unwrap()
+        db.transaction(&store_name).readwrite_durable().build().unwrap()
     }
 
     async fn create_store<'a>(
@@ -779,7 +780,7 @@ mod tests {
 
         let txn = db
             .transaction(old_keys::INBOUND_GROUP_SESSIONS_V1)
-            .with_mode(TransactionMode::Readwrite)
+            .readwrite_durable()
             .build()
             .unwrap();
         let sessions = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V1).unwrap();
@@ -833,11 +834,7 @@ mod tests {
         // Given a DB with data in it as it was at v5
         let db = create_v5_db(&db_name).await.unwrap();
 
-        let txn = db
-            .transaction(keys::BACKUP_KEYS)
-            .with_mode(TransactionMode::Readwrite)
-            .build()
-            .unwrap();
+        let txn = db.transaction(keys::BACKUP_KEYS).readwrite_durable().build().unwrap();
         let store = txn.object_store(keys::BACKUP_KEYS).unwrap();
         store
             .put(&serialize_value_as_legacy(&store_cipher, &"1".to_owned()))
@@ -896,11 +893,8 @@ mod tests {
         {
             let db = create_v5_db(&db_name).await.unwrap();
 
-            let txn = db
-                .transaction(old_keys::DIRECT_WITHHELD_INFO)
-                .with_mode(TransactionMode::Readwrite)
-                .build()
-                .unwrap();
+            let txn =
+                db.transaction(old_keys::DIRECT_WITHHELD_INFO).readwrite_durable().build().unwrap();
             let store = txn.object_store(old_keys::DIRECT_WITHHELD_INFO).unwrap();
 
             let sender_key =
@@ -986,11 +980,8 @@ mod tests {
         // Given a DB with data in it as it was at v5
         {
             let db = create_v5_db(&db_name).await.unwrap();
-            let txn = db
-                .transaction(old_keys::SECRETS_INBOX_V1)
-                .with_mode(TransactionMode::Readwrite)
-                .build()
-                .unwrap();
+            let txn =
+                db.transaction(old_keys::SECRETS_INBOX_V1).readwrite_durable().build().unwrap();
             let store = txn.object_store(old_keys::SECRETS_INBOX_V1).unwrap();
 
             let gossipped_secret = GossippedSecret {

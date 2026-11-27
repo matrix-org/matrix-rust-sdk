@@ -18,11 +18,12 @@
 //! the [`keys::CORE`] object store and then bumps the database
 //! version.
 
-use indexed_db_futures::{Build, error::OpenDbError, transaction::TransactionMode};
+use indexed_db_futures::{Build, error::OpenDbError};
 
 use super::{MigrationDb, old_keys};
 use crate::{
     crypto_store::{Result, keys, migrations::do_schema_upgrade},
+    durability::ReadwriteDurable,
     serializer::SafeEncodeSerializer,
 };
 
@@ -33,7 +34,7 @@ use crate::{
 pub(crate) async fn data_migrate(name: &str, _: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 105).await?;
 
-    let txn = db.transaction([keys::CORE]).with_mode(TransactionMode::Readwrite).build()?;
+    let txn = db.transaction([keys::CORE]).readwrite_durable().build()?;
     txn.object_store(keys::CORE)?.delete(old_keys::GENERATION_COUNTER_KEY).await?;
     txn.commit().await?;
 

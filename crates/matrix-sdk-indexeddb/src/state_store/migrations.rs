@@ -50,7 +50,7 @@ use super::{
     ALL_STORES, Result, RoomMember, deserialize_value, encode_key, encode_to_range, keys,
     serialize_value,
 };
-use crate::IndexeddbStateStoreError;
+use crate::{IndexeddbStateStoreError, durability::ReadwriteDurable};
 
 const CURRENT_DB_VERSION: u32 = 16;
 const CURRENT_META_DB_VERSION: u32 = 2;
@@ -113,10 +113,8 @@ pub async fn upgrade_meta_db(
     let meta_db: Database = db_req.await?;
 
     let store_cipher = if let Some(passphrase) = passphrase {
-        let tx: Transaction<'_> = meta_db
-            .transaction(keys::INTERNAL_STATE)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        let tx: Transaction<'_> =
+            meta_db.transaction(keys::INTERNAL_STATE).readwrite_durable().build()?;
         let ob = tx.object_store(keys::INTERNAL_STATE)?;
 
         let cipher = if let Some(StoreKeyWrapper(inner)) = ob
@@ -315,7 +313,7 @@ async fn apply_migration(
     // Finally, we can add data to the newly created tables if needed.
     if !migration.data.is_empty() {
         let stores: Vec<_> = migration.data.keys().copied().collect();
-        let tx = db.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
+        let tx = db.transaction(stores).readwrite_durable().build()?;
 
         for (name, data) in migration.data {
             let store = tx.object_store(name)?;
@@ -387,7 +385,7 @@ async fn backup_v1(source: &Database, meta: &Database) -> Result<()> {
             }
         }
 
-        let target_tx = target.transaction(*name).with_mode(TransactionMode::Readwrite).build()?;
+        let target_tx = target.transaction(*name).readwrite_durable().build()?;
         let target_obj = target_tx.object_store(name)?;
 
         for (key, value) in data {
@@ -397,7 +395,7 @@ async fn backup_v1(source: &Database, meta: &Database) -> Result<()> {
         target_tx.commit().await?;
     }
 
-    let tx = meta.transaction(keys::BACKUPS_META).with_mode(TransactionMode::Readwrite).build()?;
+    let tx = meta.transaction(keys::BACKUPS_META).readwrite_durable().build()?;
     let backup_store = tx.object_store(keys::BACKUPS_META)?;
     backup_store.put(&backup_name).with_key(now).await?;
 
@@ -442,10 +440,7 @@ async fn v3_fix_store(store: &ObjectStore<'_>, store_cipher: Option<&StoreCipher
 
 /// Fix serialized redacted state events.
 async fn migrate_to_v3(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
-    let tx = db
-        .transaction([keys::ROOM_STATE, keys::ROOM_INFOS])
-        .with_mode(TransactionMode::Readwrite)
-        .build()?;
+    let tx = db.transaction([keys::ROOM_STATE, keys::ROOM_INFOS]).readwrite_durable().build()?;
 
     v3_fix_store(&tx.object_store(keys::ROOM_STATE)?, store_cipher).await?;
     v3_fix_store(&tx.object_store(keys::ROOM_INFOS)?, store_cipher).await?;
@@ -516,7 +511,7 @@ async fn migrate_to_v5(db: Database, store_cipher: Option<&StoreCipher>) -> Resu
             keys::ROOM_INFOS,
             old_keys::STRIPPED_ROOM_INFOS,
         ])
-        .with_mode(TransactionMode::Readwrite)
+        .readwrite_durable()
         .build()?;
 
     let members_store = tx.object_store(old_keys::MEMBERS)?;
@@ -719,7 +714,7 @@ async fn migrate_to_v7(db: Database, store_cipher: Option<&StoreCipher>) -> Resu
 async fn migrate_to_v8(db: Database, store_cipher: Option<&StoreCipher>) -> Result<Database> {
     let tx = db
         .transaction([keys::ROOM_STATE, keys::STRIPPED_ROOM_STATE, keys::ROOM_INFOS])
-        .with_mode(TransactionMode::Readwrite)
+        .readwrite_durable()
         .build()?;
 
     let room_state_store = tx.object_store(keys::ROOM_STATE)?;
@@ -808,7 +803,7 @@ async fn migrate_to_v11(db: Database) -> Result<Database> {
 /// tables have changed, clear both.
 async fn migrate_to_v12(db: Database) -> Result<Database> {
     let store_keys = [keys::DEPENDENT_SEND_QUEUE, keys::ROOM_SEND_QUEUE];
-    let tx = db.transaction(store_keys).with_mode(TransactionMode::Readwrite).build()?;
+    let tx = db.transaction(store_keys).readwrite_durable().build()?;
 
     for store_name in store_keys {
         let store = tx.object_store(store_name)?;
@@ -876,7 +871,7 @@ mod tests {
         error::Error,
         object_store::ObjectStore,
         prelude::*,
-        transaction::{Transaction, TransactionMode},
+        transaction::Transaction,
     };
     use matrix_sdk_base::{
         RoomMemberships, RoomState, StateStore, StateStoreDataKey, StoreError,
@@ -906,6 +901,7 @@ mod tests {
     use super::{CURRENT_DB_VERSION, CURRENT_META_DB_VERSION, MigrationConflictStrategy, old_keys};
     use crate::{
         IndexeddbStateStore, IndexeddbStateStoreError,
+        durability::ReadwriteDurable,
         serializer::safe_encode::traits::SafeEncode,
         state_store::{Result, encode_key, keys, serialize_value},
     };
@@ -1051,7 +1047,7 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
+            let tx = db.transaction(keys::CUSTOM).readwrite_durable().build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
@@ -1085,7 +1081,7 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
+            let tx = db.transaction(keys::CUSTOM).readwrite_durable().build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
@@ -1122,7 +1118,7 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
+            let tx = db.transaction(keys::CUSTOM).readwrite_durable().build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
@@ -1162,7 +1158,7 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 1).await?;
-            let tx = db.transaction(keys::CUSTOM).with_mode(TransactionMode::Readwrite).build()?;
+            let tx = db.transaction(keys::CUSTOM).readwrite_durable().build()?;
             let custom = tx.object_store(keys::CUSTOM)?;
             let jskey = JsValue::from_str(
                 core::str::from_utf8(CUSTOM_DATA_KEY).map_err(StoreError::Codec)?,
@@ -1217,8 +1213,7 @@ mod tests {
         // Populate DB with wrong event.
         {
             let db = create_fake_db(&name, 2).await?;
-            let tx =
-                db.transaction(keys::ROOM_STATE).with_mode(TransactionMode::Readwrite).build()?;
+            let tx = db.transaction(keys::ROOM_STATE).readwrite_durable().build()?;
             let state = tx.object_store(keys::ROOM_STATE)?;
             let key: JsValue = (room_id, StateEventType::RoomTopic, "").as_encoded_string().into();
             state.put(&serialize_value(None, &wrong_redacted_state_event)?).with_key(key).await?;
@@ -1254,7 +1249,7 @@ mod tests {
             let db = create_fake_db(&name, 3).await?;
             let tx = db
                 .transaction([old_keys::SYNC_TOKEN, old_keys::SESSION])
-                .with_mode(TransactionMode::Readwrite)
+                .readwrite_durable()
                 .build()?;
 
             let sync_token_store = tx.object_store(old_keys::SYNC_TOKEN)?;
@@ -1345,7 +1340,7 @@ mod tests {
                     old_keys::STRIPPED_MEMBERS,
                     old_keys::STRIPPED_ROOM_INFOS,
                 ])
-                .with_mode(TransactionMode::Readwrite)
+                .readwrite_durable()
                 .build()?;
 
             let members_store = tx.object_store(old_keys::MEMBERS)?;
@@ -1437,7 +1432,7 @@ mod tests {
                     old_keys::STRIPPED_INVITED_USER_IDS,
                     old_keys::STRIPPED_JOINED_USER_IDS,
                 ])
-                .with_mode(TransactionMode::Readwrite)
+                .readwrite_durable()
                 .build()?;
 
             let state_store = tx.object_store(keys::ROOM_STATE)?;
@@ -1560,7 +1555,7 @@ mod tests {
             let db = create_fake_db(&name, 6).await?;
             let tx = db
                 .transaction([keys::ROOM_INFOS, old_keys::STRIPPED_ROOM_INFOS])
-                .with_mode(TransactionMode::Readwrite)
+                .readwrite_durable()
                 .build()?;
 
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
@@ -1662,10 +1657,8 @@ mod tests {
         // Create and populate db.
         {
             let db = create_fake_db(&name, 6).await?;
-            let tx = db
-                .transaction([keys::ROOM_INFOS, keys::ROOM_STATE])
-                .with_mode(TransactionMode::Readwrite)
-                .build()?;
+            let tx =
+                db.transaction([keys::ROOM_INFOS, keys::ROOM_STATE]).readwrite_durable().build()?;
 
             let room_infos_store = tx.object_store(keys::ROOM_INFOS)?;
             let room_state_store = tx.object_store(keys::ROOM_STATE)?;
