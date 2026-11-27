@@ -14,7 +14,9 @@
 
 use std::sync::Arc;
 
-use matrix_sdk_ui::image_packs::{ImagePack as SdkImagePack, available_image_packs, image_packs};
+use matrix_sdk_ui::image_packs::{
+    ImagePack as SdkImagePack, available_image_packs, room_image_packs,
+};
 
 use super::Room;
 use crate::{error::ClientError, ruma::ImageInfo, spaces::SpaceService};
@@ -113,7 +115,7 @@ impl Room {
 
     /// Get all the image packs defined in this room, including the ones
     /// without images, to manage them. They are sorted by state key.
-    pub async fn image_packs(&self) -> Result<Vec<ImagePack>, ClientError> {
-        Ok(image_packs(&self.inner).await?.into_iter().map(Into::into).collect())
+    pub async fn room_image_packs(&self) -> Result<Vec<ImagePack>, ClientError> {
+        Ok(room_image_packs(&self.inner).await?.into_iter().map(Into::into).collect())
     }
 }
