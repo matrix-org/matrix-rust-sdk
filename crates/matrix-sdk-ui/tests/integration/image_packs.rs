@@ -258,24 +258,52 @@ async fn test_room_image_packs() {
             ("room_metadata", Some("Room name"), Some(&room_avatar)),
         ]
     );
+}
 
-    // All the packs of the room can be managed, including the one without
-    // images, and tell whether they're enabled globally.
+#[async_test]
+async fn test_room_image_packs_for_management() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new().sender(User::Alice);
+
+    // A pack with images, one without, enabled globally, and a deleted one.
+    let deleted_pack = json!({
+        "type": "m.room.image_pack",
+        "state_key": "deleted",
+        "event_id": "$deleted",
+        "sender": "@alice:localhost",
+        "origin_server_ts": 1,
+        "content": {},
+    });
     let enabled = ImagePackRoomsEventContent::new(BTreeMap::from([(
         DEFAULT_TEST_ROOM_ID.to_owned(),
         BTreeMap::from([("empty".to_owned(), RoomImagePackMeta::new())]),
     )]));
+
     server
         .mock_sync()
         .ok_and_run(&client, |builder| {
-            builder.add_global_account_data(f.event(enabled));
+            builder.add_global_account_data(f.event(enabled)).add_joined_room(
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.event(pack("pack")).default_room().state_key("pack"))
+                    .add_state_event(
+                        f.event(RoomImagePackEventContent::new(BTreeMap::new()))
+                            .default_room()
+                            .state_key("empty"),
+                    )
+                    .add_state_event(Raw::new(&deleted_pack).unwrap().cast_unchecked()),
+            );
         })
         .await;
 
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let packs = room_image_packs(&room).await.unwrap();
+
+    // The pack without images is listed so it can be managed, the deleted one
+    // isn't.
     let packs = packs
         .iter()
         .map(|pack| (pack.state_key.as_str(), pack.is_enabled_globally))
         .collect::<Vec<_>>();
-    assert_eq!(packs, [("empty", true), ("own_metadata", false), ("room_metadata", false)]);
+    assert_eq!(packs, [("empty", true), ("pack", false)]);
 }
