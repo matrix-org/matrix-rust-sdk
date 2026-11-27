@@ -15,7 +15,7 @@
 //! The SDK's representation of the result of a `/sync` request.
 
 use std::{
-    collections::{BTreeMap, btree_map},
+    collections::{BTreeMap, BTreeSet, btree_map},
     fmt,
     time::Duration,
 };
@@ -37,10 +37,11 @@ use ruma::{
         self,
         v3::{InvitedRoom, KnockedRoom},
     },
-    events::{AnyGlobalAccountDataEvent, presence::PresenceEvent},
+    events::{AnyGlobalAccountDataEvent, GlobalAccountDataEventType, presence::PresenceEvent},
     serde::Raw,
     time::Instant,
 };
+use tokio::sync::MutexGuard;
 use tracing::{Level, error, instrument, warn};
 
 use crate::{Client, Result, Room, event_handler::HandlerKind};
@@ -157,7 +158,21 @@ impl Client {
         )
         .await;
 
+        let previously_joined_rooms =
+            self.joined_rooms().into_iter().map(|r| r.room_id().to_owned()).collect();
+
         let response = Box::pin(self.base_client().receive_sync_response(response)).await?;
+
+        {
+            let state_store_guard = self.base_client().state_store_lock().lock().await;
+            update_notification_mode_caches(
+                self,
+                &previously_joined_rooms,
+                &response,
+                &state_store_guard,
+            )
+            .await;
+        }
 
         // Some new keys might have been received, so trigger a backup if
         // needed.
@@ -374,6 +389,71 @@ impl Client {
 /// That way, the latest event is computed and updated for all rooms receiving
 /// an update from the sync.
 #[instrument(skip_all)]
+/// Update the cached user-defined notification mode of the rooms after a
+/// sync, and persist the changes in the state store so that they survive a
+/// restart.
+///
+/// If the push rules have changed, the cache is recomputed for all the joined
+/// rooms. Otherwise, it's only computed for the newly joined rooms.
+pub(crate) async fn update_notification_mode_caches(
+    client: &Client,
+    previously_joined_rooms: &BTreeSet<OwnedRoomId>,
+    response: &BaseSyncResponse,
+    state_store_guard: &MutexGuard<'_, ()>,
+) {
+    let _timer = timer!(Level::TRACE, "update_notification_mode_caches");
+
+    if response.account_data.iter().any(|event| {
+        event
+            .get_field::<GlobalAccountDataEventType>("type")
+            .ok()
+            .flatten()
+            .is_some_and(|event_type| event_type == GlobalAccountDataEventType::PushRules)
+    }) {
+        let notification_settings = client.notification_settings().await;
+        let rules = notification_settings.rules().await;
+
+        for room in client.joined_rooms() {
+            let mode = rules.get_user_defined_room_notification_mode(room.room_id());
+            room.set_and_persist_cached_user_defined_notification_mode(mode, state_store_guard)
+                .await;
+        }
+    } else {
+        // We'll compute the rules only once, lazily, if needs be.
+        let mut rules = None;
+
+        for room_id in response
+            .rooms
+            .joined
+            .keys()
+            .filter(|room_id| !previously_joined_rooms.contains(*room_id))
+        {
+            let Some(room) = client.get_room(room_id) else {
+                error!(?room_id, "The room must exist since it has been joined");
+                continue;
+            };
+
+            // Reuse the previous `Rules` instance, or compute it once and for
+            // all.
+            let rules = if let Some(rules) = &mut rules {
+                rules
+            } else {
+                rules.insert(client.notification_settings().await.rules().await.clone())
+            };
+
+            // Define an initial value for the cached user-defined notification
+            // mode.
+            if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
+                room.set_and_persist_cached_user_defined_notification_mode(
+                    Some(mode),
+                    state_store_guard,
+                )
+                .await;
+            }
+        }
+    }
+}
+
 pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, room_ids: R)
 where
     R: Iterator<Item = &'a OwnedRoomId>,

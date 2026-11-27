@@ -155,7 +155,10 @@ use ruma::{
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-use tokio::{join, sync::broadcast};
+use tokio::{
+    join,
+    sync::{MutexGuard, broadcast},
+};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::{
@@ -3939,11 +3942,51 @@ impl Room {
         let mode =
             notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
 
-        if let Some(mode) = mode {
-            self.update_cached_user_defined_notification_mode(mode);
+        // Update the cache, clearing it if there is no user-defined mode
+        // anymore, and persist it so that it survives a restart.
+        if self.cached_user_defined_notification_mode() != mode {
+            let state_store_guard = self.client.base_client().state_store_lock().lock().await;
+            self.set_and_persist_cached_user_defined_notification_mode(mode, &state_store_guard)
+                .await;
         }
 
         mode
+    }
+
+    /// Set the cached user-defined notification mode to `mode`, and persist
+    /// it in the state store, if it differs from the current cached value.
+    ///
+    /// Returns whether the cached value has changed.
+    ///
+    /// If persisting fails, the in-memory cache is still updated.
+    pub(crate) async fn set_and_persist_cached_user_defined_notification_mode(
+        &self,
+        mode: Option<RoomNotificationMode>,
+        state_store_guard: &MutexGuard<'_, ()>,
+    ) -> bool {
+        if self.cached_user_defined_notification_mode() == mode {
+            return false;
+        }
+
+        if let Err(err) = self
+            .update_and_save_room_info_with_store_guard(state_store_guard, |mut info| {
+                info.set_cached_user_defined_notification_mode(mode);
+                (info, RoomInfoNotableUpdateReasons::empty())
+            })
+            .await
+        {
+            error!(
+                room_id = ?self.room_id(),
+                "failed to persist the cached user-defined notification mode: {err}"
+            );
+
+            match mode {
+                Some(mode) => self.update_cached_user_defined_notification_mode(mode),
+                None => self.clear_user_defined_notification_mode(),
+            }
+        }
+
+        true
     }
 
     /// Report an event as inappropriate to the homeserver's administrator.

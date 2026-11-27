@@ -1270,6 +1270,26 @@ impl RoomInfo {
         self.latest_event_value = new_value;
     }
 
+    /// Returns the cached user-defined notification mode, if available.
+    ///
+    /// Lower-level than [`Room::cached_user_defined_notification_mode`]:
+    /// reads straight off this `RoomInfo`.
+    pub fn cached_user_defined_notification_mode(&self) -> Option<RoomNotificationMode> {
+        self.cached_user_defined_notification_mode
+    }
+
+    /// Sets the cached user-defined notification mode.
+    ///
+    /// Lower-level than [`Room::update_cached_user_defined_notification_mode`]
+    /// / [`Room::clear_user_defined_notification_mode`]: only mutates this
+    /// `RoomInfo`, not the in-memory `Room` cache.
+    pub fn set_cached_user_defined_notification_mode(
+        &mut self,
+        mode: Option<RoomNotificationMode>,
+    ) {
+        self.cached_user_defined_notification_mode = mode;
+    }
+
     /// Updates the recency stamp of this room.
     ///
     /// Please read `Self::recency_stamp` to learn more.

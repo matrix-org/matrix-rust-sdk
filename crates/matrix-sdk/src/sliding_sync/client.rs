@@ -9,22 +9,23 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{deserialized_responses::ProcessedToDeviceEvent, timeout::timeout};
 use ruma::{
-    OwnedRoomId,
     api::{
         FeatureFlag, SupportedVersions,
         client::sync::sync_events::msc4186::{self as http, response},
     },
     assign,
     directory::RoomTypeFilter,
-    events::{GlobalAccountDataEventType, StateEventType},
+    events::StateEventType,
     presence::PresenceState,
     uint,
 };
 use tokio::sync::MutexGuard;
-use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result, sync::subscribe_to_room_latest_events};
+use crate::{
+    Client, Result,
+    sync::{subscribe_to_room_latest_events, update_notification_mode_caches},
+};
 
 /// The connection ID of the dedicated sliding sync connection used by
 /// [`Client::has_encrypted_rooms`].
@@ -379,7 +380,13 @@ impl SlidingSyncResponseProcessor {
         handle_receipts_extension(&self.client, response, &mut sync_response, state_store_guard)
             .await?;
 
-        update_in_memory_caches(&self.client, &previously_joined_rooms, &sync_response).await;
+        update_notification_mode_caches(
+            &self.client,
+            &previously_joined_rooms,
+            &sync_response,
+            state_store_guard,
+        )
+        .await;
 
         self.response = Some(sync_response);
 
@@ -419,71 +426,6 @@ impl SlidingSyncResponseProcessor {
         self.client.call_sync_response_handlers(&response).await?;
 
         Ok(response)
-    }
-}
-
-/// Update the caches for the rooms that received updates.
-///
-/// This will only fill the in-memory caches, not save the info on disk.
-async fn update_in_memory_caches(
-    client: &Client,
-    previously_joined_rooms: &BTreeSet<OwnedRoomId>,
-    response: &SyncResponse,
-) {
-    let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
-
-    // If the push rules have changed, update the cached notification mode for
-    // _all_ the joined rooms.
-    if response.account_data.iter().any(|event| {
-        event
-            .get_field::<GlobalAccountDataEventType>("type")
-            .ok()
-            .flatten()
-            .is_some_and(|event_type| event_type == GlobalAccountDataEventType::PushRules)
-    }) {
-        let notification_settings = client.notification_settings().await;
-        let rules = notification_settings.rules().await;
-
-        // Update all joined rooms.
-        for room in client.joined_rooms() {
-            if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
-                room.update_cached_user_defined_notification_mode(mode);
-            } else {
-                room.clear_user_defined_notification_mode();
-            }
-        }
-    } else {
-        // Otherwise, precompute the cached user-defined notification mode only
-        // for the newly joined rooms.
-
-        // We'll compute the rules only once, lazily, if needs be.
-        let mut rules = None;
-
-        for room_id in response
-            .rooms
-            .joined
-            .keys()
-            .filter(|room_id| !previously_joined_rooms.contains(*room_id))
-        {
-            let Some(room) = client.get_room(room_id) else {
-                error!(?room_id, "The room must exist since it has been joined");
-                continue;
-            };
-
-            // Reuse the previous `Rules` instance, or compute it once and for
-            // all.
-            let rules = if let Some(rules) = &mut rules {
-                rules
-            } else {
-                rules.insert(client.notification_settings().await.rules().await.clone())
-            };
-
-            // Define an initial value for the cached user-defined notification
-            // mode.
-            if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
-                room.update_cached_user_defined_notification_mode(mode);
-            }
-        }
     }
 }
 
@@ -530,12 +472,14 @@ async fn handle_receipts_extension(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::{collections::BTreeMap, ops::Not};
+    use std::{collections::BTreeMap, ops::Not, sync::Arc};
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
+        cross_process_lock::CrossProcessLockConfig,
         notification_settings::RoomNotificationMode,
+        store::{MemoryStore, StoreConfig},
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
@@ -886,6 +830,112 @@ mod tests {
         assert_eq!(
             room.cached_user_defined_notification_mode(),
             Some(RoomNotificationMode::AllMessages),
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_cached_user_defined_notification_mode_survives_restart() -> Result<()> {
+        let room_id = room_id!("!r0:matrix.org");
+
+        // The state store outlives the clients, like the on-disk store of an
+        // app that gets restarted.
+        let state_store = Arc::new(MemoryStore::new());
+
+        let build_client = |state_store: Arc<MemoryStore>| {
+            MockClientBuilder::new(None)
+                .on_builder(move |builder| {
+                    builder.store_config(
+                        StoreConfig::new(CrossProcessLockConfig::MultiProcess {
+                            holder_name: "test".to_owned(),
+                        })
+                        .state_store(state_store),
+                    )
+                })
+                .build()
+        };
+
+        // First run of the app: the room is muted by the user.
+        {
+            let client = build_client(state_store.clone()).await;
+
+            let sliding_sync = client
+                .sliding_sync("test")?
+                .with_account_data_extension(
+                    assign!(http::request::AccountData::default(), { enabled: Some(true) }),
+                )
+                .add_list(
+                    SlidingSyncList::builder("all")
+                        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+                )
+                .build()
+                .await?;
+
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room_id.to_owned(),
+                    http::response::Room::default(),
+                )]),
+                extensions: assign!(http::response::Extensions::default(), {
+                    account_data: assign!(http::response::AccountData::default(), {
+                        global: vec![
+                            Raw::from_json_string(
+                                json!({
+                                    "type": "m.push_rules",
+                                    "content": {
+                                        "global": {
+                                            "override": [
+                                                {
+                                                    "actions": [],
+                                                    "rule_id": room_id,
+                                                    "default": false,
+                                                    "enabled": true,
+                                                    "conditions": [
+                                                        {
+                                                            "kind": "event_match",
+                                                            "key": "room_id",
+                                                            "pattern": room_id,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    },
+                                })
+                                .to_string(),
+                            ).unwrap()
+                        ]
+                    })
+                })
+            });
+
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+            sliding_sync
+                .handle_response(
+                    server_response,
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
+
+            let room = client.get_room(room_id).unwrap();
+            assert_eq!(
+                room.cached_user_defined_notification_mode(),
+                Some(RoomNotificationMode::Mute)
+            );
+        }
+
+        // The app is restarted: a new client is built on top of the same state
+        // store. Before the first sync, the room info is loaded from the store
+        // only, so the cached notification mode must have been persisted.
+        let client = build_client(state_store).await;
+        let room = client.get_room(room_id).expect("the room must be loaded from the store");
+
+        assert_eq!(
+            room.cached_user_defined_notification_mode(),
+            Some(RoomNotificationMode::Mute),
+            "the user-defined notification mode must survive a restart, before the first sync",
         );
 
         Ok(())
