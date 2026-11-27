@@ -7114,7 +7114,7 @@ pub(crate) mod tests {
         {
             client.clear_retention_configuration();
 
-            // The retention policy of tbe room_with_retention is 1 day, but the
+            // The retention policy of the room_with_retention is 1 day, but the
             // server limit says the max lifetime can be at most 1 minute, so
             // its effective max lifetime is 1 minute.
             //
