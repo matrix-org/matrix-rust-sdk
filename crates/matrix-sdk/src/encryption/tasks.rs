@@ -26,7 +26,14 @@ use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::serde::JsonCastable;
-use ruma::{OwnedEventId, OwnedRoomId, serde::Raw};
+use ruma::{
+    OwnedEventId, OwnedRoomId, OwnedUserId,
+    events::{
+        StateEventType,
+        room::member::{MembershipState, RoomMemberEventContent},
+    },
+    serde::Raw,
+};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -35,7 +42,7 @@ use crate::{
     client::WeakClient,
     encryption::backups::UploadState,
     executor::{JoinHandle, spawn},
-    room::shared_room_history,
+    room::{MessagesOptions, shared_room_history},
 };
 
 /// A cache of room keys we already downloaded.
@@ -438,14 +445,18 @@ impl BackupDownloadTaskListenerState {
 pub(crate) struct BundleReceiverTask {
     _startup_handle: JoinHandle<()>,
     _listen_handle: JoinHandle<()>,
+    _room_update_handle: JoinHandle<()>,
 }
 
 impl BundleReceiverTask {
     pub async fn new(client: &Client) -> Self {
         let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
+        let room_updates = client.room_info_notable_update_receiver();
         let weak_client = client.downgrade();
+
         Self {
             _listen_handle: spawn(Self::listen_task(weak_client.clone(), stream)),
+            _room_update_handle: spawn(Self::room_update_task(weak_client.clone(), room_updates)),
             _startup_handle: spawn(Self::startup_task(weak_client)),
         }
     }
@@ -473,6 +484,228 @@ impl BundleReceiverTask {
 
             Self::handle_bundle(&room, &bundle_info).await;
         }
+    }
+
+    /// Listens for room membership updates: if a room we have recorded
+    /// pending key bundle details for becomes joined — e.g. because the
+    /// server joined us to it after our knock was accepted, or another of
+    /// our devices accepted the invite — check whether we already hold the
+    /// corresponding bundle data and, if so, import it.
+    ///
+    /// For a server-initiated join whose inviter could not be determined
+    /// from the sync response, the inviter is first looked up in the room
+    /// history (see [`Self::record_inviter_from_history`]).
+    ///
+    /// This is the counterpart of [`Client::finish_join_room`] for joins
+    /// that this client did not itself perform (which therefore only become
+    /// visible via sync), as proposed in [MSC4590].
+    ///
+    /// [MSC4590]: https://github.com/matrix-org/matrix-spec-proposals/pull/4590
+    async fn room_update_task(
+        client: WeakClient,
+        mut receiver: tokio::sync::broadcast::Receiver<matrix_sdk_base::RoomInfoNotableUpdate>,
+    ) {
+        use matrix_sdk_base::RoomInfoNotableUpdateReasons;
+        use tokio::sync::broadcast::error::RecvError;
+
+        loop {
+            match receiver.recv().await {
+                Ok(update) => {
+                    if !update.reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP) {
+                        continue;
+                    }
+
+                    let Some(client) = client.get() else {
+                        // The client was dropped: the application has shut
+                        // down.
+                        break;
+                    };
+
+                    if update.reasons.contains(RoomInfoNotableUpdateReasons::SERVER_INITIATED_JOIN)
+                    {
+                        // Looking up the inviter may need network requests:
+                        // don't block the processing of
+                        // other room updates.
+                        let room_id = update.room_id;
+                        spawn(async move {
+                            Self::record_inviter_from_history(&client, &room_id).await;
+                            Self::maybe_import_stored_bundle(&client, &room_id).await;
+                        });
+                    } else {
+                        Self::maybe_import_stored_bundle(&client, &update.room_id).await;
+                    }
+                }
+                Err(RecvError::Lagged(missed)) => {
+                    warn!("Missed {missed} room info updates while looking for key bundles");
+                }
+                Err(RecvError::Closed) => break,
+            }
+        }
+    }
+
+    /// After a server-initiated join for which the sync response did not let
+    /// us determine the inviter (e.g. with sliding sync, or after a limited
+    /// sync), find our own `invite` membership event in the room history and
+    /// record its sender as the inviter, so that the inviter's room key
+    /// bundle can be accepted.
+    ///
+    /// Only signed room events are used: we page backwards through our own
+    /// membership events and take the most recent `invite` that the current
+    /// join replaced, as described in [MSC4590].
+    ///
+    /// [MSC4590]: https://github.com/matrix-org/matrix-spec-proposals/pull/4590
+    async fn record_inviter_from_history(client: &Client, room_id: &ruma::RoomId) {
+        /// Maximum number of `/messages` pages to look through.
+        const MAX_PAGES: usize = 5;
+
+        let Some(room) = client.get_room(room_id) else {
+            return;
+        };
+
+        if room.state() != crate::RoomState::Joined {
+            return;
+        }
+
+        let Some(own_user_id) = client.user_id().map(ToOwned::to_owned) else {
+            return;
+        };
+
+        let olm_machine = client.olm_machine().await;
+        let Some(olm_machine) = olm_machine.as_ref() else {
+            return;
+        };
+
+        match olm_machine.store().get_pending_key_bundle_details_for_room(room_id).await {
+            // The inviter was already determined from the sync response.
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(e) => {
+                warn!(?room_id, "Error while fetching pending key bundle details: {e:?}");
+                return;
+            }
+        }
+
+        let mut from: Option<String> = None;
+
+        let inviter = 'pages: {
+            for _ in 0..MAX_PAGES {
+                let mut options = MessagesOptions::backward().from(from.as_deref());
+                options.limit = ruma::uint!(100);
+                options.filter.types = Some(vec![StateEventType::RoomMember.to_string()]);
+
+                let messages = match room.messages(options).await {
+                    Ok(messages) => messages,
+                    Err(e) => {
+                        warn!(?room_id, "Failed to look up our invite in the room history: {e:?}");
+                        return;
+                    }
+                };
+
+                for event in &messages.chunk {
+                    let raw = event.raw();
+
+                    let is_own_member_event = raw
+                        .get_field::<StateEventType>("type")
+                        .ok()
+                        .flatten()
+                        .is_some_and(|event_type| event_type == StateEventType::RoomMember)
+                        && raw
+                            .get_field::<String>("state_key")
+                            .ok()
+                            .flatten()
+                            .is_some_and(|state_key| state_key == own_user_id.as_str());
+
+                    if !is_own_member_event {
+                        continue;
+                    }
+
+                    let Ok(Some(content)) = raw.get_field::<RoomMemberEventContent>("content")
+                    else {
+                        continue;
+                    };
+
+                    match content.membership {
+                        // The current join, or a profile change while joined.
+                        MembershipState::Join => continue,
+                        MembershipState::Invite => {
+                            break 'pages raw.get_field::<OwnedUserId>("sender").ok().flatten();
+                        }
+                        // Anything else means the join did not replace an invite.
+                        _ => break 'pages None,
+                    }
+                }
+
+                match messages.end {
+                    Some(end) if !messages.chunk.is_empty() => from = Some(end),
+                    _ => break,
+                }
+            }
+
+            None
+        };
+
+        let Some(inviter) = inviter.filter(|inviter| *inviter != own_user_id) else {
+            trace!(?room_id, "No invite found for a server-initiated join");
+            return;
+        };
+
+        info!(?room_id, %inviter, "Found the inviter of a server-initiated join");
+
+        if let Err(e) = olm_machine.store().store_room_pending_key_bundle(room_id, &inviter).await {
+            warn!(?room_id, "Failed to record the acceptance of an invite: {e:?}");
+        }
+    }
+
+    /// If the given room is joined, has valid pending key bundle details, and
+    /// we already hold the corresponding bundle data in the crypto store,
+    /// import the bundle.
+    async fn maybe_import_stored_bundle(client: &Client, room_id: &ruma::RoomId) {
+        let Some(room) = client.get_room(room_id) else {
+            return;
+        };
+
+        if room.state() != crate::RoomState::Joined {
+            return;
+        }
+
+        let olm_machine = client.olm_machine().await;
+        let Some(olm_machine) = olm_machine.as_ref() else {
+            return;
+        };
+
+        let details =
+            match olm_machine.store().get_pending_key_bundle_details_for_room(room_id).await {
+                Ok(Some(details)) => details,
+                Ok(None) => return,
+                Err(e) => {
+                    warn!(?room_id, "Error while fetching pending key bundle details: {e:?}");
+                    return;
+                }
+            };
+
+        if !shared_room_history::should_process_room_pending_key_bundle_details(&details) {
+            return;
+        }
+
+        let bundle = match olm_machine
+            .store()
+            .get_received_room_key_bundle_data(room_id, &details.inviter)
+            .await
+        {
+            Ok(Some(bundle)) => bundle,
+            Ok(None) => {
+                // No bundle yet: the listener task will handle it when it
+                // arrives.
+                trace!(?room_id, "No stored bundle available for newly-joined room");
+                return;
+            }
+            Err(e) => {
+                warn!(?room_id, "Failed to fetch received room key bundle data: {e:?}");
+                return;
+            }
+        };
+
+        Self::handle_bundle(&room, &(&bundle).into()).await;
     }
 
     /// Retrieves a list of all rooms pending key bundles, then cross-references
@@ -595,6 +828,7 @@ impl BundleReceiverTask {
     pub(crate) fn abort(&self) {
         self._startup_handle.abort();
         self._listen_handle.abort();
+        self._room_update_handle.abort();
     }
 }
 
