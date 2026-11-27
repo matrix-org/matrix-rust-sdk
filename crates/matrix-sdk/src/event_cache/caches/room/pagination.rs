@@ -33,7 +33,7 @@ use matrix_sdk_base::{
 };
 use pin_project_lite::pin_project;
 use ruma::api::Direction;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 pub use super::super::pagination::PaginationStatus;
 use super::{
@@ -453,6 +453,14 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 }),
                 Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
             );
+        }
+
+        // The thread caches have their own lock: release this one first, as a
+        // sync does.
+        drop(state);
+
+        if let Err(err) = self.update_thread_summaries(&events).await {
+            warn!(?err, "Failed to update the thread summaries after a back-pagination");
         }
 
         Ok(Some(BackPaginationOutcome { events, reached_start }))

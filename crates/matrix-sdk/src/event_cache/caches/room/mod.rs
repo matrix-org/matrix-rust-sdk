@@ -16,12 +16,17 @@ pub mod pagination;
 mod state;
 mod updates;
 
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::Event,
+    serde_helpers::extract_thread_root,
     sync::Timeline,
 };
 use ruma::{
@@ -508,6 +513,51 @@ impl RoomEventCacheInner {
                 RoomEventCacheUpdate::UpdateMembers { ambiguity_changes, avatar_changes },
                 None,
             );
+        }
+
+        Ok(())
+    }
+
+    /// Update the summary of the threads that have new in-thread events after
+    /// a back-pagination of the room.
+    ///
+    /// The number of replies of a thread is the number of in-thread events the
+    /// Event Cache knows. A sync updates it when it brings in-thread events; a
+    /// back-pagination of the room can bring some too.
+    ///
+    /// Only the threads that have a `ThreadInfo` already are updated. For the
+    /// other ones, the summary bundled with the thread root is more accurate
+    /// than the count of the few replies that have just been loaded.
+    async fn update_thread_summaries(&self, events: &[Event]) -> Result<()> {
+        let thread_ids = events
+            .iter()
+            .filter_map(|event| extract_thread_root(event.raw()))
+            .collect::<BTreeSet<_>>();
+
+        if thread_ids.is_empty() {
+            return Ok(());
+        }
+
+        let Some(room) = self.weak_room.get() else {
+            // The client is shutting down.
+            return Ok(());
+        };
+        let client = room.client();
+        let Some(event_cache) = client.event_cache() else {
+            return Ok(());
+        };
+
+        let all_caches = event_cache.inner.all_caches_for_room(&self.room_id).await?;
+
+        for thread_id in thread_ids {
+            if event_cache.thread_info(&self.room_id, &thread_id).await?.is_none() {
+                continue;
+            }
+
+            let thread = all_caches.thread(thread_id).await?;
+            let new_thread_summary = thread.update_thread_summary().await?;
+
+            all_caches.room.update_thread_summary(thread.thread_id(), new_thread_summary)?;
         }
 
         Ok(())
