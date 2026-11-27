@@ -498,7 +498,9 @@ impl BundleReceiverTask {
     ///
     /// This is the counterpart of [`Client::finish_join_room`] for joins
     /// that this client did not itself perform (which therefore only become
-    /// visible via sync).
+    /// visible via sync), as proposed in [MSC4590].
+    ///
+    /// [MSC4590]: https://github.com/matrix-org/matrix-spec-proposals/pull/4590
     async fn room_update_task(
         client: WeakClient,
         mut receiver: tokio::sync::broadcast::Receiver<matrix_sdk_base::RoomInfoNotableUpdate>,
@@ -549,7 +551,9 @@ impl BundleReceiverTask {
     ///
     /// Only signed room events are used: we page backwards through our own
     /// membership events and take the most recent `invite` that the current
-    /// join replaced.
+    /// join replaced, as described in [MSC4590].
+    ///
+    /// [MSC4590]: https://github.com/matrix-org/matrix-spec-proposals/pull/4590
     async fn record_inviter_from_history(client: &Client, room_id: &ruma::RoomId) {
         /// Maximum number of `/messages` pages to look through.
         const MAX_PAGES: usize = 5;

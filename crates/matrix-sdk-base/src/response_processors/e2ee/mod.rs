@@ -78,7 +78,8 @@ impl OwnMemberEvent {
 /// joined WITHOUT this client having performed the join (a *server-initiated
 /// join*: the server auto-accepted an invite, or auto-joined us after our
 /// knock was accepted, or another of our devices accepted the invite), treat
-/// it as an invite acceptance for the purpose of [MSC4268] history sharing.
+/// it as an invite acceptance for the purpose of [MSC4268] history sharing,
+/// as proposed in [MSC4590].
 ///
 /// The inviter is determined from signed room events only:
 ///
@@ -96,6 +97,7 @@ impl OwnMemberEvent {
 /// or `None` if the room was unknown to this client.
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+/// [MSC4590]: https://github.com/matrix-org/matrix-spec-proposals/pull/4590
 pub async fn record_invite_acceptance_for_server_initiated_join(
     context: &mut Context,
     olm_machine: Option<&OlmMachine>,
