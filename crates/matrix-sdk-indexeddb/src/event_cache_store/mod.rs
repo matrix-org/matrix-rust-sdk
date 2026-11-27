@@ -41,7 +41,6 @@ use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::{
-    durability::durability_for,
     event_cache_store::{
         migrations::current::keys,
         transaction::IndexeddbEventCacheStoreTransaction,
@@ -95,7 +94,6 @@ impl IndexeddbEventCacheStore {
             self.inner
                 .transaction(stores)
                 .with_mode(mode)
-                .with_options(durability_for(mode))
                 .build()
                 .map_err(TransactionError::from)?,
             &self.serializer,

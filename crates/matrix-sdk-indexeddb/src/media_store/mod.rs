@@ -48,7 +48,7 @@ use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, time::SystemTime};
 use tracing::instrument;
 
 use crate::{
-    durability::durability_for,
+    durability::ReadwriteDurable,
     media_store::{
         transaction::IndexeddbMediaStoreTransaction,
         types::{Lease, Media, MediaCleanupTime, MediaContent, MediaMetadata, UnixTime},
@@ -90,8 +90,7 @@ impl IndexeddbMediaStore {
         Ok(IndexeddbMediaStoreTransaction::new(
             self.inner
                 .transaction(stores)
-                .with_mode(mode)
-                .with_options(durability_for(mode))
+                .with_durable_mode(mode)
                 .build()
                 .map_err(TransactionError::from)?,
             &self.serializer,

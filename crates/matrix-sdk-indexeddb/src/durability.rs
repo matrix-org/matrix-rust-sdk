@@ -12,40 +12,46 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Transaction durability helpers.
+//!
+//! Chromium defaults IndexedDB transactions to relaxed durability, under
+//! which a committed record can outlive its large-value blob file after an
+//! unclean shutdown, leaving the store permanently unreadable
+//! (element-hq/element-web#27969). Readwrite transactions in the crypto,
+//! state and media stores therefore request strict durability.
+
 use indexed_db_futures::{
     database::TransactionBuilder,
     transaction::{TransactionDurability, TransactionMode, TransactionOptions},
 };
 
-// Chromium defaults IndexedDB transactions to relaxed durability, under which
-// a committed record can outlive its large-value blob file after an unclean
-// shutdown, leaving the store permanently unreadable
-// (element-hq/element-web#27969). Every readwrite transaction here therefore
-// requests strict durability.
+/// Helpers to set a transaction's mode while requesting strict durability
+/// for readwrite modes, and the default durability otherwise.
+pub(crate) trait ReadwriteDurable<'a, S>: Sized {
+    /// Sets the given mode, with strict durability if it is a readwrite mode.
+    fn with_durable_mode(
+        self,
+        mode: TransactionMode,
+    ) -> TransactionBuilder<'a, S, TransactionMode, TransactionOptions>;
 
-/// Options requesting strict durability for a readwrite mode, and the default
-/// durability otherwise.
-#[cfg(any(feature = "event-cache-store", feature = "media-store"))]
-pub(crate) fn durability_for(mode: TransactionMode) -> TransactionOptions {
-    let durability = match mode {
-        TransactionMode::Readwrite | TransactionMode::Readwriteflush => {
-            TransactionDurability::Strict
-        }
-        _ => TransactionDurability::Default,
-    };
-    TransactionOptions::new().with_durability(durability)
-}
-
-/// Shorthand for `.with_mode(Readwrite)` with strict durability.
-#[cfg(any(feature = "e2e-encryption", feature = "state-store"))]
-pub(crate) trait ReadwriteDurable<'a, S> {
-    fn readwrite_durable(self) -> TransactionBuilder<'a, S, TransactionMode, TransactionOptions>;
-}
-
-#[cfg(any(feature = "e2e-encryption", feature = "state-store"))]
-impl<'a, S> ReadwriteDurable<'a, S> for TransactionBuilder<'a, S> {
+    /// Shorthand for `.with_durable_mode(Readwrite)`.
+    #[cfg(any(feature = "e2e-encryption", feature = "state-store"))]
     fn readwrite_durable(self) -> TransactionBuilder<'a, S, TransactionMode, TransactionOptions> {
-        self.with_mode(TransactionMode::Readwrite)
-            .with_options(TransactionOptions::new().with_durability(TransactionDurability::Strict))
+        self.with_durable_mode(TransactionMode::Readwrite)
+    }
+}
+
+impl<'a, S> ReadwriteDurable<'a, S> for TransactionBuilder<'a, S> {
+    fn with_durable_mode(
+        self,
+        mode: TransactionMode,
+    ) -> TransactionBuilder<'a, S, TransactionMode, TransactionOptions> {
+        let durability = match mode {
+            TransactionMode::Readwrite | TransactionMode::Readwriteflush => {
+                TransactionDurability::Strict
+            }
+            _ => TransactionDurability::Default,
+        };
+        self.with_mode(mode).with_options(TransactionOptions::new().with_durability(durability))
     }
 }
