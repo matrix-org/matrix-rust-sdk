@@ -1,0 +1,6 @@
+Accept the inviter's [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
+room key bundle after a server-initiated join (an auto-accepted invite or an
+accepted knock). If the invite was not part of the sync response, for example
+with sliding sync or after a limited sync, the inviter is looked up in the
+user's own membership events through `/messages`, and an already-received
+bundle is imported right away.

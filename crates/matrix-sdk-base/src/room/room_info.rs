@@ -1505,6 +1505,14 @@ bitflags! {
 
         /// A room hero's global profile changed (e.g. their status or call).
         const HEROES = 0b0000_0010_0000_0000;
+
+        /// The current user was joined to the room without this client
+        /// performing the join (e.g. an auto-accepted invite or an accepted
+        /// knock), replacing an invite. Used to accept the inviter's
+        /// [MSC4268] room key bundle.
+        ///
+        /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+        const SERVER_INITIATED_JOIN = 0b0000_0100_0000_0000;
     }
 }
 

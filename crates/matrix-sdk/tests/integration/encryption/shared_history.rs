@@ -5,14 +5,14 @@ use matrix_sdk::{
     Client, assert_decrypted_message_eq, assert_next_matches_with_timeout,
     deserialized_responses::{TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason},
     encryption::EncryptionSettings,
-    test_utils::mocks::MatrixMockServer,
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use ruma::{
-    OwnedEventId, RoomVersionId, device_id, event_id,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, RoomVersionId, device_id, event_id,
     events::{
         AnySyncTimelineEvent,
         room::{
@@ -547,4 +547,262 @@ fn megolm_session_id(raw: &Raw<AnySyncTimelineEvent>) -> String {
         .as_str()
         .expect("Encrypted event content should have `session_id` field")
         .to_owned()
+}
+
+/// Data for the server-initiated join tests: Alice has created an encrypted
+/// room, sent a message and invited Bob, which uploaded a key bundle and sent
+/// Bob the bundle info. Bob's client has not seen anything yet.
+struct ServerInitiatedJoinTest {
+    matrix_mock_server: MatrixMockServer,
+    bob: Client,
+    bundle: Vec<u8>,
+    bundle_info: Raw<EncryptedToDeviceEvent>,
+}
+
+async fn setup_alice_invites_bob() -> ServerInitiatedJoinTest {
+    let room_id = room_id!("!test:localhost");
+    let mxid = mxc_uri!("mxc://localhost/12345");
+
+    let alice_user_id = user_id!("@alice:localhost");
+    let alice_device_id = device_id!("ALICEDEVICE");
+    let bob_user_id = user_id!("@bob:localhost");
+    let bob_device_id = device_id!("BOBDEVICE");
+
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+    matrix_mock_server.mock_invite_user_by_id().ok().mock_once().mount().await;
+
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = matrix_mock_server
+        .client_builder_for_crypto_end_to_end(alice_user_id, alice_device_id)
+        .on_builder(|builder| {
+            builder
+                .with_enable_share_history_on_invite(true)
+                .with_encryption_settings(encryption_settings)
+        })
+        .build()
+        .await;
+
+    let bob = matrix_mock_server
+        .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
+        .on_builder(|builder| {
+            builder
+                .with_enable_share_history_on_invite(true)
+                .with_encryption_settings(encryption_settings)
+        })
+        .build()
+        .await;
+
+    matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
+
+    let event_factory = EventFactory::new().room(room_id).sender(alice_user_id);
+    let alice_member_event = event_factory.member(alice_user_id).into_raw();
+
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
+                    .add_state_event(event_factory.room_encryption())
+                    .add_state_event(
+                        event_factory.room_history_visibility(HistoryVisibility::Shared),
+                    ),
+            );
+        })
+        .await;
+
+    let room = alice.get_room(room_id).expect("Alice should know the room");
+
+    let (_event_receiver, mock) =
+        matrix_mock_server.mock_room_send().ok_with_capture(event_id!("$some_id"), alice_user_id);
+    mock.mock_once().named("send").mount().await;
+
+    matrix_mock_server.mock_get_members().ok(vec![alice_member_event]).mock_once().mount().await;
+
+    room.send(RoomMessageEventContent::text_plain("It's a secret to everybody"))
+        .await
+        .expect("We should be able to send an initial message");
+
+    matrix_mock_server
+        .mock_authenticated_media_config()
+        .ok_default()
+        .mock_once()
+        .named("media_config")
+        .mount()
+        .await;
+
+    let (receiver, upload_mock) = matrix_mock_server.mock_upload().ok_with_capture(mxid);
+    upload_mock.mock_once().mount().await;
+
+    let (_guard, bundle_info) = matrix_mock_server.mock_capture_put_to_device(alice_user_id).await;
+
+    room.invite_user_by_id(bob_user_id).await.expect("We should be able to invite Bob");
+    let bundle = receiver.await.expect("We should have received a bundle now.");
+    let bundle_info = bundle_info.await;
+
+    ServerInitiatedJoinTest { matrix_mock_server, bob, bundle, bundle_info }
+}
+
+/// The state events of the room as Bob sees them once the server has joined
+/// him, with Bob's join replacing Alice's invite.
+fn joined_room_after_server_initiated_join() -> JoinedRoomBuilder {
+    let room_id = room_id!("!test:localhost");
+    let alice_user_id = user_id!("@alice:localhost");
+    let bob_user_id = user_id!("@bob:localhost");
+
+    let event_factory = EventFactory::new().room(room_id).sender(alice_user_id);
+
+    JoinedRoomBuilder::new(room_id)
+        .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
+        .add_state_event(event_factory.room_encryption())
+        .add_state_event(event_factory.room_history_visibility(HistoryVisibility::Shared))
+        .add_state_event(event_factory.member(alice_user_id))
+        .add_state_event(
+            event_factory
+                .member(bob_user_id)
+                .sender(bob_user_id)
+                .previous(MembershipState::Invite)
+                .server_ts(MilliSecondsSinceUnixEpoch::now()),
+        )
+}
+
+/// The server auto-accepts the invite after Bob's client saw it: the join
+/// only shows up through sync, and Bob must still accept Alice's bundle.
+#[async_test]
+async fn test_shared_history_server_initiated_join_after_seen_invite() {
+    let room_id = room_id!("!test:localhost");
+    let alice_user_id = user_id!("@alice:localhost");
+    let bob_user_id = user_id!("@bob:localhost");
+
+    let ServerInitiatedJoinTest { matrix_mock_server, bob, bundle, bundle_info } =
+        setup_alice_invites_bob().await;
+
+    let event_factory = EventFactory::new().room(room_id).sender(alice_user_id);
+
+    // Bob sees the invite, and receives the bundle info.
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder
+                .add_invited_room(
+                    InvitedRoomBuilder::new(room_id)
+                        .add_state_event(event_factory.member(alice_user_id))
+                        .add_state_event(event_factory.member(alice_user_id).invited(bob_user_id))
+                        .add_state_event(
+                            event_factory.room_history_visibility(HistoryVisibility::Shared),
+                        ),
+                )
+                .add_to_device_event(
+                    bundle_info.deserialize_as().expect("We should be able to deserialize"),
+                );
+        })
+        .await;
+
+    matrix_mock_server
+        .mock_authed_media_download()
+        .expect_any_access_token()
+        .ok_bytes(bundle)
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
+
+    let mut room_key_stream = bob
+        .encryption()
+        .room_keys_received_stream()
+        .await
+        .expect("We should be able to listen to received room keys");
+
+    // The server joins Bob: no `/join` request from Bob's client.
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_joined_room(joined_room_after_server_initiated_join());
+        })
+        .await;
+
+    // The server-initiated join counts as accepting Alice's invite, so her
+    // bundle gets imported.
+    // Alice's invite was found in the room history, so her bundle gets
+    // imported.
+    assert_next_matches_with_timeout!(room_key_stream, 5000, Ok(room_key_infos) => {
+        assert_eq!(room_key_infos.len(), 1);
+        assert_eq!(room_key_infos[0].room_id, room_id);
+    });
+}
+
+/// The server joins Bob before his client ever saw the room (and the invite
+/// is not part of the sync response): Bob finds Alice's invite in the room
+/// history and accepts the bundle he already received.
+#[async_test]
+async fn test_shared_history_server_initiated_join_unknown_room() {
+    let room_id = room_id!("!test:localhost");
+    let alice_user_id = user_id!("@alice:localhost");
+    let bob_user_id = user_id!("@bob:localhost");
+
+    let ServerInitiatedJoinTest { matrix_mock_server, bob, bundle, bundle_info } =
+        setup_alice_invites_bob().await;
+
+    // The bundle info arrives while the room is still unknown to Bob.
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(
+                bundle_info.deserialize_as().expect("We should be able to deserialize"),
+            );
+        })
+        .await;
+
+    assert!(bob.get_room(room_id).is_none());
+
+    let event_factory = EventFactory::new().room(room_id).sender(alice_user_id);
+
+    // Bob's own membership events, newest first, as `/messages` returns them.
+    matrix_mock_server
+        .mock_room_messages()
+        .expect_any_access_token()
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            event_factory
+                .member(bob_user_id)
+                .sender(bob_user_id)
+                .previous(MembershipState::Invite)
+                .into_raw_timeline(),
+            event_factory.member(alice_user_id).invited(bob_user_id).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .named("messages")
+        .mount()
+        .await;
+
+    matrix_mock_server
+        .mock_authed_media_download()
+        .expect_any_access_token()
+        .ok_bytes(bundle)
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
+
+    let mut room_key_stream = bob
+        .encryption()
+        .room_keys_received_stream()
+        .await
+        .expect("We should be able to listen to received room keys");
+
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_joined_room(joined_room_after_server_initiated_join());
+        })
+        .await;
+
+    // Alice's invite was found in the room history, so her bundle gets
+    // imported.
+    assert_next_matches_with_timeout!(room_key_stream, 5000, Ok(room_key_infos) => {
+        assert_eq!(room_key_infos.len(), 1);
+        assert_eq!(room_key_infos[0].room_id, room_id);
+    });
 }
