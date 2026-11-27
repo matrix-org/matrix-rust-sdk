@@ -8,7 +8,7 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
 };
 use matrix_sdk_ui::{
-    image_packs::{available_image_packs, image_packs},
+    image_packs::{available_image_packs, room_image_packs},
     spaces::SpaceService,
 };
 use ruma::{
@@ -272,7 +272,7 @@ async fn test_room_image_packs() {
         })
         .await;
 
-    let packs = image_packs(&room).await.unwrap();
+    let packs = room_image_packs(&room).await.unwrap();
     let packs = packs
         .iter()
         .map(|pack| (pack.state_key.as_str(), pack.is_enabled_globally))

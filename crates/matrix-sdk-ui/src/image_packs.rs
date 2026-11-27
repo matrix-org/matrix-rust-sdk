@@ -86,7 +86,7 @@ impl ImagePack {
 ///
 /// The packs of the same room are sorted by state key. A pack that would appear
 /// more than once is only returned the first time.
-/// Packs without images are skipped, see [`image_packs()`] to manage them.
+/// Packs without images are skipped, see [`room_image_packs()`] to manage them.
 ///
 /// All the packs are read from the local state of their rooms, which the
 /// [`RoomListService`](crate::RoomListService) requests.
@@ -132,7 +132,7 @@ pub async fn available_image_packs(
 /// without images, to manage them.
 ///
 /// They are sorted by state key.
-pub async fn image_packs(room: &Room) -> Result<Vec<ImagePack>> {
+pub async fn room_image_packs(room: &Room) -> Result<Vec<ImagePack>> {
     let enabled_packs = enabled_packs(&room.client()).await?;
     Ok(image_packs_from(room, room.get_state_events_static().await?, &enabled_packs).collect())
 }
