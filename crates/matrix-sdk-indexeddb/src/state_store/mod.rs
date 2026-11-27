@@ -1765,7 +1765,7 @@ impl_state_store!({
         let prev = self
             .inner
             .transaction(keys::ROOM_SEND_QUEUE)
-            .readwrite_durable()
+            .with_mode(TransactionMode::Readonly)
             .build()?
             .object_store(keys::ROOM_SEND_QUEUE)?
             .get(&encoded_key)
@@ -1811,7 +1811,11 @@ impl_state_store!({
     }
 
     async fn load_rooms_with_unsent_requests(&self) -> Result<Vec<OwnedRoomId>> {
-        let tx = self.inner.transaction(keys::ROOM_SEND_QUEUE).readwrite_durable().build()?;
+        let tx = self
+            .inner
+            .transaction(keys::ROOM_SEND_QUEUE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
 
         let obj = tx.object_store(keys::ROOM_SEND_QUEUE)?;
 
@@ -1984,7 +1988,7 @@ impl_state_store!({
         let prev = self
             .inner
             .transaction(keys::DEPENDENT_SEND_QUEUE)
-            .readwrite_durable()
+            .with_mode(TransactionMode::Readonly)
             .build()?
             .object_store(keys::DEPENDENT_SEND_QUEUE)?
             .get(&encoded_key)
