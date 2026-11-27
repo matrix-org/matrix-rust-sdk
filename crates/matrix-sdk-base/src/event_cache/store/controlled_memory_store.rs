@@ -272,4 +272,13 @@ impl EventCacheStore for ControlledMemoryStore {
     ) -> Result<Vec<Event>, Self::Error> {
         self.inner.find_events_before_timestamp(room_id, cutoff_ms).await
     }
+
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.inner.find_events_with_state_key_before_timestamp(room_id, state_key, cutoff_ms).await
+    }
 }

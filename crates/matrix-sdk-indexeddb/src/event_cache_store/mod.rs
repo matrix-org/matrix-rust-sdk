@@ -22,6 +22,8 @@ use std::{
 
 use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
+use itertools::Itertools;
+#[cfg(target_family = "wasm")]
 use matrix_sdk_base::{
     cross_process_lock::{CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION},
     event_cache::thread::ThreadInfo,
@@ -683,6 +685,29 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         }
 
         Ok(results)
+    }
+
+    #[instrument(skip(self))]
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!(tracing::Level::TRACE, "find_events_with_state_key_before_timestamp");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let events = transaction
+            .get_events_with_state_key_before_timestamp(room_id, state_key.as_deref(), cutoff_ms)
+            .await?;
+
+        // The same event can be in several linked chunks, since the primary key
+        // consists of (chunk_id, event_id), which allows duplicates.
+        Ok(events
+            .into_iter()
+            .unique_by(|event| event.event_id().map(ToOwned::to_owned))
+            .map(Event::from)
+            .collect())
     }
 
     #[instrument(skip(self))]

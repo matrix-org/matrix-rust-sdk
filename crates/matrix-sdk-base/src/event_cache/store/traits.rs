@@ -190,6 +190,24 @@ pub trait EventCacheStore: AsyncTraitDeps {
         cutoff_ms: u64,
     ) -> Result<Vec<Event>, Self::Error>;
 
+    /// Find all events in a room whose timestamp is strictly older than
+    /// `cutoff_ms` milliseconds since the Unix epoch, and whose `state_key`
+    /// matches `state_key`.
+    ///
+    /// If `state_key` is `Some`, only events with exactly this `state_key` are
+    /// returned (an empty `state_key` is a valid value, and is different from
+    /// a missing one). If it's `None`, only events without a `state_key`, i.e.
+    /// non-state events, are returned.
+    ///
+    /// Returns each event once, ordered by timestamp from oldest to newest.
+    /// Events in any linked chunk and events saved out-of-band are included.
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error>;
+
     /// Get all events in this room.
     ///
     /// This method must return events saved either in any linked chunks, _or_
@@ -354,6 +372,18 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         cutoff_ms: u64,
     ) -> Result<Vec<Event>, Self::Error> {
         self.0.find_events_before_timestamp(room_id, cutoff_ms).await.map_err(Into::into)
+    }
+
+    async fn find_events_with_state_key_before_timestamp(
+        &self,
+        room_id: &RoomId,
+        state_key: Option<String>,
+        cutoff_ms: u64,
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.0
+            .find_events_with_state_key_before_timestamp(room_id, state_key, cutoff_ms)
+            .await
+            .map_err(Into::into)
     }
 
     async fn get_room_events(

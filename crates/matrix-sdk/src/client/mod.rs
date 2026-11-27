@@ -47,12 +47,17 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, sleep::sleep, ttl::TtlValue};
+use matrix_sdk_common::{
+    cross_process_lock::{CrossProcessLockConfig, MappedCrossProcessLockState},
+    sleep::sleep,
+    ttl::TtlValue,
+};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    OwnedUserId, RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedRoomId,
+    OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId, RoomId, RoomOrAliasId,
+    ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
         client::{
@@ -3480,6 +3485,85 @@ impl Client {
         self.inner.caches.retention_configuration.subscribe()
     }
 
+    /// Clears the current retention configuration value.
+    #[cfg(test)]
+    pub fn clear_retention_configuration(&self) {
+        _ = self.inner.caches.retention_configuration.take();
+    }
+
+    /// Find the IDs of the non-state events in the event cache store that have
+    /// expired according to the effective message retention policy of their
+    /// room, as of `now`.
+    ///
+    /// This gets the up-to-date retention configuration from the cache, or, if
+    /// missing or outdated, from the homeserver with
+    /// [`Self::fetch_retention_configuration`]. If the homeserver doesn't
+    /// implement MSC1763, nothing is expired and an empty map is returned.
+    ///
+    /// Then, for each known room, its effective retention policy is computed
+    /// with [`Room::effective_retention_with_server_config`]. If it has a
+    /// `max_lifetime`, every non-state event stored in the event cache whose
+    /// `origin_server_ts` is strictly older than `now - max_lifetime` is
+    /// considered expired. State events are never returned, since they're
+    /// needed to compute the room state.
+    ///
+    /// See
+    /// [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763)
+    /// for more info.
+    pub async fn find_expired_events(
+        &self,
+        now: MilliSecondsSinceUnixEpoch,
+    ) -> Result<Vec<OwnedEventId>> {
+        let config = match self.retention_configuration().await {
+            Ok(Some(config)) => config,
+            Ok(None) => {
+                warn!(
+                    "No server retention configuration found, effective configurations cannot be computed."
+                );
+                return Ok(Vec::new());
+            }
+            Err(error) if error.is_endpoint_not_implemented() => {
+                debug!(
+                    "The homeserver doesn't support MSC1763 retention policies, no events expire"
+                );
+                return Ok(Vec::new());
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        let store = match self.event_cache_store().lock().await? {
+            MappedCrossProcessLockState::Clean(store)
+            | MappedCrossProcessLockState::Dirty(store) => store,
+        };
+
+        let now_ms = u64::from(now.get());
+        let mut expired_event_ids = Vec::new();
+
+        for room in self.rooms() {
+            let Some(max_lifetime) = room
+                .effective_retention_with_server_config(&config)
+                .and_then(|retention| retention.max_lifetime())
+            else {
+                // There is no max_lifetime so nothing to do for this room
+                continue;
+            };
+
+            let max_lifetime_ms = u64::try_from(max_lifetime.as_millis()).unwrap_or(u64::MAX);
+            let cutoff_ms = now_ms.saturating_sub(max_lifetime_ms);
+
+            // State events are kept, since they're part of the room state: only
+            // look for events without a `state_key`.
+            let events = store
+                .find_events_with_state_key_before_timestamp(room.room_id(), None, cutoff_ms)
+                .await?;
+
+            expired_event_ids
+                .extend(events.iter().filter_map(|event| event.event_id().map(ToOwned::to_owned)));
+        }
+
+        Ok(expired_event_ids)
+    }
+
     /// Delete the given devices from the server.
     ///
     /// # Arguments
@@ -4626,20 +4710,23 @@ pub(crate) mod tests {
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+    use matrix_sdk_common::cross_process_lock::{
+        CrossProcessLockConfig, MappedCrossProcessLockState,
+    };
     use ruma::{
-        RoomId, ServerName, UserId,
+        MilliSecondsSinceUnixEpoch, RoomId, ServerName, UserId,
         api::{
             FeatureFlag, MatrixVersion,
             client::{
                 retention::{
-                    RoomIdOrAllRooms, get_retention_configuration::msc1763::RetentionLimits,
+                    RoomIdOrAllRooms,
+                    get_retention_configuration::msc1763::{LifetimeLimits, RetentionLimits},
                 },
                 room::create_room::v3::Request as CreateRoomRequest,
                 rtc::{LiveKitRtcTransport, RtcTransport},
             },
         },
-        assign,
+        assign, event_id,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
             invite_permission_config::{
@@ -4650,7 +4737,7 @@ pub(crate) mod tests {
         },
         owned_device_id,
         presence::PresenceState,
-        room_alias_id,
+        room_alias_id, room_id, user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -6890,6 +6977,181 @@ pub(crate) mod tests {
 
             let config = client.retention_configuration().await.unwrap();
             assert!(config.is_none());
+        }
+    }
+
+    #[async_test]
+    async fn test_find_expired_events() {
+        const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+        let now = MilliSecondsSinceUnixEpoch(UInt::new(ONE_DAY_MS * 10).unwrap()); // 10 days.
+        let now_ms = u64::from(now.get());
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // A room with a 1 day `max_lifetime`, and a room without a policy.
+        let room_with_retention = room_id!("!with_retention:b.c");
+        let room_without_retention = room_id!("!without_retention:b.c");
+        let f = EventFactory::new().sender(user_id!("@alice:b.c"));
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_with_retention).add_state_event(
+                    f.event(
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_millis(ONE_DAY_MS))
+                            .unwrap(),
+                    )
+                    .state_key(""),
+                ),
+            )
+            .await;
+        server.sync_joined_room(&client, room_without_retention).await;
+
+        // Save some events in the event cache store.
+        {
+            let store = match client.event_cache_store().lock().await.unwrap() {
+                MappedCrossProcessLockState::Clean(store)
+                | MappedCrossProcessLockState::Dirty(store) => store,
+            };
+
+            for (room_id, event) in [
+                // Expired.
+                (
+                    room_with_retention,
+                    f.text_msg("old")
+                        .event_id(event_id!("$old"))
+                        .server_ts(now_ms - 2 * ONE_DAY_MS)
+                        .into_event(),
+                ),
+                // Not expired yet.
+                (
+                    room_with_retention,
+                    f.text_msg("recent")
+                        .event_id(event_id!("$recent"))
+                        .server_ts(now_ms - ONE_DAY_MS / 2)
+                        .into_event(),
+                ),
+                // Expired, but it's a state event.
+                (
+                    room_with_retention,
+                    f.room_name("old name")
+                        .event_id(event_id!("$old_state"))
+                        .server_ts(now_ms - 2 * ONE_DAY_MS)
+                        .into_event(),
+                ),
+                // No retention policy in this room.
+                (
+                    room_without_retention,
+                    f.text_msg("old")
+                        .event_id(event_id!("$old_no_retention"))
+                        .server_ts(now_ms - 2 * ONE_DAY_MS)
+                        .into_event(),
+                ),
+            ] {
+                store.save_event(room_id, event).await.unwrap();
+            }
+        }
+
+        // The homeserver doesn't implement MSC1763: nothing expires.
+        {
+            let _guard = server
+                .mock_get_retention_configuration()
+                .error_unrecognized()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            assert!(client.find_expired_events(now).await.unwrap().is_empty());
+        }
+
+        // The homeserver implements MSC1763 without policies or limits: the
+        // room state events apply.
+        {
+            client.clear_retention_configuration();
+
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok_empty()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let expired = client.find_expired_events(now).await.unwrap();
+            assert_eq!(expired, vec![event_id!("$old").to_owned()]);
+        }
+
+        // A server default policy applies to the room without a policy too.
+        {
+            client.clear_retention_configuration();
+
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::from([(
+                        RoomIdOrAllRooms::AllRooms,
+                        RoomRetentionEventContent::new()
+                            .at_most(Duration::from_millis(ONE_DAY_MS))
+                            .unwrap(),
+                    )]),
+                    RetentionLimits::default(),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let mut expired = client.find_expired_events(now).await.unwrap();
+            expired.sort();
+            assert_eq!(
+                expired,
+                vec![event_id!("$old").to_owned(), event_id!("$old_no_retention").to_owned()]
+            );
+        }
+
+        // Server limits + a room retention policy are combined: the room
+        // retention one is clamped to the server limits.
+        {
+            client.clear_retention_configuration();
+
+            // The retention policy of the room_with_retention is 1 day, but the
+            // server limit says the max lifetime can be at most 1 minute, so
+            // its effective max lifetime is 1 minute.
+            //
+            // On the other hand, there is no default policy, so no retention is
+            // applied to room_without_retention.
+            let max_lifetime_limit = Duration::from_mins(1);
+            let _guard = server
+                .mock_get_retention_configuration()
+                .ok(
+                    BTreeMap::default(),
+                    RetentionLimits::new(
+                        None,
+                        Some(
+                            LifetimeLimits::from_range(Duration::ZERO..max_lifetime_limit).unwrap(),
+                        ),
+                    ),
+                )
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+
+            let mut expired = client.find_expired_events(now).await.unwrap();
+            expired.sort();
+            assert_eq!(
+                expired,
+                vec![event_id!("$old").to_owned(), event_id!("$recent").to_owned()]
+            );
+        }
+
+        // Other errors are propagated.
+        {
+            client.clear_retention_configuration();
+
+            let _guard =
+                server.mock_get_retention_configuration().error500().mount_as_scoped().await;
+
+            client.find_expired_events(now).await.unwrap_err();
         }
     }
 
