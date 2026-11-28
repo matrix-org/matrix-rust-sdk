@@ -558,6 +558,7 @@ impl Deref for RoomListItem {
 #[cfg(test)]
 mod tests {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    use matrix_sdk_base::latest_event::LatestEventValue;
     use matrix_sdk_test::async_test;
     use ruma::{OwnedRoomId, RoomId};
 
@@ -641,5 +642,29 @@ mod tests {
 
         assert!(backfill_timestamps(&mut rooms).is_empty());
         assert_eq!(timestamps(&rooms), vec![0, 0]);
+    }
+
+    /// An invite has no timestamp: it is slotted in by its recency stamp.
+    #[async_test]
+    async fn test_backfill_timestamps_for_an_invite() {
+        let mut rooms = rooms([(Some(300), 30), (None, 0), (Some(100), 10)]).await;
+
+        rooms[1]
+            .inner()
+            .update_room_info(|mut room_info| {
+                room_info.set_latest_event(LatestEventValue::RemoteInvite {
+                    event_id: None,
+                    inviter: None,
+                });
+                room_info.update_recency_stamp(20.into());
+
+                (room_info, Default::default())
+            })
+            .await;
+        rooms[1].refresh_cached_data();
+
+        backfill_timestamps(&mut rooms);
+
+        assert_eq!(timestamps(&rooms), vec![300, 300, 100]);
     }
 }

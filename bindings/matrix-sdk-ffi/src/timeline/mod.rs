@@ -1717,7 +1717,6 @@ pub enum LatestEventValue {
         content: TimelineItemContent,
     },
     RemoteInvite {
-        timestamp: Timestamp,
         inviter: Option<String>,
         inviter_profile: ProfileDetails,
     },
@@ -1743,13 +1742,10 @@ impl From<UiLatestEventValue> for LatestEventValue {
                     content: content.into(),
                 }
             }
-            UiLatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile } => {
-                Self::RemoteInvite {
-                    timestamp: timestamp.into(),
-                    inviter: inviter.map(|inviter| inviter.to_string()),
-                    inviter_profile: inviter_profile.into(),
-                }
-            }
+            UiLatestEventValue::RemoteInvite { inviter, inviter_profile } => Self::RemoteInvite {
+                inviter: inviter.map(|inviter| inviter.to_string()),
+                inviter_profile: inviter_profile.into(),
+            },
             UiLatestEventValue::Local { timestamp, sender, profile, content, state } => {
                 Self::Local {
                     timestamp: timestamp.into(),

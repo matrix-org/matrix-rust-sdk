@@ -48,9 +48,6 @@ pub enum LatestEventValue {
 
     /// The latest event represents an invite to a room.
     RemoteInvite {
-        /// The timestamp of the invite.
-        timestamp: MilliSecondsSinceUnixEpoch,
-
         /// The inviter (can be unknown).
         inviter: Option<OwnedUserId>,
 
@@ -112,14 +109,14 @@ impl LatestEventValue {
                     None => Self::None,
                 }
             }
-            BaseLatestEventValue::RemoteInvite { timestamp, inviter, .. } => {
+            BaseLatestEventValue::RemoteInvite { inviter, .. } => {
                 let inviter_profile = if let Some(inviter_id) = &inviter {
                     TimelineDetails::from_initial_value(Profile::load(room, inviter_id).await)
                 } else {
                     TimelineDetails::Unavailable
                 };
 
-                Self::RemoteInvite { timestamp, inviter, inviter_profile }
+                Self::RemoteInvite { inviter, inviter_profile }
             }
             BaseLatestEventValue::LocalIsSending(ref local_value)
             | BaseLatestEventValue::LocalHasBeenSent { value: ref local_value, .. }
@@ -251,14 +248,12 @@ mod tests {
 
         let base_value = BaseLatestEventValue::RemoteInvite {
             event_id: None,
-            timestamp: MilliSecondsSinceUnixEpoch(42u32.into()),
             inviter: Some(user_id.to_owned()),
         };
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile} => {
-            assert_eq!(u64::from(timestamp.get()), 42u64);
+        assert_matches!(value, LatestEventValue::RemoteInvite { inviter, inviter_profile } => {
             assert_eq!(inviter.as_deref(), Some(user_id));
             assert_matches!(inviter_profile, TimelineDetails::Unavailable);
         })
