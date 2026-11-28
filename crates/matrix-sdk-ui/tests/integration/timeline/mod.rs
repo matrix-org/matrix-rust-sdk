@@ -411,6 +411,14 @@ async fn test_redacted_message() {
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     assert!(first.as_event().unwrap().content().is_redacted());
 
+    // The redaction event's own ID, sender and timestamp are exposed, not the
+    // redacted event's.
+    let info = first.as_event().unwrap().redaction_info().unwrap();
+    let expected_redactor: ruma::OwnedUserId = User::Alice.into();
+    assert_eq!(info.redactor(), Some(expected_redactor.as_ref()));
+    assert!(info.redaction_event_id().is_some());
+    assert!(info.redaction_event_origin_server_ts().is_some());
+
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
@@ -466,7 +474,7 @@ async fn test_redact_message() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     // Our own reason is known before the server says anything.
-    assert_eq!(item.redaction_reason(), Some("inapprops"));
+    assert_eq!(item.redaction_info().and_then(|info| info.reason()), Some("inapprops"));
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 3);
@@ -476,7 +484,7 @@ async fn test_redact_message() {
     let item = item.as_event().unwrap();
     assert!(item.content().is_redacted());
     assert_matches!(item.redaction_send_state(), Some(EventSendState::Sent { .. }));
-    assert_eq!(item.redaction_reason(), Some("inapprops"));
+    assert_eq!(item.redaction_info().and_then(|info| info.reason()), Some("inapprops"));
 
     assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
     let item = item.as_event().unwrap();
@@ -484,7 +492,7 @@ async fn test_redact_message() {
     assert_matches!(item.redaction_send_state(), None);
     // The redaction dropped the item's JSON, and nothing has replaced it yet.
     assert!(item.latest_json().is_none());
-    assert_eq!(item.redaction_reason(), Some("inapprops"));
+    assert_eq!(item.redaction_info().and_then(|info| info.reason()), Some("inapprops"));
 
     // Then the event cache handed over the redacted event, which carries the
     // redaction and its reason.
@@ -495,7 +503,7 @@ async fn test_redact_message() {
     let json = item.latest_json().unwrap().json().get();
     assert!(json.contains("redacted_because"), "{json}");
     assert!(json.contains("inapprops"), "{json}");
-    assert_eq!(item.redaction_reason(), Some("inapprops"));
+    assert_eq!(item.redaction_info().and_then(|info| info.reason()), Some("inapprops"));
 
     // Redacting a local event works.
     timeline
