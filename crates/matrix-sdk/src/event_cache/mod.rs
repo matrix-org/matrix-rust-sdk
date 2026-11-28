@@ -740,9 +740,11 @@ impl EventCacheInner {
         // See this information to understand them.
 
         let mut caches_for_all_rooms = self.by_room.write().await;
-        self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
 
-        // Finally, we forget all the caches if any exists in memory.
+        // Clear the room's stored events and remove its underlying state
+        self.state.clear_and_remove(&caches_for_all_rooms, room_id).await?;
+
+        // Finally, we forget the corresponding caches.
         caches_for_all_rooms.remove(room_id);
 
         Ok(())
