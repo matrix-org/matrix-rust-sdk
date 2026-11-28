@@ -88,6 +88,13 @@ pub fn matrix_to_user_permalink(user_id: String) -> Result<String, ClientError> 
     Ok(user_id.matrix_to_uri().to_string())
 }
 
+/// Generates a `matrix:` URI permalink to the given userID.
+#[matrix_sdk_ffi_macros::export]
+pub fn matrix_user_permalink(user_id: String) -> Result<String, ClientError> {
+    let user_id = UserId::parse(user_id)?;
+    Ok(user_id.matrix_uri(false).to_string())
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct RoomMember {
     pub user_id: String,

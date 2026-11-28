@@ -975,6 +975,19 @@ impl Room {
         Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
     }
 
+    /// Get a `matrix:` URI permalink to this room.
+    ///
+    /// If `join` is true, the URI will contain the `action=join` parameter.
+    pub async fn matrix_permalink(&self, join: bool) -> Result<String, ClientError> {
+        Ok(self.inner.matrix_permalink(join).await?.to_string())
+    }
+
+    /// Get a `matrix:` URI permalink to an event in this room.
+    pub async fn matrix_event_permalink(&self, event_id: String) -> Result<String, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        Ok(self.inner.matrix_event_permalink(event_id).await?.to_string())
+    }
+
     /// Returns whether the send queue for that particular room is enabled or
     /// not.
     pub fn is_send_queue_enabled(&self) -> bool {
@@ -1730,6 +1743,13 @@ pub fn matrix_to_room_alias_permalink(
 ) -> std::result::Result<String, ClientError> {
     let room_alias = RoomAliasId::parse(room_alias)?;
     Ok(room_alias.matrix_to_uri().to_string())
+}
+
+/// Generates a `matrix:` URI permalink to the given room alias.
+#[matrix_sdk_ffi_macros::export]
+pub fn matrix_room_alias_permalink(room_alias: String) -> std::result::Result<String, ClientError> {
+    let room_alias = RoomAliasId::parse(room_alias)?;
+    Ok(room_alias.matrix_uri(false).to_string())
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
