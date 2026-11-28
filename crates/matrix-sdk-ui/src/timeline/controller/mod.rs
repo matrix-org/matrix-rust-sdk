@@ -281,6 +281,37 @@ impl Default for TimelineSettings {
     }
 }
 
+/// Options to tweak the behavior of [`default_event_filter_with_options`].
+///
+/// The [`Default`] value gives the same behavior as [`default_event_filter`].
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct DefaultEventFilterOptions {
+    /// Additional `m.room.message` `msgtype`s that should be shown in the
+    /// timeline.
+    ///
+    /// By default, `m.room.message` events with a `msgtype` that isn't known
+    /// to the SDK are hidden. Any `msgtype` listed here is shown instead, so
+    /// that a client can render the custom message types it understands.
+    ///
+    /// Edits of these messages are still hidden, like for any other message
+    /// type, and are applied to the original item instead.
+    pub custom_msgtypes: BTreeSet<String>,
+}
+
+impl DefaultEventFilterOptions {
+    /// Show `m.room.message` events with any of the given custom `msgtype`s.
+    ///
+    /// See [`DefaultEventFilterOptions::custom_msgtypes`].
+    pub fn with_custom_msgtypes(
+        mut self,
+        msgtypes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.custom_msgtypes.extend(msgtypes.into_iter().map(Into::into));
+        self
+    }
+}
+
 /// The default event filter for
 /// [`crate::timeline::TimelineBuilder::event_filter`].
 ///
@@ -290,7 +321,36 @@ impl Default for TimelineSettings {
 /// If you have a custom filter, it may be best to chain yours with this one if
 /// you do not want to run into situations where a read receipt is not visible
 /// because it's living on an event that doesn't have a matching timeline item.
+///
+/// To also show `m.room.message` events with custom `msgtype`s, use
+/// [`default_event_filter_with_options`].
 pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRules) -> bool {
+    default_event_filter_with_options(event, rules, &DefaultEventFilterOptions::default())
+}
+
+/// Same as [`default_event_filter`], with some [`DefaultEventFilterOptions`]
+/// to tweak its behavior.
+///
+/// # Example
+///
+/// ```no_run
+/// # use matrix_sdk::Room;
+/// # use matrix_sdk_ui::timeline::{
+/// #     DefaultEventFilterOptions, TimelineBuilder, default_event_filter_with_options,
+/// # };
+/// # fn example(room: Room) {
+/// let options = DefaultEventFilterOptions::default().with_custom_msgtypes(["org.example.custom"]);
+///
+/// let builder = TimelineBuilder::new(&room).event_filter(move |event, rules| {
+///     default_event_filter_with_options(event, rules, &options)
+/// });
+/// # }
+/// ```
+pub fn default_event_filter_with_options(
+    event: &AnySyncTimelineEvent,
+    rules: &RoomVersionRules,
+    options: &DefaultEventFilterOptions,
+) -> bool {
     match event {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
             if ev.redacts(&rules.redaction).is_some() {
@@ -337,7 +397,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                                 | MessageType::VerificationRequest(_) => true,
                                 #[cfg(feature = "unstable-msc4274")]
                                 MessageType::Gallery(_) => true,
-                                _ => false,
+                                msgtype => options.custom_msgtypes.contains(msgtype.msgtype()),
                             }
                         }
 

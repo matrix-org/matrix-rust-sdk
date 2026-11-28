@@ -125,6 +125,10 @@ impl TimelineBuilder {
     /// own event filter, if you want to avoid situations where a read receipt
     /// would be attached to an event that doesn't get its own timeline item.
     ///
+    /// To show `m.room.message` events with custom `msgtype`s that the default
+    /// filter hides, use [`crate::timeline::default_event_filter_with_options`]
+    /// instead.
+    ///
     /// Note that currently:
     ///
     /// - Not all event types have a representation as a `TimelineItem` so these

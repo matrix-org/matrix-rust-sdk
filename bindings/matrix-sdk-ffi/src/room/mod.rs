@@ -31,7 +31,9 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
-    timeline::{RoomExt, TimelineBuilder, default_event_filter},
+    timeline::{
+        DefaultEventFilterOptions, RoomExt, TimelineBuilder, default_event_filter_with_options,
+    },
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
@@ -262,14 +264,20 @@ impl Room {
             .with_date_divider_mode(configuration.date_divider_mode.into())
             .track_read_marker_and_receipts(configuration.track_read_receipts);
 
+        let options = DefaultEventFilterOptions::default()
+            .with_custom_msgtypes(configuration.custom_msgtypes);
+
         match configuration.filter {
             TimelineFilter::All => {
-                // #nofilter.
+                // No filter other than the default one.
+                builder = builder.event_filter(move |event, room_version_id| {
+                    default_event_filter_with_options(event, room_version_id, &options)
+                });
             }
 
             TimelineFilter::OnlyMessage { types } => {
                 builder = builder.event_filter(move |event, room_version_id| {
-                    default_event_filter(event, room_version_id)
+                    default_event_filter_with_options(event, room_version_id, &options)
                         && match event {
                             AnySyncTimelineEvent::MessageLike(msg) => {
                                 match msg.original_content() {
@@ -287,7 +295,8 @@ impl Room {
             TimelineFilter::EventFilter { filter: event_filter } => {
                 builder = builder.event_filter(move |event, room_version_id| {
                     // Always perform the default filter first
-                    default_event_filter(event, room_version_id) && event_filter.filter(event)
+                    default_event_filter_with_options(event, room_version_id, &options)
+                        && event_filter.filter(event)
                 });
             }
         }

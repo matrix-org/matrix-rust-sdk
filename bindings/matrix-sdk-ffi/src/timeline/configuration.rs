@@ -91,9 +91,17 @@ impl From<DateDividerMode> for matrix_sdk_ui::timeline::DateDividerMode {
     }
 }
 
+/// How to filter the events shown in the timeline.
+///
+/// Every variant is applied on top of the SDK's default event filter. That
+/// filter hides events that don't get a timeline item of their own, such as
+/// reactions and edits, and `m.room.message` events whose `msgtype` is unknown
+/// to the SDK, unless it's listed in
+/// [`TimelineConfiguration::custom_msgtypes`].
 #[derive(uniffi::Enum)]
 pub enum TimelineFilter {
-    /// Show all the events in the timeline, independent of their type.
+    /// Show all the events allowed by the default event filter, without any
+    /// additional filtering.
     All,
     /// Show only `m.room.messages` of the given room message types.
     OnlyMessage {
@@ -132,4 +140,15 @@ pub struct TimelineConfiguration {
     /// Whether this timeline instance should report UTDs through the client's
     /// delegate.
     pub report_utds: bool,
+
+    /// Custom `m.room.message` `msgtype`s that should be shown in the
+    /// timeline, as [`crate::ruma::MessageType::Other`].
+    ///
+    /// By default, `m.room.message` events with a `msgtype` that isn't known
+    /// to the SDK are hidden from the timeline, whatever the `filter`. The
+    /// `msgtype`s listed here are shown, so that a client can render the
+    /// custom message types it understands. They can still be filtered out
+    /// with the `filter`.
+    #[uniffi(default = [])]
+    pub custom_msgtypes: Vec<String>,
 }
