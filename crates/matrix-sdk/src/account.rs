@@ -123,6 +123,12 @@ impl Account {
 
     /// Set the display name of the account.
     ///
+    /// # Errors
+    ///
+    /// The homeserver rejects a display name that would push the whole profile
+    /// over 64 KiB with [`ErrorKind::ProfileTooLarge`]. Check for it with
+    /// [`Error::client_api_error_kind()`].
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -239,6 +245,12 @@ impl Account {
     /// Set the MXC URI of the account's avatar.
     ///
     /// The avatar is unset if `url` is `None`.
+    ///
+    /// # Errors
+    ///
+    /// The homeserver rejects a URL that would push the whole profile over
+    /// 64 KiB with [`ErrorKind::ProfileTooLarge`]. Check for it with
+    /// [`Error::client_api_error_kind()`].
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
@@ -311,6 +323,12 @@ impl Account {
     /// by [`Account::set_avatar_url()`].
     ///
     /// Returns the MXC URI of the uploaded avatar.
+    ///
+    /// # Errors
+    ///
+    /// Setting the avatar can fail with [`ErrorKind::ProfileTooLarge`], as
+    /// described in [`Account::set_avatar_url()`]. The media is already
+    /// uploaded by then.
     ///
     /// # Examples
     ///
@@ -501,9 +519,13 @@ impl Account {
     ///
     /// - `value` - The value of the profile field to set.
     ///
-    /// # Returns
+    /// # Errors
     ///
-    /// Returns an error if the request fails.
+    /// Returns an error if the request fails. The homeserver rejects keys
+    /// longer than 255 bytes with [`ErrorKind::KeyTooLarge`], and values that
+    /// would push the whole profile over 64 KiB with
+    /// [`ErrorKind::ProfileTooLarge`]. Check for these with
+    /// [`Error::client_api_error_kind()`].
     pub async fn set_profile_field(&self, value: ProfileFieldValue) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
         let request = set_profile_field::v3::Request::new(user_id.to_owned(), value.clone());
