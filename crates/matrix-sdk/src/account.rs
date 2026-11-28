@@ -450,6 +450,35 @@ impl Account {
         Ok(response.value)
     }
 
+    /// Set the user's time zone (`m.tz` profile field).
+    ///
+    /// Replaces any existing time zone. Use [`Self::clear_time_zone`] to remove
+    /// it.
+    ///
+    /// [`Client::homeserver_capabilities()`] should be called first to check if
+    /// the field can be set on the homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// - `time_zone` - the time zone, which should be an identifier from the
+    ///   [IANA Time Zone Database], e.g. `Europe/London`. This is not checked
+    ///   client-side, except that an empty (or whitespace-only) value clears
+    ///   the time zone, like [`Self::clear_time_zone`].
+    ///
+    /// [IANA Time Zone Database]: https://www.iana.org/time-zones
+    pub async fn set_time_zone(&self, time_zone: String) -> Result<()> {
+        if time_zone.trim().is_empty() {
+            return self.clear_time_zone().await;
+        }
+
+        self.set_profile_field(ProfileFieldValue::TimeZone(time_zone)).await
+    }
+
+    /// Clear the user's time zone (deletes the `m.tz` profile field).
+    pub async fn clear_time_zone(&self) -> Result<()> {
+        self.delete_profile_field(ProfileFieldName::TimeZone).await
+    }
+
     /// Set the user's status (MSC4426 `m.status` profile field).
     ///
     /// Replaces any existing status. Use [`Self::clear_status`] to remove it.

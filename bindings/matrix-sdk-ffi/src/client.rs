@@ -93,7 +93,10 @@ use ruma::{
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
-            profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, StaticProfileField, Status},
+            profile::{
+                AvatarUrl, Call, DisplayName, ProfileFieldName, StaticProfileField, Status,
+                TimeZone,
+            },
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
             rtc::RtcTransport as RumaRtcTransport,
             uiaa::{self, EmailUserIdentifier, Password, UserIdentifier},
@@ -3273,6 +3276,12 @@ pub struct UserProfile {
     /// `Some(UserCall { call_joined_ts: None })` means the user is in a call
     /// but the join time wasn't recorded.
     pub call: Option<UserCall>,
+
+    /// The user's time zone (`m.tz` profile field), if set.
+    ///
+    /// This should be an identifier from the IANA Time Zone Database, e.g.
+    /// `Europe/London`, but it is not validated.
+    pub time_zone: Option<String>,
 }
 
 impl UserProfile {
@@ -3292,8 +3301,22 @@ impl UserProfile {
         let avatar_url = Self::get_field::<AvatarUrl>(profile)?.map(|url| url.to_string());
         let status = Self::get_field::<Status>(profile)?.map(UserStatus::from);
         let call = Self::get_field::<Call>(profile)?.map(UserCall::from);
+        // `m.tz` is free-form and written by other clients, so a malformed
+        // value must not prevent the rest of the profile from being
+        // used.
+        let time_zone = Self::get_field::<TimeZone>(profile).unwrap_or_else(|error| {
+            warn!(%user_id, "Ignoring malformed m.tz profile field: {error}");
+            None
+        });
 
-        Ok(UserProfile { user_id: user_id.to_string(), display_name, avatar_url, status, call })
+        Ok(UserProfile {
+            user_id: user_id.to_string(),
+            display_name,
+            avatar_url,
+            status,
+            call,
+            time_zone,
+        })
     }
 
     /// Reads a static profile field, tolerating an explicit `null` value by
@@ -3316,6 +3339,7 @@ impl From<&search_users::v3::User> for UserProfile {
             avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
             status: None,
             call: None,
+            time_zone: None,
         }
     }
 }
@@ -3341,6 +3365,28 @@ impl Client {
         let (status_res, call_res) = tokio::join!(account.clear_status(), account.clear_call());
         status_res?;
         call_res?;
+        Ok(())
+    }
+
+    /// Set the current user's time zone (`m.tz` profile field).
+    ///
+    /// The time zone should be an identifier from the IANA Time Zone
+    /// Database, e.g. `Europe/London`. It is not validated client-side, except
+    /// that an empty (or whitespace-only) value clears the time zone instead.
+    ///
+    /// Replaces any existing time zone. Use [`Self::clear_time_zone`] to
+    /// remove it.
+    ///
+    /// [`HomeserverCapabilities::can_change_time_zone`] should be called first
+    /// to check if the homeserver allows the field to be set.
+    pub async fn set_time_zone(&self, time_zone: String) -> Result<(), ClientError> {
+        self.inner.account().set_time_zone(time_zone).await?;
+        Ok(())
+    }
+
+    /// Clear the current user's time zone (deletes the `m.tz` profile field).
+    pub async fn clear_time_zone(&self) -> Result<(), ClientError> {
+        self.inner.account().clear_time_zone().await?;
         Ok(())
     }
 
@@ -4193,6 +4239,13 @@ impl HomeserverCapabilities {
         Ok(self.inner.can_change_avatar().await?)
     }
 
+    /// Returns whether the homeserver allows the user to set their time zone
+    /// (`m.tz` profile field), according to the `m.profile_fields`
+    /// capability.
+    pub async fn can_change_time_zone(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.extended_profile_fields().await?.can_set_field(&ProfileFieldName::TimeZone))
+    }
+
     pub async fn can_change_thirdparty_ids(&self) -> Result<bool, ClientError> {
         Ok(self.inner.can_change_thirdparty_ids().await?)
     }
@@ -4490,14 +4543,15 @@ mod tests {
 
         let user_id = ruma::user_id!("@user:example.com");
 
-        // A display name with avatar/status/call explicitly set as `null` JSON
-        // values.
+        // A display name with avatar/status/call/time zone explicitly set as
+        // `null` JSON values.
         let mut profile = RumaUserProfile::new();
         profile
             .set(ProfileFieldName::DisplayName.as_str().to_owned(), serde_json::json!("Example"));
         profile.set(ProfileFieldName::AvatarUrl.as_str().to_owned(), JsonValue::Null);
         profile.set(ProfileFieldName::Status.as_str().to_owned(), JsonValue::Null);
         profile.set(ProfileFieldName::Call.as_str().to_owned(), JsonValue::Null);
+        profile.set(ProfileFieldName::TimeZone.as_str().to_owned(), JsonValue::Null);
 
         let converted = UserProfile::from_profile(user_id, &profile)
             .expect("null fields must not abort the profile conversion");
@@ -4506,6 +4560,48 @@ mod tests {
         assert!(converted.avatar_url.is_none());
         assert!(converted.status.is_none());
         assert!(converted.call.is_none());
+        assert!(converted.time_zone.is_none());
+    }
+
+    #[test]
+    fn test_from_profile_reads_time_zone() {
+        use ruma::profile::{ProfileFieldName, UserProfile as RumaUserProfile};
+
+        use super::UserProfile;
+
+        let user_id = ruma::user_id!("@user:example.com");
+
+        let mut profile = RumaUserProfile::new();
+        profile.set(
+            ProfileFieldName::TimeZone.as_str().to_owned(),
+            serde_json::json!("Europe/London"),
+        );
+
+        let converted =
+            UserProfile::from_profile(user_id, &profile).expect("the profile should convert");
+
+        assert_eq!(converted.time_zone.as_deref(), Some("Europe/London"));
+    }
+
+    #[test]
+    fn test_from_profile_ignores_malformed_time_zone() {
+        use ruma::profile::{ProfileFieldName, UserProfile as RumaUserProfile};
+
+        use super::UserProfile;
+
+        let user_id = ruma::user_id!("@user:example.com");
+
+        // A valid display name with an `m.tz` that isn't a string.
+        let mut profile = RumaUserProfile::new();
+        profile
+            .set(ProfileFieldName::DisplayName.as_str().to_owned(), serde_json::json!("Example"));
+        profile.set(ProfileFieldName::TimeZone.as_str().to_owned(), serde_json::json!(42));
+
+        let converted = UserProfile::from_profile(user_id, &profile)
+            .expect("a malformed time zone must not abort the profile conversion");
+
+        assert_eq!(converted.display_name.as_deref(), Some("Example"));
+        assert!(converted.time_zone.is_none());
     }
 
     #[test]
