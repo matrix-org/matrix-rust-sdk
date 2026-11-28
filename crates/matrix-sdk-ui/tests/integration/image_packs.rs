@@ -7,7 +7,10 @@ use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, LeftRoomBuilder, User, async_test,
     event_factory::EventFactory,
 };
-use matrix_sdk_ui::{image_packs::image_packs, spaces::SpaceService};
+use matrix_sdk_ui::{
+    image_packs::{available_image_packs, room_image_packs},
+    spaces::SpaceService,
+};
 use ruma::{
     RoomId, RoomVersionId,
     events::{
@@ -15,7 +18,9 @@ use ruma::{
         room::image_pack::{ImagePackImage, RoomImagePackEventContent},
     },
     owned_mxc_uri, owned_room_id,
+    serde::Raw,
 };
+use serde_json::json;
 
 /// A pack with a single image, named after the pack.
 fn pack(name: &str) -> RoomImagePackEventContent {
@@ -33,7 +38,7 @@ fn named_pack(name: &str, display_name: &str) -> RoomImagePackEventContent {
 }
 
 #[async_test]
-async fn test_image_packs() {
+async fn test_available_image_packs() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let other_room_id = owned_room_id!("!other:localhost");
@@ -97,7 +102,7 @@ async fn test_image_packs() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let space_service = SpaceService::new(client.clone()).await;
-    let packs = image_packs(&room, &space_service).await.unwrap();
+    let packs = available_image_packs(&room, &space_service).await.unwrap();
 
     // The enabled packs come first, then the ones of the room that aren't
     // enabled already, then the ones of its spaces, closest first. The packs
@@ -178,7 +183,7 @@ async fn test_enabled_image_packs() {
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let space_service = SpaceService::new(client.clone()).await;
-    let packs = image_packs(&room, &space_service).await.unwrap();
+    let packs = available_image_packs(&room, &space_service).await.unwrap();
 
     // Only the enabled pack of the joined room is returned.
     let packs = packs
@@ -196,8 +201,16 @@ async fn test_room_image_packs() {
     let room_avatar = owned_mxc_uri!("mxc://localhost/room_avatar");
     let pack_avatar = owned_mxc_uri!("mxc://localhost/pack_avatar");
 
-    // A pack with its own name and avatar, one without, and one without
-    // images.
+    // A pack with its own name and avatar, one without, one without images
+    // and a deleted one.
+    let deleted_pack = json!({
+        "type": "m.room.image_pack",
+        "state_key": "deleted",
+        "event_id": "$deleted",
+        "sender": "@alice:localhost",
+        "origin_server_ts": 1,
+        "content": {},
+    });
     let mut own_metadata = named_pack("own_metadata", "Own name");
     own_metadata.pack.avatar_url = Some(pack_avatar.clone());
 
@@ -216,14 +229,15 @@ async fn test_room_image_packs() {
                         f.event(RoomImagePackEventContent::new(BTreeMap::new()))
                             .default_room()
                             .state_key("empty"),
-                    ),
+                    )
+                    .add_state_event(Raw::new(&deleted_pack).unwrap().cast_unchecked()),
             );
         })
         .await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let space_service = SpaceService::new(client.clone()).await;
-    let packs = image_packs(&room, &space_service).await.unwrap();
+    let packs = available_image_packs(&room, &space_service).await.unwrap();
 
     // The pack without a name or avatar uses those of the room, and the one
     // without images is skipped.
@@ -244,4 +258,52 @@ async fn test_room_image_packs() {
             ("room_metadata", Some("Room name"), Some(&room_avatar)),
         ]
     );
+}
+
+#[async_test]
+async fn test_room_image_packs_for_management() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let f = EventFactory::new().sender(User::Alice);
+
+    // A pack with images, one without, enabled globally, and a deleted one.
+    let deleted_pack = json!({
+        "type": "m.room.image_pack",
+        "state_key": "deleted",
+        "event_id": "$deleted",
+        "sender": "@alice:localhost",
+        "origin_server_ts": 1,
+        "content": {},
+    });
+    let enabled = ImagePackRoomsEventContent::new(BTreeMap::from([(
+        DEFAULT_TEST_ROOM_ID.to_owned(),
+        BTreeMap::from([("empty".to_owned(), RoomImagePackMeta::new())]),
+    )]));
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.event(enabled)).add_joined_room(
+                JoinedRoomBuilder::default()
+                    .add_state_event(f.event(pack("pack")).default_room().state_key("pack"))
+                    .add_state_event(
+                        f.event(RoomImagePackEventContent::new(BTreeMap::new()))
+                            .default_room()
+                            .state_key("empty"),
+                    )
+                    .add_state_event(Raw::new(&deleted_pack).unwrap().cast_unchecked()),
+            );
+        })
+        .await;
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let packs = room_image_packs(&room).await.unwrap();
+
+    // The pack without images is listed so it can be managed, the deleted one
+    // isn't.
+    let packs = packs
+        .iter()
+        .map(|pack| (pack.state_key.as_str(), pack.is_enabled_globally))
+        .collect::<Vec<_>>();
+    assert_eq!(packs, [("empty", true), ("pack", false)]);
 }
