@@ -180,7 +180,7 @@ async fn set_all_rooms_to_selective_sync_mode(sliding_sync: &SlidingSync) -> Res
     sliding_sync
         .on_list(ALL_ROOMS_LIST_NAME, |list| {
             list.set_sync_mode(
-                SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
+                SlidingSyncMode::new_selective().range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
             );
 
             ready(())
@@ -381,7 +381,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_RANGE]
+                    SlidingSyncMode::Selective { range } if range == Some(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE)
                 )))
                 .await,
             Some(true)
@@ -411,7 +411,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![ALL_ROOMS_DEFAULT_SELECTIVE_RANGE]
+                    SlidingSyncMode::Selective { range } if range == Some(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE)
                 )))
                 .await,
             Some(true)

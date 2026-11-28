@@ -231,8 +231,7 @@ impl RoomListService {
             .add_cached_list(
                 SlidingSyncList::builder(ALL_ROOMS_LIST_NAME)
                     .sync_mode(
-                        SlidingSyncMode::new_selective()
-                            .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
+                        SlidingSyncMode::new_selective().range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                     )
                     .timeline_limit(timeline_limit)
                     .required_state(
@@ -639,7 +638,7 @@ mod tests {
             sliding_sync
                 .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
                     list.sync_mode(),
-                    SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
+                    SlidingSyncMode::Selective { range } if range == Some(0..=19)
                 )))
                 .await,
             Some(true)

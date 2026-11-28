@@ -430,8 +430,7 @@ impl Match for SlidingSyncMatcher {
 #[async_test]
 async fn test_timeline_basic() -> Result<()> {
     let (client, server, sliding_sync) = new_sliding_sync(vec![
-        SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_selective().range(0..=10)),
     ])
     .await?;
 
@@ -480,8 +479,7 @@ async fn test_timeline_basic() -> Result<()> {
 #[async_test]
 async fn test_timeline_duplicated_events() -> Result<()> {
     let (client, server, sliding_sync) = new_sliding_sync(vec![
-        SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_selective().range(0..=10)),
     ])
     .await?;
 
@@ -560,8 +558,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 #[async_test]
 async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
     let (client, server, sliding_sync) = new_sliding_sync(vec![
-        SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_selective().range(0..=10)),
     ])
     .await?;
 
@@ -660,8 +657,7 @@ async fn test_timeline_refreshes_sender_profile_on_global_profile_update() -> Re
     use ruma::profile::StatusProfileField;
 
     let (client, server, sliding_sync) = new_sliding_sync(vec![
-        SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_selective().range(0..=10)),
     ])
     .await?;
 
