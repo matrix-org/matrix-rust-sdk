@@ -2550,15 +2550,37 @@ mod tests {
             .mount(&server)
             .await;
 
+        let f =
+            EventFactory::new().room(*DEFAULT_TEST_ROOM_ID).sender(user_id!("@example:localhost"));
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/members$"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "chunk": [f.member(user_id!("@example:localhost"))
+                    .display_name("example")
+                    .into_raw::<ruma::events::room::member::RoomMemberEvent>()],
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/r0/keys/query"))
+            .and(header("authorization", "Bearer 1234"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(devices_to_verify_against_keys_query_response(vec![])),
+            )
+            .mount(&server)
+            .await;
+
         Mock::given(method("PUT"))
-            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/m\.reaction/.*".to_owned()))
+            .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event_id": event_id,
             })))
             .mount(&server)
             .await;
 
-        let f = EventFactory::new().sender(user_id!("@example:localhost"));
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default()

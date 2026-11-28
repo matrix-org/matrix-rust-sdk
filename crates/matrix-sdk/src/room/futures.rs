@@ -24,8 +24,6 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
 use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::MessageLikeEventType;
 #[cfg(feature = "unstable-msc4354")]
 use ruma::events::sticky::StickyDurationMs;
 #[cfg(doc)]
@@ -400,26 +398,20 @@ async fn prepare_message_like_event<'a>(
     #[cfg(feature = "e2e-encryption")]
     if room.latest_encryption_state().await?.is_encrypted() {
         Span::current().record("is_room_encrypted", true);
-        // Reactions are currently famously not encrypted, skip encrypting
-        // them until they are.
-        if MessageLikeEventType::from(event_type) == MessageLikeEventType::Reaction {
-            trace!("Sending plaintext event because of the event type.");
-        } else {
-            trace!(
-                room_id = ?room.room_id(),
-                "Sending encrypted event because the room is encrypted.",
-            );
+        trace!(
+            room_id = ?room.room_id(),
+            "Sending encrypted event because the room is encrypted.",
+        );
 
-            ensure_room_encryption_ready(room).await?;
+        ensure_room_encryption_ready(room).await?;
 
-            let olm = room.client.olm_machine().await;
-            let olm = olm.as_ref().expect("Olm machine wasn't started");
+        let olm = room.client.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
 
-            let result = olm.encrypt_room_event_raw(room.room_id(), event_type, &content).await?;
-            content = result.content.cast();
-            encryption_info = Some(result.encryption_info);
-            event_type = "m.room.encrypted";
-        }
+        let result = olm.encrypt_room_event_raw(room.room_id(), event_type, &content).await?;
+        content = result.content.cast();
+        encryption_info = Some(result.encryption_info);
+        event_type = "m.room.encrypted";
     } else {
         Span::current().record("is_room_encrypted", false);
         trace!("Sending plaintext event because the room is NOT encrypted.");
